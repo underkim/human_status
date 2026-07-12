@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'asset_snapshot_screen.dart';
 import 'finance_screen.dart';
 import 'goal_form_screen.dart';
 import 'goals_screen.dart';
@@ -18,7 +19,7 @@ class _LifeDesignScreenState extends ConsumerState<LifeDesignScreen> with Single
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    _tabController = TabController(length: 3, vsync: this);
   }
 
   @override
@@ -34,17 +35,24 @@ class _LifeDesignScreenState extends ConsumerState<LifeDesignScreen> with Single
         title: const Text('인생설계'),
         bottom: TabBar(
           controller: _tabController,
-          tabs: const [Tab(text: '목표'), Tab(text: '재무')],
+          tabs: const [Tab(text: '목표'), Tab(text: '재무'), Tab(text: '자산')],
         ),
       ),
       body: TabBarView(
         controller: _tabController,
-        children: const [GoalsListView(), FinanceListView()],
+        children: const [GoalsListView(), FinanceListView(), AssetSnapshotListView()],
       ),
       floatingActionButton: FloatingActionButton(
-        onPressed: () => _tabController.index == 0
-            ? Navigator.of(context).push(MaterialPageRoute(builder: (_) => const GoalFormScreen()))
-            : showAddTransactionDialog(context, ref),
+        onPressed: () {
+          switch (_tabController.index) {
+            case 0:
+              Navigator.of(context).push(MaterialPageRoute(builder: (_) => const GoalFormScreen()));
+            case 1:
+              showAddTransactionDialog(context, ref);
+            default:
+              Navigator.of(context).push(MaterialPageRoute(builder: (_) => const AssetSnapshotImportScreen()));
+          }
+        },
         child: const Icon(Icons.add),
       ),
     );

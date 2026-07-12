@@ -1,5 +1,6 @@
 import 'package:hive_flutter/hive_flutter.dart';
 
+import '../models/asset_snapshot.dart';
 import '../models/goal.dart';
 import '../models/quest.dart';
 import '../models/stat.dart';
@@ -13,6 +14,7 @@ class StorageService {
   static const achievementsBoxName = 'achievements';
   static const goalsBoxName = 'goals';
   static const transactionsBoxName = 'transactions';
+  static const assetSnapshotsBoxName = 'assetSnapshots';
 
   late Box<Stat> statsBox;
   late Box<Quest> questsBox;
@@ -20,6 +22,7 @@ class StorageService {
   late Box<DateTime> achievementsBox;
   late Box<Goal> goalsBox;
   late Box<Transaction> transactionsBox;
+  late Box<AssetSnapshot> assetSnapshotsBox;
 
   static const defaultStats = [
     (id: 'health', name: '건강', icon: '💪'),
@@ -36,6 +39,7 @@ class StorageService {
     Hive.registerAdapter(UserProfileAdapter());
     Hive.registerAdapter(GoalAdapter());
     Hive.registerAdapter(TransactionAdapter());
+    Hive.registerAdapter(AssetSnapshotAdapter());
 
     statsBox = await Hive.openBox<Stat>(statsBoxName);
     questsBox = await Hive.openBox<Quest>(questsBoxName);
@@ -43,6 +47,7 @@ class StorageService {
     achievementsBox = await Hive.openBox<DateTime>(achievementsBoxName);
     goalsBox = await Hive.openBox<Goal>(goalsBoxName);
     transactionsBox = await Hive.openBox<Transaction>(transactionsBoxName);
+    assetSnapshotsBox = await Hive.openBox<AssetSnapshot>(assetSnapshotsBoxName);
 
     if (statsBox.isEmpty) {
       for (final s in defaultStats) {
@@ -99,4 +104,11 @@ class StorageService {
       transactionsBox.putAll({for (final t in transactions) t.id: t});
 
   Future<void> deleteTransaction(String id) => transactionsBox.delete(id);
+
+  List<AssetSnapshot> getAssetSnapshots() => assetSnapshotsBox.values.toList();
+
+  Future<void> saveAssetSnapshot(AssetSnapshot snapshot) =>
+      assetSnapshotsBox.put(snapshot.id, snapshot);
+
+  Future<void> deleteAssetSnapshot(String id) => assetSnapshotsBox.delete(id);
 }

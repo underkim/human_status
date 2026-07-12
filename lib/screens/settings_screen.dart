@@ -5,11 +5,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../models/asset_snapshot.dart';
 import '../models/goal.dart';
 import '../models/quest.dart';
 import '../models/stat.dart';
 import '../models/transaction.dart';
 import '../models/user_profile.dart';
+import '../providers/asset_snapshot_provider.dart';
 import '../providers/finance_provider.dart';
 import '../providers/goal_provider.dart';
 import '../providers/profile_provider.dart';
@@ -151,6 +153,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     await storage.achievementsBox.clear();
     await storage.goalsBox.clear();
     await storage.transactionsBox.clear();
+    await storage.assetSnapshotsBox.clear();
     for (final s in StorageService.defaultStats) {
       await storage.saveStat(Stat(id: s.id, name: s.name, icon: s.icon));
     }
@@ -165,6 +168,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     ref.read(unlockedAchievementsProvider.notifier).reload();
     ref.read(goalsProvider.notifier).reload();
     ref.read(transactionsProvider.notifier).reload();
+    ref.read(assetSnapshotsProvider.notifier).reload();
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('초기화되었습니다.')));
     }
@@ -177,6 +181,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       'quests': storage.getQuests().map((q) => q.toJson()).toList(),
       'goals': storage.getGoals().map((g) => g.toJson()).toList(),
       'transactions': storage.getTransactions().map((t) => t.toJson()).toList(),
+      'assetSnapshots': storage.getAssetSnapshots().map((a) => a.toJson()).toList(),
     };
     final jsonStr = const JsonEncoder.withIndent('  ').convert(data);
 
@@ -239,12 +244,16 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       final transactions = (data['transactions'] as List? ?? [])
           .map((e) => Transaction.fromJson(e as Map<String, dynamic>))
           .toList();
+      final assetSnapshots = (data['assetSnapshots'] as List? ?? [])
+          .map((e) => AssetSnapshot.fromJson(e as Map<String, dynamic>))
+          .toList();
 
       final storage = ref.read(storageServiceProvider);
       await storage.statsBox.clear();
       await storage.questsBox.clear();
       await storage.goalsBox.clear();
       await storage.transactionsBox.clear();
+      await storage.assetSnapshotsBox.clear();
       for (final s in stats) {
         await storage.saveStat(s);
       }
@@ -257,10 +266,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       for (final t in transactions) {
         await storage.saveTransaction(t);
       }
+      for (final a in assetSnapshots) {
+        await storage.saveAssetSnapshot(a);
+      }
       ref.read(statsProvider.notifier).reload();
       ref.read(questsProvider.notifier).reload();
       ref.read(goalsProvider.notifier).reload();
       ref.read(transactionsProvider.notifier).reload();
+      ref.read(assetSnapshotsProvider.notifier).reload();
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('가져오기가 완료되었습니다.')));
       }
