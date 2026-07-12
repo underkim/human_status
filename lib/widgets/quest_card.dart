@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../models/goal.dart';
 import '../models/quest.dart';
 import '../models/stat.dart';
 
@@ -13,12 +14,14 @@ class QuestCard extends StatelessWidget {
   final Quest quest;
   final List<Stat> stats;
   final List<Widget> actions;
+  final List<Goal> goals;
 
   const QuestCard({
     super.key,
     required this.quest,
     required this.stats,
     this.actions = const [],
+    this.goals = const [],
   });
 
   String _statName(String id) {
@@ -28,8 +31,17 @@ class QuestCard extends StatelessWidget {
     return id;
   }
 
+  Goal? _linkedGoal() {
+    if (quest.goalId == null) return null;
+    for (final g in goals) {
+      if (g.id == quest.goalId) return g;
+    }
+    return null;
+  }
+
   @override
   Widget build(BuildContext context) {
+    final goal = _linkedGoal();
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 6, horizontal: 8),
       child: Padding(
@@ -45,6 +57,15 @@ class QuestCard extends StatelessWidget {
                     style: Theme.of(context).textTheme.titleMedium,
                   ),
                 ),
+                if (goal != null) ...[
+                  Chip(
+                    avatar: const Icon(Icons.flag, size: 14),
+                    label: Text(goal.title),
+                    visualDensity: VisualDensity.compact,
+                    backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+                  ),
+                  const SizedBox(width: 6),
+                ],
                 Chip(
                   label: Text(difficultyLabel(quest.difficulty)),
                   visualDensity: VisualDensity.compact,

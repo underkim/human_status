@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../models/goal.dart';
 import '../models/quest.dart';
 import '../models/stat.dart';
+import '../providers/goal_provider.dart';
 import '../providers/profile_provider.dart';
 import '../providers/quest_provider.dart';
 import '../widgets/achievement_dialog.dart';
@@ -47,6 +49,7 @@ class _QuestsScreenState extends ConsumerState<QuestsScreen>
     final active = ref.watch(activeQuestsProvider);
     final suggested = ref.watch(suggestedQuestsProvider);
     final completed = ref.watch(completedQuestsProvider);
+    final goals = ref.watch(goalsProvider);
 
     return Scaffold(
       appBar: AppBar(
@@ -63,9 +66,9 @@ class _QuestsScreenState extends ConsumerState<QuestsScreen>
       body: TabBarView(
         controller: _tabController,
         children: [
-          _ActiveTab(quests: active, stats: stats, onComplete: _completeQuest),
-          _SuggestedTab(quests: suggested, stats: stats),
-          _CompletedTab(quests: completed, stats: stats),
+          _ActiveTab(quests: active, stats: stats, goals: goals, onComplete: _completeQuest),
+          _SuggestedTab(quests: suggested, stats: stats, goals: goals),
+          _CompletedTab(quests: completed, stats: stats, goals: goals),
         ],
       ),
       floatingActionButton: FloatingActionButton(
@@ -81,9 +84,15 @@ class _QuestsScreenState extends ConsumerState<QuestsScreen>
 class _ActiveTab extends StatelessWidget {
   final List<Quest> quests;
   final List<Stat> stats;
+  final List<Goal> goals;
   final Future<void> Function(String id) onComplete;
 
-  const _ActiveTab({required this.quests, required this.stats, required this.onComplete});
+  const _ActiveTab({
+    required this.quests,
+    required this.stats,
+    required this.goals,
+    required this.onComplete,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -95,6 +104,7 @@ class _ActiveTab extends StatelessWidget {
           .map<Widget>((q) => QuestCard(
                 quest: q,
                 stats: stats,
+                goals: goals,
                 actions: [
                   FilledButton(
                     onPressed: () => onComplete(q.id),
@@ -110,8 +120,9 @@ class _ActiveTab extends StatelessWidget {
 class _SuggestedTab extends ConsumerWidget {
   final List<Quest> quests;
   final List<Stat> stats;
+  final List<Goal> goals;
 
-  const _SuggestedTab({required this.quests, required this.stats});
+  const _SuggestedTab({required this.quests, required this.stats, required this.goals});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -123,6 +134,7 @@ class _SuggestedTab extends ConsumerWidget {
           .map<Widget>((q) => QuestCard(
                 quest: q,
                 stats: stats,
+                goals: goals,
                 actions: [
                   TextButton(
                     onPressed: () => ref.read(questsProvider.notifier).dismissSuggestion(q.id),
@@ -143,8 +155,9 @@ class _SuggestedTab extends ConsumerWidget {
 class _CompletedTab extends StatelessWidget {
   final List<Quest> quests;
   final List<Stat> stats;
+  final List<Goal> goals;
 
-  const _CompletedTab({required this.quests, required this.stats});
+  const _CompletedTab({required this.quests, required this.stats, required this.goals});
 
   @override
   Widget build(BuildContext context) {
@@ -152,7 +165,7 @@ class _CompletedTab extends StatelessWidget {
       return const Center(child: Text('아직 완료한 퀘스트가 없어요.'));
     }
     return ListView(
-      children: quests.map<Widget>((q) => QuestCard(quest: q, stats: stats)).toList(),
+      children: quests.map<Widget>((q) => QuestCard(quest: q, stats: stats, goals: goals)).toList(),
     );
   }
 }

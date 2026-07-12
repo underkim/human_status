@@ -12,6 +12,17 @@ class LevelUpResult {
 class XpService {
   static double xpToNextLevel(int level) => 100.0 * level;
 
+  /// Quests linked to a Goal (via Quest.goalId) earn a bonus over regular
+  /// quest XP, since they represent progress toward a larger, less frequent
+  /// commitment rather than a routine task.
+  static const double goalQuestXpMultiplier = 1.5;
+
+  /// Lump-sum XP awarded to a Goal's linked stat when the goal itself is
+  /// completed, on top of whatever XP its linked quests already earned.
+  static const double goalCompletionBonusXp = 100.0;
+
+  static double applyGoalMultiplier(double baseXp) => baseXp * goalQuestXpMultiplier;
+
   /// Adds [xpGained] to [stat], rolling over into level-ups as needed.
   /// Mutates [stat] in place and returns the result of the operation.
   static LevelUpResult applyXp(Stat stat, double xpGained) {

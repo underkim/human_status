@@ -7,6 +7,7 @@ import '../services/quest_recommendation_service.dart';
 import '../services/stats_insights_service.dart';
 import '../services/storage_service.dart';
 import '../services/xp_service.dart';
+import 'goal_provider.dart';
 import 'profile_provider.dart';
 
 final recommendationServiceProvider = Provider<QuestRecommendationService>(
@@ -20,8 +21,13 @@ final achievementServiceProvider = Provider<AchievementService>(
 class QuestCompletionResult {
   final Map<String, LevelUpResult> levelUps;
   final List<AchievementDefinition> newAchievements;
+  final GoalCompletionResult? goalCompletion;
 
-  const QuestCompletionResult({required this.levelUps, required this.newAchievements});
+  const QuestCompletionResult({
+    required this.levelUps,
+    required this.newAchievements,
+    this.goalCompletion,
+  });
 }
 
 final questsProvider = StateNotifierProvider<QuestsNotifier, List<Quest>>((ref) {
@@ -67,21 +73,33 @@ class QuestsNotifier extends StateNotifier<List<Quest>> {
     reload();
   }
 
-  /// Completes a quest, awarding XP to every stat it's linked to, then
-  /// evaluates achievements. Returns level-up results per stat plus any
+  /// Completes a quest, awarding XP to every stat it's linked to (with a
+  /// bonus multiplier if the quest is linked to a Goal), then evaluates
+  /// achievements and auto-completes the linked Goal if this was its last
+  /// outstanding quest. Returns level-up results per stat plus any
   /// newly-unlocked achievements so the UI can show celebrations.
   Future<QuestCompletionResult> completeQuest(String id) async {
     final quest = storage.getQuests().firstWhere((q) => q.id == id);
     final statsNotifier = ref.read(statsProvider.notifier);
     final levelUps = <String, LevelUpResult>{};
     for (final entry in quest.statRewards.entries) {
-      levelUps[entry.key] = await statsNotifier.applyXp(entry.key, entry.value);
+      final xp = quest.goalId != null ? XpService.applyGoalMultiplier(entry.value) : entry.value;
+      levelUps[entry.key] = await statsNotifier.applyXp(entry.key, xp);
     }
 
     quest.status = QuestStatus.completed;
     quest.completedAt = DateTime.now();
     await storage.saveQuest(quest);
     reload();
+
+    GoalCompletionResult? goalCompletion;
+    if (quest.goalId != null) {
+      final goal = storage.getGoal(quest.goalId!);
+      final goalService = ref.read(goalServiceProvider);
+      if (goal != null && goalService.isAutoCompletable(goal, storage.getQuests())) {
+        goalCompletion = await ref.read(goalsProvider.notifier).completeGoal(goal.id);
+      }
+    }
 
     final stats = storage.getStats();
     final completedQuests = storage.getQuests().where((q) => q.status == QuestStatus.completed).toList();
@@ -90,13 +108,22 @@ class QuestsNotifier extends StateNotifier<List<Quest>> {
       completedQuests: completedQuests,
       streak: StatsInsightsService.currentStreak(completedQuests),
       overallLevel: XpService.overallLevel(stats),
+      goals: storage.getGoals(),
     );
     final newAchievements = await ref.read(achievementServiceProvider).checkAndUnlock(context);
+    final allNewAchievements = <AchievementDefinition>[
+      ...(goalCompletion?.newAchievements ?? const []),
+      ...newAchievements,
+    ];
     if (newAchievements.isNotEmpty) {
       ref.read(unlockedAchievementsProvider.notifier).reload();
     }
 
-    return QuestCompletionResult(levelUps: levelUps, newAchievements: newAchievements);
+    return QuestCompletionResult(
+      levelUps: levelUps,
+      newAchievements: allNewAchievements,
+      goalCompletion: goalCompletion,
+    );
   }
 
   Future<void> refreshSuggestions() async {

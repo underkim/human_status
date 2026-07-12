@@ -18,6 +18,9 @@ class Quest {
   QuestSource source;
   DateTime createdAt;
   DateTime? completedAt;
+  // Set when this quest was generated as part of breaking a Goal down into
+  // actionable steps (see GoalService.decompose). Null for regular quests.
+  String? goalId;
 
   Quest({
     required this.id,
@@ -30,6 +33,7 @@ class Quest {
     this.source = QuestSource.manual,
     required this.createdAt,
     this.completedAt,
+    this.goalId,
   });
 
   Map<String, dynamic> toJson() => {
@@ -43,6 +47,7 @@ class Quest {
         'source': source.index,
         'createdAt': createdAt.toIso8601String(),
         'completedAt': completedAt?.toIso8601String(),
+        'goalId': goalId,
       };
 
   factory Quest.fromJson(Map<String, dynamic> json) => Quest(
@@ -60,6 +65,7 @@ class Quest {
         completedAt: json['completedAt'] != null
             ? DateTime.parse(json['completedAt'] as String)
             : null,
+        goalId: json['goalId'] as String?,
       );
 }
 
@@ -84,13 +90,14 @@ class QuestAdapter extends TypeAdapter<Quest> {
       source: QuestSource.values[fields[7] as int],
       createdAt: fields[8] as DateTime,
       completedAt: fields[9] as DateTime?,
+      goalId: fields[10] as String?,
     );
   }
 
   @override
   void write(BinaryWriter writer, Quest obj) {
     writer
-      ..writeByte(10)
+      ..writeByte(11)
       ..writeByte(0)
       ..write(obj.id)
       ..writeByte(1)
@@ -110,6 +117,8 @@ class QuestAdapter extends TypeAdapter<Quest> {
       ..writeByte(8)
       ..write(obj.createdAt)
       ..writeByte(9)
-      ..write(obj.completedAt);
+      ..write(obj.completedAt)
+      ..writeByte(10)
+      ..write(obj.goalId);
   }
 }

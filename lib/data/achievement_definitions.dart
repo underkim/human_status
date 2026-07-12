@@ -1,3 +1,4 @@
+import '../models/goal.dart';
 import '../models/quest.dart';
 import '../models/stat.dart';
 
@@ -6,12 +7,14 @@ class AchievementContext {
   final List<Quest> completedQuests;
   final int streak;
   final int overallLevel;
+  final List<Goal> goals;
 
   const AchievementContext({
     required this.stats,
     required this.completedQuests,
     required this.streak,
     required this.overallLevel,
+    this.goals = const [],
   });
 
   int levelOf(String statId) {
@@ -94,5 +97,34 @@ final achievementDefinitions = <AchievementDefinition>[
     description: '종합 레벨 5를 달성했어요.',
     icon: '🚀',
     isUnlocked: (ctx) => ctx.overallLevel >= 5,
+  ),
+  AchievementDefinition(
+    id: 'first_goal_set',
+    title: '목표 설정',
+    description: '첫 목표를 설정했어요.',
+    icon: '🧭',
+    isUnlocked: (ctx) => ctx.goals.isNotEmpty,
+  ),
+  AchievementDefinition(
+    id: 'first_goal_completed',
+    title: '목표 달성',
+    description: '첫 목표를 달성했어요.',
+    icon: '🏆',
+    isUnlocked: (ctx) => ctx.goals.any((g) => g.status == GoalStatus.completed),
+  ),
+  AchievementDefinition(
+    id: 'goals_completed_5',
+    title: '목표 수집가',
+    description: '목표를 5개 달성했어요.',
+    icon: '👑',
+    isUnlocked: (ctx) => ctx.goals.where((g) => g.status == GoalStatus.completed).length >= 5,
+  ),
+  AchievementDefinition(
+    id: 'financial_goal_reached',
+    title: '재무 설계 성공',
+    description: '재무 목표 금액을 달성했어요.',
+    icon: '💵',
+    isUnlocked: (ctx) =>
+        ctx.goals.any((g) => g.status == GoalStatus.completed && g.targetAmount != null),
   ),
 ];

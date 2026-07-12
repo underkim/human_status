@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'dashboard_screen.dart';
 import 'insights_screen.dart';
+import 'life_design_screen.dart';
 import 'quests_screen.dart';
 import 'settings_screen.dart';
 import 'stats_screen.dart';
@@ -20,6 +21,7 @@ class _HomeShellState extends State<HomeShell> {
     DashboardScreen(),
     StatsScreen(),
     QuestsScreen(),
+    LifeDesignScreen(),
     InsightsScreen(),
     SettingsScreen(),
   ];
@@ -35,6 +37,7 @@ class _HomeShellState extends State<HomeShell> {
           NavigationDestination(icon: Icon(Icons.dashboard_outlined), selectedIcon: Icon(Icons.dashboard), label: '대시보드'),
           NavigationDestination(icon: Icon(Icons.bar_chart_outlined), selectedIcon: Icon(Icons.bar_chart), label: '스텟'),
           NavigationDestination(icon: Icon(Icons.checklist_outlined), selectedIcon: Icon(Icons.checklist), label: '퀘스트'),
+          NavigationDestination(icon: Icon(Icons.flag_outlined), selectedIcon: Icon(Icons.flag), label: '인생설계'),
           NavigationDestination(icon: Icon(Icons.insights_outlined), selectedIcon: Icon(Icons.insights), label: '통계'),
           NavigationDestination(icon: Icon(Icons.settings_outlined), selectedIcon: Icon(Icons.settings), label: '설정'),
         ],

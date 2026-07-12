@@ -1,7 +1,9 @@
 import 'package:hive_flutter/hive_flutter.dart';
 
+import '../models/goal.dart';
 import '../models/quest.dart';
 import '../models/stat.dart';
+import '../models/transaction.dart';
 import '../models/user_profile.dart';
 
 class StorageService {
@@ -9,18 +11,22 @@ class StorageService {
   static const questsBoxName = 'quests';
   static const profileBoxName = 'profile';
   static const achievementsBoxName = 'achievements';
+  static const goalsBoxName = 'goals';
+  static const transactionsBoxName = 'transactions';
 
   late Box<Stat> statsBox;
   late Box<Quest> questsBox;
   late Box<UserProfile> profileBox;
   late Box<DateTime> achievementsBox;
+  late Box<Goal> goalsBox;
+  late Box<Transaction> transactionsBox;
 
   static const defaultStats = [
-    (id: 'health', name: '체력', icon: '💪'),
-    (id: 'intelligence', name: '지식', icon: '📚'),
+    (id: 'health', name: '건강', icon: '💪'),
+    (id: 'intelligence', name: '성장', icon: '📈'),
     (id: 'wealth', name: '재정', icon: '💰'),
     (id: 'relationships', name: '관계', icon: '🤝'),
-    (id: 'mental', name: '멘탈', icon: '🧘'),
+    (id: 'mental', name: '마음', icon: '🧘'),
   ];
 
   Future<void> init() async {
@@ -28,11 +34,15 @@ class StorageService {
     Hive.registerAdapter(StatAdapter());
     Hive.registerAdapter(QuestAdapter());
     Hive.registerAdapter(UserProfileAdapter());
+    Hive.registerAdapter(GoalAdapter());
+    Hive.registerAdapter(TransactionAdapter());
 
     statsBox = await Hive.openBox<Stat>(statsBoxName);
     questsBox = await Hive.openBox<Quest>(questsBoxName);
     profileBox = await Hive.openBox<UserProfile>(profileBoxName);
     achievementsBox = await Hive.openBox<DateTime>(achievementsBoxName);
+    goalsBox = await Hive.openBox<Goal>(goalsBoxName);
+    transactionsBox = await Hive.openBox<Transaction>(transactionsBoxName);
 
     if (statsBox.isEmpty) {
       for (final s in defaultStats) {
@@ -69,4 +79,19 @@ class StorageService {
 
   Future<void> unlockAchievement(String id, DateTime unlockedAt) =>
       achievementsBox.put(id, unlockedAt);
+
+  List<Goal> getGoals() => goalsBox.values.toList();
+
+  Goal? getGoal(String id) => goalsBox.get(id);
+
+  Future<void> saveGoal(Goal goal) => goalsBox.put(goal.id, goal);
+
+  Future<void> deleteGoal(String id) => goalsBox.delete(id);
+
+  List<Transaction> getTransactions() => transactionsBox.values.toList();
+
+  Future<void> saveTransaction(Transaction transaction) =>
+      transactionsBox.put(transaction.id, transaction);
+
+  Future<void> deleteTransaction(String id) => transactionsBox.delete(id);
 }

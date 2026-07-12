@@ -66,4 +66,20 @@ void main() {
       expect(XpService.progress(stat), 0.25);
     });
   });
+
+  group('goal-linked XP bonuses', () {
+    test('applyGoalMultiplier scales base xp by goalQuestXpMultiplier', () {
+      expect(XpService.goalQuestXpMultiplier, greaterThan(1.0));
+      expect(XpService.applyGoalMultiplier(20), 20 * XpService.goalQuestXpMultiplier);
+    });
+
+    test('goalCompletionBonusXp is a positive lump sum that levels up a fresh stat', () {
+      expect(XpService.goalCompletionBonusXp, greaterThan(0));
+
+      final stat = Stat(id: 'wealth', name: '재정', icon: '💰');
+      final result = XpService.applyXp(stat, XpService.goalCompletionBonusXp);
+
+      expect(result.leveledUp, isTrue);
+    });
+  });
 }
