@@ -24,27 +24,35 @@ class AssetSnapshotImportService {
     return row[index];
   }
 
-  /// Parses [rows] (already CSV-split, e.g. via parseCsvRows) into an
-  /// AssetSnapshot. Totals are computed by summing every recognized
-  /// category line rather than trusting the source file's own "총자산"/
-  /// "순자산" summary row, whose value position is ambiguous due to
-  /// merged-cell artifacts when the original spreadsheet is flattened to
-  /// CSV.
+  /// Parses [rows] into an AssetSnapshot. Totals are computed by summing
+  /// every recognized category line rather than trusting the source file's
+  /// own "총자산"/"순자산" summary row, whose value position is ambiguous
+  /// due to merged-cell artifacts.
+  ///
+  /// Column positions are located dynamically (by finding "항목" immediately
+  /// followed by "상품명") rather than assumed to start at column 0, because
+  /// the CSV export and the native .xlsx sheet don't line up: the .xlsx
+  /// version has an extra leading blank column that CSV export drops.
   static AssetSnapshotParseResult parse(List<List<String>> rows) {
-    final sectionStart = rows.indexWhere((r) => r.isNotEmpty && r[0].contains('재무현황'));
+    final sectionStart = rows.indexWhere((r) => r.any((c) => c.contains('재무현황')));
     if (sectionStart == -1) {
       return const AssetSnapshotParseResult(
-        error: '재무현황 데이터를 찾을 수 없어요 (뱅크샐러드 현황.csv 형식이 아닐 수 있어요)',
+        error: '재무현황 데이터를 찾을 수 없어요 (뱅크샐러드 현황 형식이 아닐 수 있어요)',
       );
     }
 
     var headerRowIndex = -1;
+    var anchorCol = -1;
     for (var i = sectionStart + 1; i < rows.length; i++) {
       final row = rows[i];
-      if (_cell(row, 0).trim() == '항목' && _cell(row, 1).trim() == '상품명') {
-        headerRowIndex = i;
-        break;
+      for (var col = 0; col < row.length - 1; col++) {
+        if (row[col].trim() == '항목' && row[col + 1].trim() == '상품명') {
+          headerRowIndex = i;
+          anchorCol = col;
+          break;
+        }
       }
+      if (headerRowIndex != -1) break;
     }
     if (headerRowIndex == -1) {
       return const AssetSnapshotParseResult(error: '자산 표를 찾을 수 없어요');
@@ -57,32 +65,35 @@ class AssetSnapshotImportService {
 
     for (var i = headerRowIndex + 1; i < rows.length; i++) {
       final row = rows[i];
-      final c0 = _cell(row, 0).trim();
-      final c1 = _cell(row, 1).trim();
-      final c4 = _cell(row, 4).trim();
-      final c5 = _cell(row, 5).trim();
+      final assetCategoryCell = _cell(row, anchorCol).trim();
+      final assetProductCell = _cell(row, anchorCol + 1).trim();
+      final liabilityCategoryCell = _cell(row, anchorCol + 4).trim();
+      final liabilityProductCell = _cell(row, anchorCol + 5).trim();
 
-      if (c0 == '총자산' || _nextSectionPattern.hasMatch(c0)) break;
+      if (assetCategoryCell == '총자산' || _nextSectionPattern.hasMatch(assetCategoryCell)) break;
 
-      if (c0.isNotEmpty) currentAssetCategory = c0;
+      if (assetCategoryCell.isNotEmpty) currentAssetCategory = assetCategoryCell;
 
-      // A row only carries liability data when col4/col5 hold genuine label
-      // text (not a number) — asset rows with extra value columns (e.g.
-      // 매입금액/평가금액/수익률 for investment holdings) can spill numbers
-      // into these column positions without actually being liability rows.
-      final c4IsLabel = c4.isNotEmpty && TransactionImportService.parseAmount(c4) == null;
-      final c5IsLabel = c5.isNotEmpty && TransactionImportService.parseAmount(c5) == null;
+      // A row only carries liability data when these cells hold genuine
+      // label text (not a number) — asset rows with extra value columns
+      // (e.g. 매입금액/평가금액/수익률 for investment holdings) can spill
+      // numbers into these column positions without actually being
+      // liability rows.
+      final liabilityCategoryIsLabel =
+          liabilityCategoryCell.isNotEmpty && TransactionImportService.parseAmount(liabilityCategoryCell) == null;
+      final liabilityProductIsLabel =
+          liabilityProductCell.isNotEmpty && TransactionImportService.parseAmount(liabilityProductCell) == null;
 
-      if (c4IsLabel || c5IsLabel) {
-        if (c4IsLabel) currentLiabilityCategory = c4;
+      if (liabilityCategoryIsLabel || liabilityProductIsLabel) {
+        if (liabilityCategoryIsLabel) currentLiabilityCategory = liabilityCategoryCell;
         final category = currentLiabilityCategory;
         if (category != null) {
-          // Scan only the value columns (skip col4/col5, the liability's own
+          // Scan only the value columns (skip the liability's own
           // category/product label) — product names can contain embedded
           // digits (e.g. "TIGER 미국나스닥100(H)") that would otherwise be
           // mistaken for amounts.
           final nums = <double>[];
-          for (var col = 6; col < row.length; col++) {
+          for (var col = anchorCol + 6; col < row.length; col++) {
             final v = TransactionImportService.parseAmount(row[col]);
             if (v != null) nums.add(v);
           }
@@ -91,12 +102,12 @@ class AssetSnapshotImportService {
             liabilitiesByCategory[category] = (liabilitiesByCategory[category] ?? 0) + amount;
           }
         }
-      } else if ((c0.isNotEmpty || c1.isNotEmpty) && currentAssetCategory != null) {
+      } else if ((assetCategoryCell.isNotEmpty || assetProductCell.isNotEmpty) && currentAssetCategory != null) {
         final category = currentAssetCategory;
-        // Scan only the value columns (skip col0/col1, the category/product
-        // label) for the same embedded-digit reason as above.
+        // Scan only the value columns (skip the category/product label) for
+        // the same embedded-digit reason as above.
         final nums = <double>[];
-        for (var col = 2; col < row.length; col++) {
+        for (var col = anchorCol + 2; col < row.length; col++) {
           final v = TransactionImportService.parseAmount(row[col]);
           if (v != null) nums.add(v);
         }

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'asset_snapshot_screen.dart';
+import 'banksalad_import_screen.dart';
 import 'finance_screen.dart';
 import 'goal_form_screen.dart';
 import 'goals_screen.dart';
@@ -50,7 +51,7 @@ class _LifeDesignScreenState extends ConsumerState<LifeDesignScreen> with Single
             case 1:
               showAddTransactionDialog(context, ref);
             default:
-              Navigator.of(context).push(MaterialPageRoute(builder: (_) => const AssetSnapshotImportScreen()));
+              Navigator.of(context).push(MaterialPageRoute(builder: (_) => const BanksaladImportScreen()));
           }
         },
         child: const Icon(Icons.add),

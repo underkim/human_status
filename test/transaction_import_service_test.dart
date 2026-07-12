@@ -5,6 +5,7 @@ import 'package:cp949_codec/cp949_codec.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:human_status/models/transaction.dart';
 import 'package:human_status/services/transaction_import_service.dart';
+import 'package:uuid/uuid.dart';
 
 void main() {
   group('decodeBytes', () {
@@ -41,35 +42,6 @@ void main() {
     });
   });
 
-  group('TransactionImportService.parseDate', () {
-    test('parses dot-separated dates', () {
-      expect(TransactionImportService.parseDate('2026.07.01'), DateTime(2026, 7, 1));
-    });
-
-    test('parses ISO dash-separated dates', () {
-      expect(TransactionImportService.parseDate('2026-07-01'), DateTime(2026, 7, 1));
-    });
-
-    test('parses a date with a time component', () {
-      expect(
-        TransactionImportService.parseDate('2026-07-01 13:22:00'),
-        DateTime(2026, 7, 1, 13, 22, 0),
-      );
-    });
-
-    test('parses using an explicit format hint', () {
-      expect(
-        TransactionImportService.parseDate('07/01/2026', formatHint: 'MM/dd/yyyy'),
-        DateTime(2026, 7, 1),
-      );
-    });
-
-    test('returns null for unparsable input', () {
-      expect(TransactionImportService.parseDate('not a date'), isNull);
-      expect(TransactionImportService.parseDate(''), isNull);
-    });
-  });
-
   group('TransactionImportService.parseAmount', () {
     test('strips thousands separators', () {
       expect(TransactionImportService.parseAmount('12,345'), 12345.0);
@@ -86,177 +58,16 @@ void main() {
     });
   });
 
-  group('TransactionImportService.mapRow', () {
-    test('single-mode: positive amount is income by default', () {
-      const mapping = ImportColumnMapping(
-        dateColumn: 0,
-        amountMode: AmountColumnMode.single,
-        amountColumn: 1,
-      );
-      final result = TransactionImportService.mapRow(['2026-07-01', '10000'], mapping);
-
-      expect(result.isValid, isTrue);
-      expect(result.transaction!.type, TransactionType.income);
-      expect(result.transaction!.amount, 10000);
-    });
-
-    test('single-mode: negative amount is expense by default', () {
-      const mapping = ImportColumnMapping(
-        dateColumn: 0,
-        amountMode: AmountColumnMode.single,
-        amountColumn: 1,
-      );
-      final result = TransactionImportService.mapRow(['2026-07-01', '-5000'], mapping);
-
-      expect(result.transaction!.type, TransactionType.expense);
-      expect(result.transaction!.amount, 5000);
-    });
-
-    test('single-mode: positiveIsIncome=false flips the sign convention', () {
-      const mapping = ImportColumnMapping(
-        dateColumn: 0,
-        amountMode: AmountColumnMode.single,
-        amountColumn: 1,
-        positiveIsIncome: false,
-      );
-      final result = TransactionImportService.mapRow(['2026-07-01', '5000'], mapping);
-
-      expect(result.transaction!.type, TransactionType.expense);
-    });
-
-    test('split-mode: uses the income column when it has a value', () {
-      const mapping = ImportColumnMapping(
-        dateColumn: 0,
-        amountMode: AmountColumnMode.splitIncomeExpense,
-        incomeColumn: 1,
-        expenseColumn: 2,
-      );
-      final result = TransactionImportService.mapRow(['2026-07-01', '3000', ''], mapping);
-
-      expect(result.transaction!.type, TransactionType.income);
-      expect(result.transaction!.amount, 3000);
-    });
-
-    test('split-mode: uses the expense column when income is empty', () {
-      const mapping = ImportColumnMapping(
-        dateColumn: 0,
-        amountMode: AmountColumnMode.splitIncomeExpense,
-        incomeColumn: 1,
-        expenseColumn: 2,
-      );
-      final result = TransactionImportService.mapRow(['2026-07-01', '', '1500'], mapping);
-
-      expect(result.transaction!.type, TransactionType.expense);
-      expect(result.transaction!.amount, 1500);
-    });
-
-    test('split-mode: errors when both income and expense are empty', () {
-      const mapping = ImportColumnMapping(
-        dateColumn: 0,
-        amountMode: AmountColumnMode.splitIncomeExpense,
-        incomeColumn: 1,
-        expenseColumn: 2,
-      );
-      final result = TransactionImportService.mapRow(['2026-07-01', '', ''], mapping);
-
-      expect(result.isValid, isFalse);
-      expect(result.error, isNotNull);
-    });
-
-    test('errors when the date column is unparsable', () {
-      const mapping = ImportColumnMapping(
-        dateColumn: 0,
-        amountMode: AmountColumnMode.single,
-        amountColumn: 1,
-      );
-      final result = TransactionImportService.mapRow(['n/a', '1000'], mapping);
-
-      expect(result.isValid, isFalse);
-      expect(result.transaction, isNull);
-    });
-
-    test('falls back to a default category and empty memo when unmapped', () {
-      const mapping = ImportColumnMapping(
-        dateColumn: 0,
-        amountMode: AmountColumnMode.single,
-        amountColumn: 1,
-      );
-      final result = TransactionImportService.mapRow(['2026-07-01', '1000'], mapping);
-
-      expect(result.transaction!.category, '수입');
-      expect(result.transaction!.memo, '');
-    });
-
-    test('uses the mapped memo and category columns when provided', () {
-      const mapping = ImportColumnMapping(
-        dateColumn: 0,
-        amountMode: AmountColumnMode.single,
-        amountColumn: 1,
-        memoColumn: 2,
-        categoryColumn: 3,
-      );
-      final result = TransactionImportService.mapRow(
-        ['2026-07-01', '-1000', '점심 식사', '식비'],
-        mapping,
-      );
-
-      expect(result.transaction!.memo, '점심 식사');
-      expect(result.transaction!.category, '식비');
-    });
-
-    group('typeLabel mode (e.g. Banksalad: 날짜,타입,금액 with 수입/지출/이체)', () {
-      const mapping = ImportColumnMapping(
-        dateColumn: 0,
-        amountMode: AmountColumnMode.typeLabel,
-        amountColumn: 2,
-        typeColumn: 1,
-      );
-
-      test('matches the income label', () {
-        final result = TransactionImportService.mapRow(['2026-07-01', '수입', '10000'], mapping);
-        expect(result.isValid, isTrue);
-        expect(result.transaction!.type, TransactionType.income);
-        expect(result.transaction!.amount, 10000);
-      });
-
-      test('matches the expense label', () {
-        final result = TransactionImportService.mapRow(['2026-07-01', '지출', '5000'], mapping);
-        expect(result.isValid, isTrue);
-        expect(result.transaction!.type, TransactionType.expense);
-        expect(result.transaction!.amount, 5000);
-      });
-
-      test('excludes rows whose type matches neither label (e.g. 이체)', () {
-        final result = TransactionImportService.mapRow(['2026-07-01', '이체', '3000'], mapping);
-        expect(result.isValid, isFalse);
-        expect(result.error, isNotNull);
-      });
-
-      test('respects custom income/expense label text', () {
-        const customMapping = ImportColumnMapping(
-          dateColumn: 0,
-          amountMode: AmountColumnMode.typeLabel,
-          amountColumn: 2,
-          typeColumn: 1,
-          incomeLabel: 'IN',
-          expenseLabel: 'OUT',
-        );
-        final result = TransactionImportService.mapRow(['2026-07-01', 'OUT', '2000'], customMapping);
-        expect(result.transaction!.type, TransactionType.expense);
-      });
-    });
-  });
-
-  group('TransactionImportService.parseBanksaladTransactions', () {
+  group('TransactionImportService.parseBanksaladLedger', () {
     const header = ['날짜', '시간', '타입', '대분류', '소분류', '내용', '금액', '화폐', '결제수단', '메모'];
 
-    test('parses rows under the Banksalad header', () {
-      final rows = [
-        header,
+    List<List<String>> rowsWith(List<List<String>> dataRows) => [header, ...dataRows];
+
+    test('maps 수입/지출 rows directly', () {
+      final result = TransactionImportService.parseBanksaladLedger(rowsWith([
         ['2026-07-01', '13:22', '지출', '식비', '카페', '스타벅스', '5000', 'KRW', '카드', ''],
         ['2026-07-02', '09:00', '수입', '급여', '', '7월 급여', '3000000', 'KRW', '이체', ''],
-      ];
-      final result = TransactionImportService.parseBanksaladTransactions(rows);
+      ]));
 
       expect(result.isValid, isTrue);
       expect(result.rows, hasLength(2));
@@ -267,49 +78,131 @@ void main() {
       expect(result.rows![1].transaction!.amount, 3000000);
     });
 
-    test('excludes 이체 rows', () {
-      final rows = [
-        header,
-        ['2026-07-01', '13:22', '이체', '계좌이체', '', '내 통장으로', '10000', 'KRW', '이체', ''],
-      ];
-      final result = TransactionImportService.parseBanksaladTransactions(rows);
+    test('combines 날짜+시간 into one DateTime', () {
+      final result = TransactionImportService.parseBanksaladLedger(rowsWith([
+        ['2026-07-01', '13:22:00', '지출', '식비', '', '점심', '8000', 'KRW', '카드', ''],
+      ]));
+
+      final date = result.rows!.first.transaction!.date;
+      expect(date.year, 2026);
+      expect(date.month, 7);
+      expect(date.day, 1);
+      expect(date.hour, 13);
+      expect(date.minute, 22);
+    });
+
+    test('excludes 이체 rows whose 대분류 is 내계좌이체', () {
+      final result = TransactionImportService.parseBanksaladLedger(rowsWith([
+        ['2026-07-01', '13:22', '이체', '내계좌이체', '', '내 통장으로', '10000', 'KRW', '이체', ''],
+      ]));
 
       expect(result.isValid, isTrue);
+      expect(result.rows!.first.isValid, isFalse);
+      expect(result.rows!.first.error, contains('내 계좌'));
+    });
+
+    test('counts non-내계좌이체 이체 rows as expense (e.g. 카드대금, 보험)', () {
+      final result = TransactionImportService.parseBanksaladLedger(rowsWith([
+        ['2026-07-01', '13:22', '이체', '카드대금', '', '카드값 결제', '150000', 'KRW', '이체', ''],
+        ['2026-07-02', '09:00', '이체', '보험', '', '보험료', '30000', 'KRW', '이체', ''],
+      ]));
+
+      expect(result.rows!.every((r) => r.isValid), isTrue);
+      expect(result.rows![0].transaction!.type, TransactionType.expense);
+      expect(result.rows![0].transaction!.category, '카드대금');
+      expect(result.rows![1].transaction!.type, TransactionType.expense);
+      expect(result.rows![1].transaction!.category, '보험');
+    });
+
+    test('errors on an unrecognized 타입 value', () {
+      final result = TransactionImportService.parseBanksaladLedger(rowsWith([
+        ['2026-07-01', '13:22', '알수없음', '기타', '', '', '1000', 'KRW', '', ''],
+      ]));
+
       expect(result.rows!.first.isValid, isFalse);
     });
 
     test('finds the header even with preamble rows before it', () {
       final rows = [
         ['이 파일은 뱅크샐러드에서 내보낸 가계부입니다', '', '', '', '', '', '', '', '', ''],
-        header,
-        ['2026-07-01', '13:22', '지출', '식비', '', '점심', '8000', 'KRW', '카드', ''],
+        ...rowsWith([
+          ['2026-07-01', '13:22', '지출', '식비', '', '점심', '8000', 'KRW', '카드', ''],
+        ]),
       ];
-      final result = TransactionImportService.parseBanksaladTransactions(rows);
+      final result = TransactionImportService.parseBanksaladLedger(rows);
 
       expect(result.isValid, isTrue);
       expect(result.rows, hasLength(1));
     });
 
     test('skips fully blank trailing rows', () {
-      final rows = [
-        header,
+      final result = TransactionImportService.parseBanksaladLedger(rowsWith([
         ['2026-07-01', '13:22', '지출', '식비', '', '점심', '8000', 'KRW', '카드', ''],
         ['', '', '', '', '', '', '', '', '', ''],
-      ];
-      final result = TransactionImportService.parseBanksaladTransactions(rows);
+      ]));
 
       expect(result.rows, hasLength(1));
     });
 
     test('errors when the header does not match', () {
-      final rows = [
+      final result = TransactionImportService.parseBanksaladLedger([
         ['Date', 'Amount', 'Description'],
         ['2026-07-01', '8000', '점심'],
-      ];
-      final result = TransactionImportService.parseBanksaladTransactions(rows);
+      ]);
 
       expect(result.isValid, isFalse);
       expect(result.error, isNotNull);
+    });
+  });
+
+  group('TransactionImportService.filterDuplicates', () {
+    Transaction tx({required DateTime date, String category = '식비', double amount = 1000}) => Transaction(
+          id: const Uuid().v4(),
+          type: TransactionType.expense,
+          category: category,
+          memo: '',
+          amount: amount,
+          date: date,
+          createdAt: DateTime.now(),
+        );
+
+    test('excludes a candidate matching date+category+amount of an existing transaction', () {
+      final date = DateTime(2026, 7, 1, 13, 22);
+      final existing = [tx(date: date)];
+      final candidates = [tx(date: date)];
+
+      final result = TransactionImportService.filterDuplicates(candidates, existing);
+
+      expect(result, isEmpty);
+    });
+
+    test('keeps a candidate whose amount differs', () {
+      final date = DateTime(2026, 7, 1, 13, 22);
+      final existing = [tx(date: date, amount: 1000)];
+      final candidates = [tx(date: date, amount: 2000)];
+
+      final result = TransactionImportService.filterDuplicates(candidates, existing);
+
+      expect(result, hasLength(1));
+    });
+
+    test('keeps a candidate whose time-of-day differs from an existing same-date transaction', () {
+      final existing = [tx(date: DateTime(2026, 7, 1, 9, 0))];
+      final candidates = [tx(date: DateTime(2026, 7, 1, 13, 22))];
+
+      final result = TransactionImportService.filterDuplicates(candidates, existing);
+
+      expect(result, hasLength(1));
+    });
+
+    test('keeps a candidate whose category differs', () {
+      final date = DateTime(2026, 7, 1, 13, 22);
+      final existing = [tx(date: date, category: '식비')];
+      final candidates = [tx(date: date, category: '교통')];
+
+      final result = TransactionImportService.filterDuplicates(candidates, existing);
+
+      expect(result, hasLength(1));
     });
   });
 }

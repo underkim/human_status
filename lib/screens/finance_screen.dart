@@ -7,7 +7,7 @@ import '../providers/finance_provider.dart';
 import '../providers/financial_advisor_provider.dart';
 import '../providers/goal_provider.dart';
 import '../services/finance_service.dart';
-import 'transaction_import_screen.dart';
+import 'banksalad_import_screen.dart';
 
 String _adviceIcon(String category) => switch (category) {
       'spending' => '💸',
@@ -120,10 +120,10 @@ class FinanceListView extends ConsumerWidget {
                 Text('${transactions.length}건'),
                 TextButton.icon(
                   onPressed: () => Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const TransactionImportScreen()),
+                    MaterialPageRoute(builder: (_) => const BanksaladImportScreen()),
                   ),
                   icon: const Icon(Icons.upload_file, size: 18),
-                  label: const Text('CSV 가져오기'),
+                  label: const Text('뱅크샐러드 파일 가져오기'),
                 ),
               ],
             ),
