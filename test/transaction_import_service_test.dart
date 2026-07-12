@@ -203,5 +203,47 @@ void main() {
       expect(result.transaction!.memo, '점심 식사');
       expect(result.transaction!.category, '식비');
     });
+
+    group('typeLabel mode (e.g. Banksalad: 날짜,타입,금액 with 수입/지출/이체)', () {
+      const mapping = ImportColumnMapping(
+        dateColumn: 0,
+        amountMode: AmountColumnMode.typeLabel,
+        amountColumn: 2,
+        typeColumn: 1,
+      );
+
+      test('matches the income label', () {
+        final result = TransactionImportService.mapRow(['2026-07-01', '수입', '10000'], mapping);
+        expect(result.isValid, isTrue);
+        expect(result.transaction!.type, TransactionType.income);
+        expect(result.transaction!.amount, 10000);
+      });
+
+      test('matches the expense label', () {
+        final result = TransactionImportService.mapRow(['2026-07-01', '지출', '5000'], mapping);
+        expect(result.isValid, isTrue);
+        expect(result.transaction!.type, TransactionType.expense);
+        expect(result.transaction!.amount, 5000);
+      });
+
+      test('excludes rows whose type matches neither label (e.g. 이체)', () {
+        final result = TransactionImportService.mapRow(['2026-07-01', '이체', '3000'], mapping);
+        expect(result.isValid, isFalse);
+        expect(result.error, isNotNull);
+      });
+
+      test('respects custom income/expense label text', () {
+        const customMapping = ImportColumnMapping(
+          dateColumn: 0,
+          amountMode: AmountColumnMode.typeLabel,
+          amountColumn: 2,
+          typeColumn: 1,
+          incomeLabel: 'IN',
+          expenseLabel: 'OUT',
+        );
+        final result = TransactionImportService.mapRow(['2026-07-01', 'OUT', '2000'], customMapping);
+        expect(result.transaction!.type, TransactionType.expense);
+      });
+    });
   });
 }

@@ -26,7 +26,16 @@ List<List<String>> parseCsvRows(String text) {
   return csv.decode(text).map((row) => row.map((c) => c.toString()).toList()).toList();
 }
 
-enum AmountColumnMode { single, splitIncomeExpense }
+enum AmountColumnMode {
+  single,
+  splitIncomeExpense,
+  // A single always-positive amount column plus a separate text column
+  // (e.g. Banksalad's "타입" column) whose value says whether the row is
+  // income or expense. Rows whose type text matches neither label (e.g.
+  // "이체" transfers between the user's own accounts) are excluded rather
+  // than imported.
+  typeLabel,
+}
 
 /// The user's chosen mapping from CSV column indices to Transaction fields.
 class ImportColumnMapping {
@@ -35,10 +44,13 @@ class ImportColumnMapping {
   // DateTime.parse directly.
   final String? dateFormat;
   final AmountColumnMode amountMode;
-  final int? amountColumn; // single mode
+  final int? amountColumn; // single and typeLabel modes
   final bool positiveIsIncome; // single mode sign convention
-  final int? incomeColumn; // split mode
-  final int? expenseColumn; // split mode
+  final int? incomeColumn; // splitIncomeExpense mode
+  final int? expenseColumn; // splitIncomeExpense mode
+  final int? typeColumn; // typeLabel mode
+  final String incomeLabel; // typeLabel mode, e.g. '수입'
+  final String expenseLabel; // typeLabel mode, e.g. '지출'
   final int? memoColumn;
   final int? categoryColumn;
 
@@ -50,6 +62,9 @@ class ImportColumnMapping {
     this.positiveIsIncome = true,
     this.incomeColumn,
     this.expenseColumn,
+    this.typeColumn,
+    this.incomeLabel = '수입',
+    this.expenseLabel = '지출',
     this.memoColumn,
     this.categoryColumn,
   });
@@ -117,26 +132,41 @@ class TransactionImportService {
       TransactionType type;
       double amount;
 
-      if (mapping.amountMode == AmountColumnMode.single) {
-        final raw = parseAmount(_cell(row, mapping.amountColumn));
-        if (raw == null) {
-          return ParsedImportRow(error: '금액을 인식할 수 없어요', rawRow: row);
-        }
-        final isIncome = mapping.positiveIsIncome ? raw >= 0 : raw < 0;
-        type = isIncome ? TransactionType.income : TransactionType.expense;
-        amount = raw.abs();
-      } else {
-        final income = parseAmount(_cell(row, mapping.incomeColumn));
-        final expense = parseAmount(_cell(row, mapping.expenseColumn));
-        if (income != null && income != 0) {
-          type = TransactionType.income;
-          amount = income.abs();
-        } else if (expense != null && expense != 0) {
-          type = TransactionType.expense;
-          amount = expense.abs();
-        } else {
-          return ParsedImportRow(error: '수입/지출 금액이 없어요', rawRow: row);
-        }
+      switch (mapping.amountMode) {
+        case AmountColumnMode.single:
+          final raw = parseAmount(_cell(row, mapping.amountColumn));
+          if (raw == null) {
+            return ParsedImportRow(error: '금액을 인식할 수 없어요', rawRow: row);
+          }
+          final isIncome = mapping.positiveIsIncome ? raw >= 0 : raw < 0;
+          type = isIncome ? TransactionType.income : TransactionType.expense;
+          amount = raw.abs();
+        case AmountColumnMode.splitIncomeExpense:
+          final income = parseAmount(_cell(row, mapping.incomeColumn));
+          final expense = parseAmount(_cell(row, mapping.expenseColumn));
+          if (income != null && income != 0) {
+            type = TransactionType.income;
+            amount = income.abs();
+          } else if (expense != null && expense != 0) {
+            type = TransactionType.expense;
+            amount = expense.abs();
+          } else {
+            return ParsedImportRow(error: '수입/지출 금액이 없어요', rawRow: row);
+          }
+        case AmountColumnMode.typeLabel:
+          final typeText = _cell(row, mapping.typeColumn).trim();
+          final raw = parseAmount(_cell(row, mapping.amountColumn));
+          if (raw == null) {
+            return ParsedImportRow(error: '금액을 인식할 수 없어요', rawRow: row);
+          }
+          if (typeText == mapping.incomeLabel) {
+            type = TransactionType.income;
+          } else if (typeText == mapping.expenseLabel) {
+            type = TransactionType.expense;
+          } else {
+            return ParsedImportRow(error: '가져오기 제외 대상이에요 (예: 이체)', rawRow: row);
+          }
+          amount = raw.abs();
       }
 
       final memo = _cell(row, mapping.memoColumn).trim();

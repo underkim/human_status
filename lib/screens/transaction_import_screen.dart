@@ -26,6 +26,9 @@ class _TransactionImportScreenState extends ConsumerState<TransactionImportScree
   bool _positiveIsIncome = true;
   int? _incomeColumn;
   int? _expenseColumn;
+  int? _typeColumn;
+  final _incomeLabelController = TextEditingController(text: '수입');
+  final _expenseLabelController = TextEditingController(text: '지출');
   int? _memoColumn;
   int? _categoryColumn;
 
@@ -35,6 +38,8 @@ class _TransactionImportScreenState extends ConsumerState<TransactionImportScree
   void dispose() {
     _headerRowController.dispose();
     _dateFormatController.dispose();
+    _incomeLabelController.dispose();
+    _expenseLabelController.dispose();
     super.dispose();
   }
 
@@ -87,6 +92,7 @@ class _TransactionImportScreenState extends ConsumerState<TransactionImportScree
         _amountColumn = rows.first.length > 1 ? 1 : 0;
         _incomeColumn = null;
         _expenseColumn = null;
+        _typeColumn = null;
         _memoColumn = null;
         _categoryColumn = null;
       });
@@ -106,6 +112,9 @@ class _TransactionImportScreenState extends ConsumerState<TransactionImportScree
       positiveIsIncome: _positiveIsIncome,
       incomeColumn: _incomeColumn,
       expenseColumn: _expenseColumn,
+      typeColumn: _typeColumn,
+      incomeLabel: _incomeLabelController.text.trim().isEmpty ? '수입' : _incomeLabelController.text.trim(),
+      expenseLabel: _expenseLabelController.text.trim().isEmpty ? '지출' : _expenseLabelController.text.trim(),
       memoColumn: _memoColumn,
       categoryColumn: _categoryColumn,
     );
@@ -198,6 +207,7 @@ class _TransactionImportScreenState extends ConsumerState<TransactionImportScree
                 segments: const [
                   ButtonSegment(value: AmountColumnMode.single, label: Text('금액 컬럼 1개')),
                   ButtonSegment(value: AmountColumnMode.splitIncomeExpense, label: Text('입금/출금 분리')),
+                  ButtonSegment(value: AmountColumnMode.typeLabel, label: Text('금액+타입 컬럼')),
                 ],
                 selected: {_amountMode},
                 onSelectionChanged: (s) => setState(() => _amountMode = s.first),
@@ -217,7 +227,7 @@ class _TransactionImportScreenState extends ConsumerState<TransactionImportScree
                   onChanged: (v) => setState(() => _positiveIsIncome = v),
                   contentPadding: EdgeInsets.zero,
                 ),
-              ] else ...[
+              ] else if (_amountMode == AmountColumnMode.splitIncomeExpense) ...[
                 _ColumnDropdown(
                   label: '입금액(수입) 컬럼',
                   headers: headers,
@@ -232,6 +242,47 @@ class _TransactionImportScreenState extends ConsumerState<TransactionImportScree
                   value: _expenseColumn,
                   allowNone: true,
                   onChanged: (v) => setState(() => _expenseColumn = v),
+                ),
+              ] else ...[
+                _ColumnDropdown(
+                  label: '금액 컬럼 (항상 양수인 컬럼)',
+                  headers: headers,
+                  value: _amountColumn,
+                  onChanged: (v) => setState(() => _amountColumn = v),
+                ),
+                const SizedBox(height: 8),
+                _ColumnDropdown(
+                  label: '타입 컬럼 (예: 수입/지출/이체)',
+                  headers: headers,
+                  value: _typeColumn,
+                  onChanged: (v) => setState(() => _typeColumn = v),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _incomeLabelController,
+                        decoration: const InputDecoration(labelText: '수입을 뜻하는 값'),
+                        onChanged: (_) => setState(() {}),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: TextField(
+                        controller: _expenseLabelController,
+                        decoration: const InputDecoration(labelText: '지출을 뜻하는 값'),
+                        onChanged: (_) => setState(() {}),
+                      ),
+                    ),
+                  ],
+                ),
+                const Padding(
+                  padding: EdgeInsets.only(top: 4),
+                  child: Text(
+                    '두 값과 다른 타입(예: 이체)은 자동으로 가져오기에서 제외돼요.',
+                    style: TextStyle(fontSize: 12, color: Colors.grey),
+                  ),
                 ),
               ],
               const SizedBox(height: 8),
