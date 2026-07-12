@@ -80,6 +80,38 @@ class ParsedImportRow {
   bool get isValid => transaction != null;
 }
 
+/// The exact header Banksalad's 가계부.csv (transaction ledger) export uses.
+const banksaladTransactionHeaders = [
+  '날짜',
+  '시간',
+  '타입',
+  '대분류',
+  '소분류',
+  '내용',
+  '금액',
+  '화폐',
+  '결제수단',
+  '메모',
+];
+
+const _banksaladMapping = ImportColumnMapping(
+  dateColumn: 0,
+  amountMode: AmountColumnMode.typeLabel,
+  amountColumn: 6,
+  typeColumn: 2,
+  categoryColumn: 3,
+  memoColumn: 5, // 내용 — the transaction description, more consistently filled in than 메모
+);
+
+class BanksaladImportResult {
+  final List<ParsedImportRow>? rows;
+  final String? error;
+
+  const BanksaladImportResult({this.rows, this.error});
+
+  bool get isValid => rows != null;
+}
+
 class TransactionImportService {
   /// Parses [raw] as a date. If [formatHint] is given, parses strictly
   /// against that pattern; otherwise normalizes '.'/'/' separators to '-'
@@ -187,5 +219,36 @@ class TransactionImportService {
     } catch (e) {
       return ParsedImportRow(error: '행을 처리할 수 없어요: $e', rawRow: row);
     }
+  }
+
+  static bool _isBanksaladHeaderRow(List<String> row) {
+    if (row.length < banksaladTransactionHeaders.length) return false;
+    for (var i = 0; i < banksaladTransactionHeaders.length; i++) {
+      if (row[i].trim() != banksaladTransactionHeaders[i]) return false;
+    }
+    return true;
+  }
+
+  /// Parses [rows] as a Banksalad 가계부.csv export — the only transaction
+  /// CSV format this app imports. Locates the header row (allowing preamble
+  /// rows before it), then maps every following non-blank row via the fixed
+  /// Banksalad column layout. Rows whose 타입 is neither 수입 nor 지출 (e.g.
+  /// 이체 transfers between the user's own accounts) are excluded.
+  static BanksaladImportResult parseBanksaladTransactions(List<List<String>> rows) {
+    final headerIndex = rows.indexWhere(_isBanksaladHeaderRow);
+    if (headerIndex == -1) {
+      return const BanksaladImportResult(
+        error: '뱅크샐러드 가계부.csv 형식이 아니에요 (날짜,시간,타입,대분류,소분류,내용,금액,화폐,결제수단,메모 헤더가 필요해요).',
+      );
+    }
+
+    final dataRows = rows
+        .sublist(headerIndex + 1)
+        .where((row) => row.any((cell) => cell.trim().isNotEmpty))
+        .toList();
+
+    return BanksaladImportResult(
+      rows: dataRows.map((row) => mapRow(row, _banksaladMapping)).toList(),
+    );
   }
 }

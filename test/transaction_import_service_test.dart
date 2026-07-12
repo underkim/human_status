@@ -246,4 +246,70 @@ void main() {
       });
     });
   });
+
+  group('TransactionImportService.parseBanksaladTransactions', () {
+    const header = ['날짜', '시간', '타입', '대분류', '소분류', '내용', '금액', '화폐', '결제수단', '메모'];
+
+    test('parses rows under the Banksalad header', () {
+      final rows = [
+        header,
+        ['2026-07-01', '13:22', '지출', '식비', '카페', '스타벅스', '5000', 'KRW', '카드', ''],
+        ['2026-07-02', '09:00', '수입', '급여', '', '7월 급여', '3000000', 'KRW', '이체', ''],
+      ];
+      final result = TransactionImportService.parseBanksaladTransactions(rows);
+
+      expect(result.isValid, isTrue);
+      expect(result.rows, hasLength(2));
+      expect(result.rows![0].transaction!.type, TransactionType.expense);
+      expect(result.rows![0].transaction!.category, '식비');
+      expect(result.rows![0].transaction!.memo, '스타벅스');
+      expect(result.rows![1].transaction!.type, TransactionType.income);
+      expect(result.rows![1].transaction!.amount, 3000000);
+    });
+
+    test('excludes 이체 rows', () {
+      final rows = [
+        header,
+        ['2026-07-01', '13:22', '이체', '계좌이체', '', '내 통장으로', '10000', 'KRW', '이체', ''],
+      ];
+      final result = TransactionImportService.parseBanksaladTransactions(rows);
+
+      expect(result.isValid, isTrue);
+      expect(result.rows!.first.isValid, isFalse);
+    });
+
+    test('finds the header even with preamble rows before it', () {
+      final rows = [
+        ['이 파일은 뱅크샐러드에서 내보낸 가계부입니다', '', '', '', '', '', '', '', '', ''],
+        header,
+        ['2026-07-01', '13:22', '지출', '식비', '', '점심', '8000', 'KRW', '카드', ''],
+      ];
+      final result = TransactionImportService.parseBanksaladTransactions(rows);
+
+      expect(result.isValid, isTrue);
+      expect(result.rows, hasLength(1));
+    });
+
+    test('skips fully blank trailing rows', () {
+      final rows = [
+        header,
+        ['2026-07-01', '13:22', '지출', '식비', '', '점심', '8000', 'KRW', '카드', ''],
+        ['', '', '', '', '', '', '', '', '', ''],
+      ];
+      final result = TransactionImportService.parseBanksaladTransactions(rows);
+
+      expect(result.rows, hasLength(1));
+    });
+
+    test('errors when the header does not match', () {
+      final rows = [
+        ['Date', 'Amount', 'Description'],
+        ['2026-07-01', '8000', '점심'],
+      ];
+      final result = TransactionImportService.parseBanksaladTransactions(rows);
+
+      expect(result.isValid, isFalse);
+      expect(result.error, isNotNull);
+    });
+  });
 }
