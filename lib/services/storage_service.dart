@@ -93,5 +93,10 @@ class StorageService {
   Future<void> saveTransaction(Transaction transaction) =>
       transactionsBox.put(transaction.id, transaction);
 
+  /// Persists many transactions in a single batched write (e.g. CSV import),
+  /// avoiding a sequential await per row.
+  Future<void> saveTransactions(List<Transaction> transactions) =>
+      transactionsBox.putAll({for (final t in transactions) t.id: t});
+
   Future<void> deleteTransaction(String id) => transactionsBox.delete(id);
 }

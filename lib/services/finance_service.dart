@@ -48,4 +48,9 @@ class FinanceService {
   }
 
   Future<void> deleteTransaction(String id) => storage.deleteTransaction(id);
+
+  /// Bulk-persists imported transactions. Imported rows never carry a
+  /// linkedGoalId, so there's no goal-amount adjustment to do here.
+  Future<void> importTransactions(List<Transaction> transactions) =>
+      storage.saveTransactions(transactions);
 }

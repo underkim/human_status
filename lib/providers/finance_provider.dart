@@ -40,4 +40,12 @@ class TransactionsNotifier extends StateNotifier<List<Transaction>> {
     await storage.deleteTransaction(id);
     reload();
   }
+
+  /// Bulk-imports transactions (e.g. from a CSV file). Unlike addTransaction,
+  /// this skips the goal-linking check since imported rows never carry a
+  /// linkedGoalId.
+  Future<void> importTransactions(List<Transaction> transactions) async {
+    await ref.read(financeServiceProvider).importTransactions(transactions);
+    reload();
+  }
 }

@@ -6,6 +6,7 @@ import '../models/transaction.dart';
 import '../providers/finance_provider.dart';
 import '../providers/goal_provider.dart';
 import '../services/finance_service.dart';
+import 'transaction_import_screen.dart';
 
 class FinanceListView extends ConsumerWidget {
   const FinanceListView({super.key});
@@ -70,7 +71,18 @@ class FinanceListView extends ConsumerWidget {
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             Text('거래 내역', style: Theme.of(context).textTheme.titleLarge),
-            Text('${transactions.length}건'),
+            Row(
+              children: [
+                Text('${transactions.length}건'),
+                TextButton.icon(
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const TransactionImportScreen()),
+                  ),
+                  icon: const Icon(Icons.upload_file, size: 18),
+                  label: const Text('CSV 가져오기'),
+                ),
+              ],
+            ),
           ],
         ),
         if (transactions.isEmpty)
