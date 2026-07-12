@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'models/quest.dart';
 import 'providers/profile_provider.dart';
 import 'screens/home_shell.dart';
+import 'services/financial_advisor_service.dart';
 import 'services/notification_service.dart';
 import 'services/quest_recommendation_service.dart';
 import 'services/storage_service.dart';
@@ -13,6 +14,7 @@ Future<void> main() async {
   final storage = StorageService();
   await storage.init();
   await QuestRecommendationService(storage: storage).refreshIfNeeded();
+  await FinancialAdvisorService(storage: storage).refreshIfNeeded();
 
   final notificationService = NotificationService();
   await notificationService.init();

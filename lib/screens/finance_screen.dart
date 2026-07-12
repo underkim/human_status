@@ -4,9 +4,17 @@ import 'package:uuid/uuid.dart';
 
 import '../models/transaction.dart';
 import '../providers/finance_provider.dart';
+import '../providers/financial_advisor_provider.dart';
 import '../providers/goal_provider.dart';
 import '../services/finance_service.dart';
 import 'transaction_import_screen.dart';
+
+String _adviceIcon(String category) => switch (category) {
+      'spending' => '💸',
+      'goal' => '🎯',
+      'networth' => '📈',
+      _ => '💡',
+    };
 
 class FinanceListView extends ConsumerWidget {
   const FinanceListView({super.key});
@@ -18,10 +26,46 @@ class FinanceListView extends ConsumerWidget {
     final transactions = [...ref.watch(transactionsProvider)]..sort((a, b) => b.date.compareTo(a.date));
     final financialGoals = ref.watch(activeGoalsProvider).where((g) => g.targetAmount != null).toList();
     final progress = ref.watch(goalProgressMapProvider);
+    final advice = ref.watch(financialAdviceProvider);
 
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
+        if (advice.isNotEmpty) ...[
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text('재무 코칭', style: Theme.of(context).textTheme.titleMedium),
+                      IconButton(
+                        icon: const Icon(Icons.refresh, size: 20),
+                        tooltip: '새로고침',
+                        onPressed: () => ref.read(financialAdviceProvider.notifier).refreshNow(),
+                      ),
+                    ],
+                  ),
+                  ...advice.map((a) => Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 4),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(_adviceIcon(a.category)),
+                            const SizedBox(width: 8),
+                            Expanded(child: Text(a.message)),
+                          ],
+                        ),
+                      )),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+        ],
         Card(
           child: Padding(
             padding: const EdgeInsets.all(16),
