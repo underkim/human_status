@@ -30,7 +30,29 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
+
+        <!-- Reschedules the daily reminder after reboot — without this the
+             alarm set by NotificationService.scheduleDailyReminder silently
+             stops firing the next time the phone restarts, since Android
+             clears all AlarmManager alarms on boot. -->
+        <receiver
+            android:exported="false"
+            android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationBootReceiver">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED"/>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED"/>
+                <action android:name="android.intent.action.QUICKBOOT_POWERON"/>
+                <action android:name="com.htc.intent.action.QUICKBOOT_POWERON"/>
+            </intent-filter>
+        </receiver>
     </application>
+
+    <!-- RECEIVE_BOOT_COMPLETED lets the receiver above run; SCHEDULE_EXACT_ALARM
+         is required on Android 12+ for the exactAllowWhileIdle schedule mode
+         NotificationService uses. POST_NOTIFICATIONS is already merged in by
+         the flutter_local_notifications plugin's own manifest. -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM"/>
     <!-- Required to query activities that can process text, see:
          https://developer.android.com/training/package-visibility and
          https://developer.android.com/reference/android/content/Intent#ACTION_PROCESS_TEXT.

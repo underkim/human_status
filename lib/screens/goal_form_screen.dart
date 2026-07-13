@@ -2,9 +2,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 
+import '../data/goal_idea_bank.dart';
 import '../models/goal.dart';
+import '../models/stat.dart';
 import '../providers/goal_provider.dart';
 import '../providers/profile_provider.dart';
+import '../services/financial_planning_service.dart';
+import '../theme/app_colors.dart';
+import '../utils/formatters.dart';
+
+const _financialHorizonsMonths = [6, 12, 36];
 
 class GoalFormScreen extends ConsumerStatefulWidget {
   const GoalFormScreen({super.key});
@@ -31,10 +38,42 @@ class _GoalFormScreenState extends ConsumerState<GoalFormScreen> {
     super.dispose();
   }
 
+  List<GoalIdea> _recommendedIdeas(List<Stat> stats) {
+    if (stats.isEmpty) return [];
+    final weakest = ([...stats]..sort((a, b) => a.level.compareTo(b.level))).first;
+    return goalIdeaBank.where((i) => i.statId == weakest.id).take(3).toList();
+  }
+
+  void _applyIdea(GoalIdea idea) {
+    setState(() {
+      _titleController.text = idea.title;
+      _descriptionController.text = idea.description;
+      _selectedStatId = idea.statId;
+      if (idea.statId != 'wealth') _isFinancial = false;
+    });
+  }
+
+  void _applyFinancialHorizon(int months, double avgMonthlySaving) {
+    final now = DateTime.now();
+    setState(() {
+      _targetDate = DateTime(now.year, now.month + months, now.day);
+      if (avgMonthlySaving > 0) {
+        _amountController.text = (avgMonthlySaving * months).toInt().toString();
+      }
+    });
+  }
+
+  String _horizonLabel(int months) => months < 12 ? '$months개월 후' : '${months ~/ 12}년 후';
+
   @override
   Widget build(BuildContext context) {
     final stats = ref.watch(statsProvider);
     _selectedStatId ??= stats.isNotEmpty ? stats.first.id : null;
+
+    final recommendedIdeas = _recommendedIdeas(stats);
+    final avgMonthlySaving = _isFinancial
+        ? FinancialPlanningService.recentAverageMonthlySaving(ref.watch(storageServiceProvider))
+        : 0.0;
 
     return Scaffold(
       appBar: AppBar(title: const Text('목표 추가')),
@@ -45,6 +84,26 @@ class _GoalFormScreenState extends ConsumerState<GoalFormScreen> {
           child: ListView(
             padding: const EdgeInsets.all(16),
             children: [
+              Text(
+                '목표를 저장하면 AI가 실행할 작은 퀘스트로 자동으로 나눠드려요.',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(color: context.appColors.textMuted),
+              ),
+              const SizedBox(height: 16),
+              if (recommendedIdeas.isNotEmpty) ...[
+                Text('추천 목표 (약한 스텟 기준)', style: Theme.of(context).textTheme.titleSmall),
+                const SizedBox(height: 6),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: recommendedIdeas
+                      .map((idea) => ActionChip(
+                            label: Text(idea.title),
+                            onPressed: () => _applyIdea(idea),
+                          ))
+                      .toList(),
+                ),
+                const SizedBox(height: 16),
+              ],
               TextFormField(
                 controller: _titleController,
                 decoration: const InputDecoration(labelText: '목표'),
@@ -68,6 +127,22 @@ class _GoalFormScreenState extends ConsumerState<GoalFormScreen> {
                 contentPadding: EdgeInsets.zero,
               ),
               if (_isFinancial) ...[
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: _financialHorizonsMonths
+                      .map((months) => ActionChip(
+                            label: Text(_horizonLabel(months)),
+                            onPressed: () => _applyFinancialHorizon(months, avgMonthlySaving),
+                          ))
+                      .toList(),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '최근 평균 월 저축액 ${formatWon(avgMonthlySaving)} 기준으로 기한·금액을 추천해요.',
+                  style: TextStyle(fontSize: 12, color: context.appColors.textMuted),
+                ),
                 const SizedBox(height: 8),
                 TextFormField(
                   controller: _amountController,

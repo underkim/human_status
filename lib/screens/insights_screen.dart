@@ -6,6 +6,7 @@ import '../data/achievement_definitions.dart';
 import '../providers/profile_provider.dart';
 import '../providers/quest_provider.dart';
 import '../services/stats_insights_service.dart';
+import '../theme/app_colors.dart';
 
 const _weekdayLabels = ['월', '화', '수', '목', '금', '토', '일'];
 
@@ -119,6 +120,7 @@ class InsightsScreen extends ConsumerWidget {
             children: achievementDefinitions.map((def) {
               final unlockedAt = unlockedAchievements[def.id];
               final isUnlocked = unlockedAt != null;
+              final mutedColor = context.appColors.textMuted;
               return Card(
                 color: isUnlocked ? null : Theme.of(context).colorScheme.surfaceContainerHighest,
                 child: Padding(
@@ -127,7 +129,7 @@ class InsightsScreen extends ConsumerWidget {
                     children: [
                       Text(
                         isUnlocked ? def.icon : '🔒',
-                        style: TextStyle(fontSize: 20, color: isUnlocked ? null : Colors.grey),
+                        style: TextStyle(fontSize: 20, color: isUnlocked ? null : mutedColor),
                       ),
                       const SizedBox(width: 8),
                       Expanded(
@@ -139,13 +141,13 @@ class InsightsScreen extends ConsumerWidget {
                               def.title,
                               style: TextStyle(
                                 fontWeight: FontWeight.bold,
-                                color: isUnlocked ? null : Colors.grey,
+                                color: isUnlocked ? null : mutedColor,
                               ),
                               overflow: TextOverflow.ellipsis,
                             ),
                             Text(
                               def.description,
-                              style: TextStyle(fontSize: 11, color: Colors.grey),
+                              style: TextStyle(fontSize: 11, color: mutedColor),
                               overflow: TextOverflow.ellipsis,
                             ),
                           ],

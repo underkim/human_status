@@ -13,11 +13,12 @@ Transaction _tx({
   required double amount,
   DateTime? date,
   String? linkedGoalId,
+  String category = 'test',
 }) {
   return Transaction(
     id: const Uuid().v4(),
     type: type,
-    category: 'test',
+    category: category,
     memo: '',
     amount: amount,
     date: date ?? DateTime(2026, 7, 1),
@@ -48,6 +49,62 @@ void main() {
       expect(summary.income, 0);
       expect(summary.expense, 0);
       expect(summary.net, 0);
+    });
+  });
+
+  group('FinanceService.expenseByCategory', () {
+    test('sums per category, sorted by amount descending', () {
+      final txs = [
+        _tx(type: TransactionType.expense, amount: 30, category: '식비'),
+        _tx(type: TransactionType.expense, amount: 70, category: '식비'),
+        _tx(type: TransactionType.expense, amount: 200, category: '주거'),
+        _tx(type: TransactionType.expense, amount: 50, category: '교통'),
+      ];
+
+      final result = FinanceService.expenseByCategory(txs, '2026-07');
+
+      expect(result.keys.toList(), ['주거', '식비', '교통']);
+      expect(result['식비'], 100);
+      expect(result['주거'], 200);
+    });
+
+    test('ignores income and transactions outside the month', () {
+      final txs = [
+        _tx(type: TransactionType.income, amount: 1000, category: '급여'),
+        _tx(type: TransactionType.expense, amount: 40, category: '식비', date: DateTime(2026, 6, 30)),
+        _tx(type: TransactionType.expense, amount: 10, category: '식비'),
+      ];
+
+      final result = FinanceService.expenseByCategory(txs, '2026-07');
+
+      expect(result, {'식비': 10});
+    });
+
+    test('is empty when there are no expenses in the month', () {
+      expect(FinanceService.expenseByCategory([], '2026-07'), isEmpty);
+    });
+  });
+
+  group('FinanceService.monthlyExpenses', () {
+    test('covers the last N months in past-to-present order, zero-filling empty months', () {
+      final txs = [
+        _tx(type: TransactionType.expense, amount: 100, date: DateTime(2026, 7, 5)),
+        _tx(type: TransactionType.expense, amount: 40, date: DateTime(2026, 5, 20)),
+        _tx(type: TransactionType.income, amount: 999, date: DateTime(2026, 6, 1)), // 수입은 제외
+        _tx(type: TransactionType.expense, amount: 7, date: DateTime(2025, 12, 31)), // 범위 밖
+      ];
+
+      final result = FinanceService.monthlyExpenses(txs, now: DateTime(2026, 7, 14));
+
+      expect(result.keys.toList(), ['2026-02', '2026-03', '2026-04', '2026-05', '2026-06', '2026-07']);
+      expect(result['2026-05'], 40);
+      expect(result['2026-06'], 0);
+      expect(result['2026-07'], 100);
+    });
+
+    test('handles a window crossing a year boundary', () {
+      final result = FinanceService.monthlyExpenses([], now: DateTime(2026, 2, 1));
+      expect(result.keys.toList(), ['2025-09', '2025-10', '2025-11', '2025-12', '2026-01', '2026-02']);
     });
   });
 

@@ -30,6 +30,38 @@ class FinanceService {
     return MonthlySummary(income: income, expense: expense);
   }
 
+  /// 최근 [months]개월(기준 달 포함)의 월별 지출 합계를 과거→현재 순으로.
+  /// 거래가 없는 달도 0으로 채워 추이 축이 끊기지 않게 한다.
+  static Map<String, double> monthlyExpenses(
+    List<Transaction> transactions, {
+    DateTime? now,
+    int months = 6,
+  }) {
+    final anchor = now ?? DateTime.now();
+    final result = <String, double>{};
+    for (var i = months - 1; i >= 0; i--) {
+      result[monthKeyOf(DateTime(anchor.year, anchor.month - i))] = 0;
+    }
+    for (final t in transactions) {
+      if (t.type != TransactionType.expense) continue;
+      final key = monthKeyOf(t.date);
+      if (result.containsKey(key)) result[key] = result[key]! + t.amount;
+    }
+    return result;
+  }
+
+  /// [monthKey]에 해당하는 지출을 카테고리별로 합산해, 금액 내림차순으로
+  /// 정렬된 맵을 돌려준다 — "이번 달 돈이 어디로 갔는지" 분석용.
+  static Map<String, double> expenseByCategory(List<Transaction> transactions, String monthKey) {
+    final totals = <String, double>{};
+    for (final t in transactions) {
+      if (t.type != TransactionType.expense || monthKeyOf(t.date) != monthKey) continue;
+      totals[t.category] = (totals[t.category] ?? 0) + t.amount;
+    }
+    final sorted = totals.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
+    return {for (final e in sorted) e.key: e.value};
+  }
+
   /// Saves [tx]. If it's linked to a financial goal (targetAmount set), the
   /// linked goal's currentAmount is adjusted (income adds, expense
   /// subtracts) and the updated Goal is returned so the caller can check for

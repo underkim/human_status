@@ -1,4 +1,6 @@
-import 'package:file_picker/file_picker.dart';
+import 'dart:typed_data';
+
+import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -9,6 +11,12 @@ import '../providers/finance_provider.dart';
 import '../services/asset_snapshot_import_service.dart';
 import '../services/banksalad_workbook_reader.dart';
 import '../services/transaction_import_service.dart';
+import '../theme/app_colors.dart';
+import '../theme/app_spacing.dart';
+import '../utils/formatters.dart';
+import '../widgets/error_state.dart';
+import '../widgets/loading_state.dart';
+import '../widgets/transaction_tile.dart';
 
 /// Imports both the transaction ledger and the asset/liability snapshot from
 /// a single Banksalad .xlsx export in one action — the only supported
@@ -45,16 +53,14 @@ class _BanksaladImportScreenState extends ConsumerState<BanksaladImportScreen> {
       _assetError = null;
     });
 
-    final result = await FilePicker.pickFiles(
-      type: FileType.custom,
-      allowedExtensions: ['xlsx'],
-      withData: true,
-    );
-    if (result == null) return;
+    const typeGroup = XTypeGroup(label: 'xlsx', extensions: ['xlsx']);
+    final file = await openFile(acceptedTypeGroups: [typeGroup]);
+    if (file == null) return;
 
-    final file = result.files.first;
-    final bytes = file.bytes;
-    if (bytes == null) {
+    final Uint8List bytes;
+    try {
+      bytes = await file.readAsBytes();
+    } catch (e) {
       setState(() => _error = '파일을 읽을 수 없어요.');
       return;
     }
@@ -145,53 +151,55 @@ class _BanksaladImportScreenState extends ConsumerState<BanksaladImportScreen> {
     final snapshot = _assetSnapshot;
     final canConfirm = !_isImporting && ((newTx?.isNotEmpty ?? false) || snapshot != null);
 
+    final colors = context.appColors;
+
     return Scaffold(
       appBar: AppBar(title: const Text('뱅크샐러드 파일 가져오기')),
       body: AbsorbPointer(
         absorbing: _isImporting,
         child: ListView(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.all(AppSpacing.lg),
           children: [
             const Text('뱅크샐러드에서 내려받은 .xlsx 파일을 선택하세요. 거래내역과 자산현황을 한 번에 가져와요.'),
-            const SizedBox(height: 12),
+            const SizedBox(height: AppSpacing.md),
             OutlinedButton.icon(
               onPressed: _pickFile,
               icon: const Icon(Icons.file_open_outlined),
               label: Text(_fileName ?? '파일 선택'),
             ),
             if (_error != null) ...[
-              const SizedBox(height: 8),
-              Text(_error!, style: const TextStyle(color: Colors.red)),
+              const SizedBox(height: AppSpacing.sm),
+              ErrorState(message: _error!),
             ],
             if (newTx != null) ...[
-              const SizedBox(height: 20),
+              const SizedBox(height: AppSpacing.xl),
               Text('거래내역', style: Theme.of(context).textTheme.titleMedium),
-              const SizedBox(height: 4),
+              const SizedBox(height: AppSpacing.xs),
               Text(
                 '신규 ${newTx.length}건 · 중복 제외 $_duplicateCount건 · 내부이체/제외 $_excludedCount건',
                 style: Theme.of(context).textTheme.bodySmall,
               ),
-              const SizedBox(height: 8),
-              ...newTx.take(20).map((tx) => _TransactionPreviewTile(transaction: tx)),
+              const SizedBox(height: AppSpacing.sm),
+              ...newTx.take(20).map((tx) => TransactionTile(transaction: tx, dense: true)),
               if (newTx.length > 20)
                 Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
                   child: Text('...그 외 ${newTx.length - 20}건', style: Theme.of(context).textTheme.bodySmall),
                 ),
-              const SizedBox(height: 20),
+              const SizedBox(height: AppSpacing.xl),
               Text('자산현황', style: Theme.of(context).textTheme.titleMedium),
-              const SizedBox(height: 8),
+              const SizedBox(height: AppSpacing.sm),
               if (snapshot != null)
                 Card(
                   child: Padding(
-                    padding: const EdgeInsets.all(12),
+                    padding: const EdgeInsets.all(AppSpacing.md),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('총자산: ${snapshot.totalAssets.toInt()}'),
-                        Text('총부채: ${snapshot.totalLiabilities.toInt()}'),
+                        Text('총자산: ${formatWon(snapshot.totalAssets)}'),
+                        Text('총부채: ${formatWon(snapshot.totalLiabilities)}'),
                         Text(
-                          '순자산: ${snapshot.netWorth.toInt()}',
+                          '순자산: ${formatWon(snapshot.netWorth)}',
                           style: const TextStyle(fontWeight: FontWeight.bold),
                         ),
                       ],
@@ -199,19 +207,12 @@ class _BanksaladImportScreenState extends ConsumerState<BanksaladImportScreen> {
                   ),
                 )
               else
-                Text(_assetError ?? '자산현황을 인식하지 못했어요.', style: TextStyle(color: Colors.orange.shade800)),
-              const SizedBox(height: 16),
-              if (_isImporting)
-                const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 8),
-                  child: Row(
-                    children: [
-                      SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
-                      SizedBox(width: 12),
-                      Text('가져오는 중...'),
-                    ],
-                  ),
+                Text(
+                  _assetError ?? '자산현황을 인식하지 못했어요.',
+                  style: TextStyle(color: colors.warning),
                 ),
+              const SizedBox(height: AppSpacing.lg),
+              if (_isImporting) const LoadingState(message: '가져오는 중...'),
               FilledButton(
                 onPressed: canConfirm ? _confirmImport : null,
                 child: const Text('가져오기 확정'),
@@ -219,30 +220,6 @@ class _BanksaladImportScreenState extends ConsumerState<BanksaladImportScreen> {
             ],
           ],
         ),
-      ),
-    );
-  }
-}
-
-class _TransactionPreviewTile extends StatelessWidget {
-  final Transaction transaction;
-
-  const _TransactionPreviewTile({required this.transaction});
-
-  @override
-  Widget build(BuildContext context) {
-    final isExpense = transaction.type == TransactionType.expense;
-    return Card(
-      margin: const EdgeInsets.symmetric(vertical: 3),
-      child: ListTile(
-        dense: true,
-        leading: Icon(
-          isExpense ? Icons.arrow_downward : Icons.arrow_upward,
-          color: isExpense ? Colors.red : Colors.green,
-        ),
-        title: Text('${transaction.category} · ${transaction.date.toString().split(' ').first}'),
-        subtitle: transaction.memo.isNotEmpty ? Text(transaction.memo) : null,
-        trailing: Text('${isExpense ? '-' : '+'}${transaction.amount.toInt()}'),
       ),
     );
   }

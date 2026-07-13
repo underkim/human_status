@@ -8,6 +8,7 @@ import '../providers/goal_provider.dart';
 import '../providers/profile_provider.dart';
 import '../providers/quest_provider.dart';
 import '../widgets/achievement_dialog.dart';
+import '../widgets/empty_state.dart';
 import '../widgets/level_up_dialog.dart';
 import '../widgets/quest_card.dart';
 import 'quest_form_screen.dart';
@@ -36,8 +37,13 @@ class _QuestsScreenState extends ConsumerState<QuestsScreen>
   }
 
   Future<void> _completeQuest(String id) async {
+    final matches = ref.read(questsProvider).where((q) => q.id == id);
+    final quest = matches.isNotEmpty ? matches.first : null;
     final result = await ref.read(questsProvider.notifier).completeQuest(id);
     if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(quest != null ? '"${quest.title}" 완료!' : '퀘스트를 완료했어요!')),
+    );
     await showLevelUpDialog(context, ref.read(statsProvider), result.levelUps);
     if (!mounted) return;
     await showAchievementDialog(context, result.newAchievements);
@@ -97,7 +103,10 @@ class _ActiveTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (quests.isEmpty) {
-      return const Center(child: Text('진행중인 퀘스트가 없어요.\n오른쪽 아래 + 버튼으로 추가해보세요.', textAlign: TextAlign.center));
+      return const EmptyState(
+        icon: Icons.checklist_outlined,
+        message: '진행중인 퀘스트가 없어요.\n오른쪽 아래 + 버튼으로 추가해보세요.',
+      );
     }
     return ListView(
       children: quests
@@ -127,7 +136,10 @@ class _SuggestedTab extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     if (quests.isEmpty) {
-      return const Center(child: Text('추천 퀘스트가 없어요.\n하루가 지나면 새로운 추천이 생성돼요.', textAlign: TextAlign.center));
+      return const EmptyState(
+        icon: Icons.auto_awesome_outlined,
+        message: '추천 퀘스트가 없어요.\n하루가 지나면 새로운 추천이 생성돼요.',
+      );
     }
     return ListView(
       children: quests
@@ -162,7 +174,10 @@ class _CompletedTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (quests.isEmpty) {
-      return const Center(child: Text('아직 완료한 퀘스트가 없어요.'));
+      return const EmptyState(
+        icon: Icons.task_alt_outlined,
+        message: '아직 완료한 퀘스트가 없어요.',
+      );
     }
     return ListView(
       children: quests.map<Widget>((q) => QuestCard(quest: q, stats: stats, goals: goals)).toList(),

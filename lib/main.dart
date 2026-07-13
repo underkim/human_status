@@ -1,39 +1,71 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'models/quest.dart';
+import 'providers/financial_advisor_provider.dart';
 import 'providers/profile_provider.dart';
+import 'providers/quest_provider.dart';
 import 'screens/home_shell.dart';
 import 'services/financial_advisor_service.dart';
 import 'services/notification_service.dart';
 import 'services/quest_recommendation_service.dart';
 import 'services/storage_service.dart';
+import 'theme/app_theme.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final storage = StorageService();
   await storage.init();
-  await QuestRecommendationService(storage: storage).refreshIfNeeded();
-  await FinancialAdvisorService(storage: storage).refreshIfNeeded();
 
-  final notificationService = NotificationService();
-  await notificationService.init();
-  final reminderMinutes = storage.getProfile().reminderMinutesSinceMidnight;
-  if (reminderMinutes != null) {
-    final activeQuestCount = storage.getQuests().where((q) => q.status == QuestStatus.active).length;
-    await notificationService.scheduleDailyReminder(
-      hour: reminderMinutes ~/ 60,
-      minute: reminderMinutes % 60,
-      activeQuestCount: activeQuestCount,
-    );
-  }
+  // A manual container (instead of a plain ProviderScope) so the background
+  // refresh below can poke the affected notifiers to reload once it finishes.
+  final container = ProviderContainer(
+    overrides: [storageServiceProvider.overrideWithValue(storage)],
+  );
 
   runApp(
-    ProviderScope(
-      overrides: [storageServiceProvider.overrideWithValue(storage)],
+    UncontrolledProviderScope(
+      container: container,
       child: const HumanStatusApp(),
     ),
   );
+
+  // AI refreshes and notification scheduling run AFTER the first frame is up —
+  // a slow or absent network must never delay opening the app, since the
+  // daily habit loop depends on it launching instantly.
+  unawaited(_refreshInBackground(container, storage));
+}
+
+Future<void> _refreshInBackground(ProviderContainer container, StorageService storage) async {
+  try {
+    await QuestRecommendationService(storage: storage).refreshIfNeeded();
+    container.read(questsProvider.notifier).reload();
+  } catch (_) {
+    // Recommendation refresh already falls back to local rules internally;
+    // if even that failed, today's suggestions simply stay as they were.
+  }
+
+  try {
+    await FinancialAdvisorService(storage: storage).refreshIfNeeded();
+    container.read(financialAdviceProvider.notifier).reload();
+  } catch (_) {}
+
+  try {
+    final notificationService = NotificationService();
+    await notificationService.init();
+    final reminderMinutes = storage.getProfile().reminderMinutesSinceMidnight;
+    if (reminderMinutes != null) {
+      final activeQuestCount =
+          storage.getQuests().where((q) => q.status == QuestStatus.active).length;
+      await notificationService.scheduleDailyReminder(
+        hour: reminderMinutes ~/ 60,
+        minute: reminderMinutes % 60,
+        activeQuestCount: activeQuestCount,
+      );
+    }
+  } catch (_) {}
 }
 
 class HumanStatusApp extends StatelessWidget {
@@ -43,12 +75,8 @@ class HumanStatusApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Human Status',
-      theme: ThemeData(colorSchemeSeed: Colors.deepPurple, useMaterial3: true),
-      darkTheme: ThemeData(
-        colorSchemeSeed: Colors.deepPurple,
-        brightness: Brightness.dark,
-        useMaterial3: true,
-      ),
+      theme: AppTheme.light,
+      darkTheme: AppTheme.dark,
       home: const HomeShell(),
     );
   }

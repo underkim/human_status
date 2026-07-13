@@ -1,11 +1,13 @@
 import 'dart:convert';
 
+import 'package:file_selector/file_selector.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/asset_snapshot.dart';
+import '../models/financial_plan.dart';
 import '../models/goal.dart';
 import '../models/quest.dart';
 import '../models/stat.dart';
@@ -13,10 +15,12 @@ import '../models/transaction.dart';
 import '../models/user_profile.dart';
 import '../providers/asset_snapshot_provider.dart';
 import '../providers/finance_provider.dart';
+import '../providers/financial_planning_provider.dart';
 import '../providers/goal_provider.dart';
 import '../providers/profile_provider.dart';
 import '../providers/quest_provider.dart';
 import '../services/storage_service.dart';
+import '../theme/app_colors.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
@@ -43,6 +47,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             const SizedBox(height: 12),
             TextField(
               controller: controller,
+              autofocus: true,
               obscureText: true,
               decoration: const InputDecoration(hintText: 'sk-ant-...'),
             ),
@@ -120,14 +125,18 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
     profile.reminderMinutesSinceMidnight = picked.hour * 60 + picked.minute;
     await storage.saveProfile(profile);
-    await notificationService.scheduleDailyReminder(
+    final granted = await notificationService.scheduleDailyReminder(
       hour: picked.hour,
       minute: picked.minute,
       activeQuestCount: ref.read(activeQuestsProvider).length,
     );
     ref.read(profileProvider.notifier).reload();
     if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('알림 시간이 저장되었습니다.')));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(granted
+            ? '알림 시간이 저장되었습니다.'
+            : '시간은 저장됐지만 알림 권한이 꺼져 있어요 — 기기 설정에서 허용해주세요.'),
+      ));
     }
   }
 
@@ -136,7 +145,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('데이터 초기화'),
-        content: const Text('모든 스텟과 퀘스트 기록이 삭제되고 처음 상태로 돌아갑니다. 계속할까요?'),
+        content: const Text('모든 스텟·퀘스트·목표·거래·자산·재무계획 기록이 삭제되고 처음 상태로 돌아갑니다. 계속할까요?'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('취소')),
           FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('초기화')),
@@ -154,6 +163,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     await storage.goalsBox.clear();
     await storage.transactionsBox.clear();
     await storage.assetSnapshotsBox.clear();
+    await storage.financialPlanBox.clear();
     for (final s in StorageService.defaultStats) {
       await storage.saveStat(Stat(id: s.id, name: s.name, icon: s.icon));
     }
@@ -169,6 +179,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     ref.read(goalsProvider.notifier).reload();
     ref.read(transactionsProvider.notifier).reload();
     ref.read(assetSnapshotsProvider.notifier).reload();
+    ref.read(financialPlanProvider.notifier).reload();
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('초기화되었습니다.')));
     }
@@ -182,57 +193,117 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       'goals': storage.getGoals().map((g) => g.toJson()).toList(),
       'transactions': storage.getTransactions().map((t) => t.toJson()).toList(),
       'assetSnapshots': storage.getAssetSnapshots().map((a) => a.toJson()).toList(),
+      'financialPlan': storage.getFinancialPlan().toJson(),
     };
     final jsonStr = const JsonEncoder.withIndent('  ').convert(data);
 
     if (!context.mounted) return;
-    await showDialog<void>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('백업 내보내기'),
-        content: SizedBox(
-          width: double.maxFinite,
-          child: SingleChildScrollView(child: SelectableText(jsonStr)),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () async {
-              await Clipboard.setData(ClipboardData(text: jsonStr));
-              if (context.mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('클립보드에 복사되었습니다.')),
-                );
-              }
-            },
-            child: const Text('복사'),
+
+    // 웹은 파일 저장 위치 선택이 불가능해 기존 복사 다이얼로그를 유지한다.
+    if (kIsWeb) {
+      await showDialog<void>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('백업 내보내기'),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: SingleChildScrollView(child: SelectableText(jsonStr)),
           ),
-          FilledButton(onPressed: () => Navigator.pop(context), child: const Text('닫기')),
-        ],
-      ),
-    );
+          actions: [
+            TextButton(
+              onPressed: () async {
+                await Clipboard.setData(ClipboardData(text: jsonStr));
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('클립보드에 복사되었습니다.')),
+                  );
+                }
+              },
+              child: const Text('복사'),
+            ),
+            FilledButton(onPressed: () => Navigator.pop(context), child: const Text('닫기')),
+          ],
+        ),
+      );
+      return;
+    }
+
+    final fileName = 'human_status_backup_${DateTime.now().toString().split(' ').first}.json';
+    final location = await getSaveLocation(suggestedName: fileName);
+    if (location == null) return;
+
+    try {
+      final bytes = Uint8List.fromList(utf8.encode(jsonStr));
+      await XFile.fromData(bytes, mimeType: 'application/json', name: fileName)
+          .saveTo(location.path);
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('백업 파일을 저장했습니다.')),
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('백업 저장에 실패했습니다: $e')),
+        );
+      }
+    }
   }
 
   Future<void> _importBackup(BuildContext context, WidgetRef ref) async {
-    final controller = TextEditingController();
-    final jsonStr = await showDialog<String>(
+    String? jsonStr;
+    if (kIsWeb) {
+      final controller = TextEditingController();
+      jsonStr = await showDialog<String>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('백업 가져오기'),
+          content: TextField(
+            controller: controller,
+            autofocus: true,
+            maxLines: 10,
+            decoration: const InputDecoration(hintText: '백업 JSON을 붙여넣으세요'),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context), child: const Text('취소')),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, controller.text),
+              child: const Text('가져오기'),
+            ),
+          ],
+        ),
+      );
+    } else {
+      const typeGroup = XTypeGroup(label: 'json', extensions: ['json']);
+      final file = await openFile(acceptedTypeGroups: [typeGroup]);
+      if (file == null) return;
+      try {
+        jsonStr = await file.readAsString();
+      } catch (e) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('파일을 읽을 수 없습니다: $e')),
+          );
+        }
+        return;
+      }
+    }
+    if (jsonStr == null || jsonStr.trim().isEmpty) return;
+
+    // 가져오기는 기존 데이터를 전부 교체하는 파괴적 작업이라 반드시 확인을 거친다.
+    if (!context.mounted) return;
+    final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('백업 가져오기'),
-        content: TextField(
-          controller: controller,
-          maxLines: 10,
-          decoration: const InputDecoration(hintText: '백업 JSON을 붙여넣으세요'),
-        ),
+        content: const Text('현재 모든 데이터가 백업 내용으로 교체됩니다. 계속할까요?'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('취소')),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, controller.text),
-            child: const Text('가져오기'),
-          ),
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('취소')),
+          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('교체')),
         ],
       ),
     );
-    if (jsonStr == null || jsonStr.trim().isEmpty) return;
+    if (confirmed != true) return;
 
     try {
       final data = jsonDecode(jsonStr) as Map<String, dynamic>;
@@ -247,6 +318,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       final assetSnapshots = (data['assetSnapshots'] as List? ?? [])
           .map((e) => AssetSnapshot.fromJson(e as Map<String, dynamic>))
           .toList();
+      final financialPlan = data['financialPlan'] != null
+          ? FinancialPlan.fromJson(data['financialPlan'] as Map<String, dynamic>)
+          : null;
 
       final storage = ref.read(storageServiceProvider);
       await storage.statsBox.clear();
@@ -254,6 +328,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       await storage.goalsBox.clear();
       await storage.transactionsBox.clear();
       await storage.assetSnapshotsBox.clear();
+      await storage.financialPlanBox.clear();
       for (final s in stats) {
         await storage.saveStat(s);
       }
@@ -269,11 +344,15 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       for (final a in assetSnapshots) {
         await storage.saveAssetSnapshot(a);
       }
+      if (financialPlan != null) {
+        await storage.saveFinancialPlan(financialPlan);
+      }
       ref.read(statsProvider.notifier).reload();
       ref.read(questsProvider.notifier).reload();
       ref.read(goalsProvider.notifier).reload();
       ref.read(transactionsProvider.notifier).reload();
       ref.read(assetSnapshotsProvider.notifier).reload();
+      ref.read(financialPlanProvider.notifier).reload();
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('가져오기가 완료되었습니다.')));
       }
@@ -308,7 +387,22 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           ListTile(
             leading: const Icon(Icons.notifications_outlined),
             title: const Text('알림 시간'),
-            subtitle: Text(reminderSubtitle),
+            // 알림이 켜져 있어도 OS 권한이 거부돼 있으면 실제로는 오지 않으므로,
+            // 설정 화면 표시와 실제 동작이 항상 일치하도록 권한 상태를 함께 보여준다.
+            subtitle: reminderMinutes != null && !kIsWeb
+                ? FutureBuilder<bool?>(
+                    future: ref.read(notificationServiceProvider).areNotificationsEnabled(),
+                    builder: (context, snap) {
+                      if (snap.hasData && snap.data == false) {
+                        return Text(
+                          '$reminderSubtitle · 권한 꺼짐 — 기기 설정에서 허용해주세요',
+                          style: TextStyle(color: context.appColors.warning),
+                        );
+                      }
+                      return Text(reminderSubtitle);
+                    },
+                  )
+                : Text(reminderSubtitle),
             onTap: () => _editReminder(context, ref),
           ),
           ListTile(
@@ -336,8 +430,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           ),
           const Divider(),
           ListTile(
-            leading: const Icon(Icons.delete_forever, color: Colors.red),
-            title: const Text('데이터 초기화', style: TextStyle(color: Colors.red)),
+            leading: Icon(Icons.delete_forever, color: context.appColors.error),
+            title: Text('데이터 초기화', style: TextStyle(color: context.appColors.error)),
             onTap: () => _confirmReset(context, ref),
           ),
         ],

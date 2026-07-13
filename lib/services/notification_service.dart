@@ -39,16 +39,30 @@ class NotificationService {
     _initialized = true;
   }
 
+  /// Whether the OS will actually deliver our notifications. Returns null on
+  /// platforms where this can't be queried (treat as "probably fine").
+  Future<bool?> areNotificationsEnabled() async {
+    if (kIsWeb) return false;
+    await init();
+    return _plugin
+        .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
+        ?.areNotificationsEnabled();
+  }
+
   /// Schedules (or reschedules) a daily reminder at [hour]:[minute]. The
   /// notification body reflects how many quests are currently active.
-  Future<void> scheduleDailyReminder({
+  ///
+  /// Returns false when the user denied the notification permission — the
+  /// alarm is still registered, but the OS will silently swallow it, so
+  /// callers should surface a warning instead of claiming success.
+  Future<bool> scheduleDailyReminder({
     required int hour,
     required int minute,
     int activeQuestCount = 0,
   }) async {
-    if (kIsWeb) return;
+    if (kIsWeb) return false;
     await init();
-    await _plugin
+    final granted = await _plugin
         .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
         ?.requestNotificationsPermission();
 
@@ -80,6 +94,10 @@ class NotificationService {
       androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
       matchDateTimeComponents: DateTimeComponents.time,
     );
+
+    // null means the platform can't report permission (iOS/desktop) — assume
+    // granted rather than alarming the user for nothing.
+    return granted ?? true;
   }
 
   Future<void> cancelReminder() async {
