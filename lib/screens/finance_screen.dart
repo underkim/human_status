@@ -119,11 +119,15 @@ class _FinanceListViewState extends ConsumerState<FinanceListView> {
               )),
         ],
         const SizedBox(height: AppSpacing.lg),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        // 좁은 화면에서는 액션 묶음이 제목 아래 줄로 내려가도록 Wrap을 쓴다 —
+        // 고정 Row는 ~400dp 이하에서 가로로 넘친다.
+        Wrap(
+          alignment: WrapAlignment.spaceBetween,
+          crossAxisAlignment: WrapCrossAlignment.center,
           children: [
             Text('거래 내역', style: Theme.of(context).textTheme.titleLarge),
             Row(
+              mainAxisSize: MainAxisSize.min,
               children: [
                 Text('${filteredTransactions.length}건'),
                 IconButton(

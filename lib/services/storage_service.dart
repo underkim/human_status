@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:hive_flutter/hive_flutter.dart';
 
 import '../models/asset_snapshot.dart';
@@ -35,24 +37,44 @@ class StorageService {
     (id: 'mental', name: '마음', icon: '🧘'),
   ];
 
-  Future<void> init() async {
-    await Hive.initFlutter();
-    Hive.registerAdapter(StatAdapter());
-    Hive.registerAdapter(QuestAdapter());
-    Hive.registerAdapter(UserProfileAdapter());
-    Hive.registerAdapter(GoalAdapter());
-    Hive.registerAdapter(TransactionAdapter());
-    Hive.registerAdapter(AssetSnapshotAdapter());
-    Hive.registerAdapter(FinancialPlanAdapter());
+  /// Adapter registration is global to the Hive singleton, so it must happen
+  /// exactly once per process even if init() runs again (e.g. once per test).
+  static bool _adaptersRegistered = false;
 
-    statsBox = await Hive.openBox<Stat>(statsBoxName);
-    questsBox = await Hive.openBox<Quest>(questsBoxName);
-    profileBox = await Hive.openBox<UserProfile>(profileBoxName);
-    achievementsBox = await Hive.openBox<DateTime>(achievementsBoxName);
-    goalsBox = await Hive.openBox<Goal>(goalsBoxName);
-    transactionsBox = await Hive.openBox<Transaction>(transactionsBoxName);
-    assetSnapshotsBox = await Hive.openBox<AssetSnapshot>(assetSnapshotsBoxName);
-    financialPlanBox = await Hive.openBox<FinancialPlan>(financialPlanBoxName);
+  /// Whether boxes live only in memory (no disk writes). Tests use this:
+  /// Hive.initFlutter() needs the path_provider plugin, and real file IO
+  /// deadlocks under the widget-test FakeAsync zone.
+  final bool inMemory;
+
+  StorageService({this.inMemory = false});
+
+  Future<void> init() async {
+    if (!inMemory) {
+      await Hive.initFlutter();
+    }
+    if (!_adaptersRegistered) {
+      Hive.registerAdapter(StatAdapter());
+      Hive.registerAdapter(QuestAdapter());
+      Hive.registerAdapter(UserProfileAdapter());
+      Hive.registerAdapter(GoalAdapter());
+      Hive.registerAdapter(TransactionAdapter());
+      Hive.registerAdapter(AssetSnapshotAdapter());
+      Hive.registerAdapter(FinancialPlanAdapter());
+      _adaptersRegistered = true;
+    }
+
+    // Passing `bytes` makes hive use its in-memory backend for the box.
+    Future<Box<T>> open<T>(String name) =>
+        inMemory ? Hive.openBox<T>(name, bytes: Uint8List(0)) : Hive.openBox<T>(name);
+
+    statsBox = await open<Stat>(statsBoxName);
+    questsBox = await open<Quest>(questsBoxName);
+    profileBox = await open<UserProfile>(profileBoxName);
+    achievementsBox = await open<DateTime>(achievementsBoxName);
+    goalsBox = await open<Goal>(goalsBoxName);
+    transactionsBox = await open<Transaction>(transactionsBoxName);
+    assetSnapshotsBox = await open<AssetSnapshot>(assetSnapshotsBoxName);
+    financialPlanBox = await open<FinancialPlan>(financialPlanBoxName);
 
     if (statsBox.isEmpty) {
       for (final s in defaultStats) {
