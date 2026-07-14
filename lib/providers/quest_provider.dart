@@ -79,12 +79,18 @@ class QuestsNotifier extends StateNotifier<List<Quest>> {
   /// outstanding quest. Returns level-up results per stat plus any
   /// newly-unlocked achievements so the UI can show celebrations.
   Future<QuestCompletionResult> completeQuest(String id) async {
-    final quest = storage.getQuests().firstWhere((q) => q.id == id);
+    final matches = storage.getQuests().where((q) => q.id == id);
+    final quest = matches.isNotEmpty ? matches.first : null;
+    // 완료 버튼이 리빌드 전에 연타되면 같은 id로 두 번 들어온다 — 이미
+    // 완료된(또는 사라진) 퀘스트에 XP를 중복 지급하지 않고 조용히 무시한다.
+    if (quest == null || quest.status == QuestStatus.completed) {
+      return const QuestCompletionResult(levelUps: {}, newAchievements: []);
+    }
+
     final statsNotifier = ref.read(statsProvider.notifier);
     final levelUps = <String, LevelUpResult>{};
-    for (final entry in quest.statRewards.entries) {
-      final xp = quest.goalId != null ? XpService.applyGoalMultiplier(entry.value) : entry.value;
-      levelUps[entry.key] = await statsNotifier.applyXp(entry.key, xp);
+    for (final entry in XpService.effectiveRewards(quest).entries) {
+      levelUps[entry.key] = await statsNotifier.applyXp(entry.key, entry.value);
     }
 
     quest.status = QuestStatus.completed;

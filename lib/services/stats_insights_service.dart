@@ -1,4 +1,5 @@
 import '../models/quest.dart';
+import 'xp_service.dart';
 
 class StatsInsightsService {
   static DateTime _dateOnly(DateTime d) => DateTime(d.year, d.month, d.day);
@@ -45,17 +46,19 @@ class StatsInsightsService {
       if (q.completedAt == null) continue;
       final day = _dateOnly(q.completedAt!);
       if (!result.containsKey(day)) continue;
-      final xp = q.statRewards.values.fold(0.0, (a, b) => a + b);
+      final xp = XpService.effectiveRewards(q).values.fold(0.0, (a, b) => a + b);
       result[day] = result[day]! + xp;
     }
     return result;
   }
 
   /// Total XP ever earned per stat, summed across all completed quests.
+  /// Uses effectiveRewards so goal-linked quests count their 1.5x bonus,
+  /// matching what applyXp actually credited.
   static Map<String, double> totalXpByStat(List<Quest> completedQuests) {
     final result = <String, double>{};
     for (final q in completedQuests) {
-      q.statRewards.forEach((statId, xp) {
+      XpService.effectiveRewards(q).forEach((statId, xp) {
         result[statId] = (result[statId] ?? 0) + xp;
       });
     }

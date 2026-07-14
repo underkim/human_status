@@ -52,6 +52,7 @@ Future<StorageService> _seededStorage() async {
     totalAssets: 5000000,
     totalLiabilities: 1000000,
   ));
+  await storage.unlockAchievement('first_quest', DateTime(2026, 6, 2, 10));
   await storage.saveFinancialPlan(FinancialPlan(
     updatedAt: DateTime(2026, 7, 1),
     retirementEnabled: true,
@@ -76,6 +77,7 @@ void main() {
     await storage.transactionsBox.clear();
     await storage.assetSnapshotsBox.clear();
     await storage.financialPlanBox.clear();
+    await storage.achievementsBox.clear();
     final health = storage.getStat('health')!;
     health.level = 1;
     health.currentXp = 0;
@@ -110,6 +112,8 @@ void main() {
     expect(plan.retirementAge, 60);
     expect(plan.monthlyBudget, 1500000);
     expect(plan.categoryBudgets, {'식비': 400000});
+
+    expect(storage.getUnlockedAchievements(), {'first_quest': DateTime(2026, 6, 2, 10)});
   });
 
   test('구버전 백업(스텟·퀘스트만 있는 파일)도 복원된다', () async {
@@ -125,6 +129,8 @@ void main() {
     // 구버전에 없던 데이터는 교체 시맨틱에 따라 비워진다.
     expect(storage.getGoals(), isEmpty);
     expect(storage.getTransactions(), isEmpty);
+    // 단, 업적 키가 아예 없는 구버전 백업은 기존 업적을 지우지 않는다.
+    expect(storage.getUnlockedAchievements(), isNotEmpty);
   });
 
   test('망가진 백업은 기존 데이터를 건드리기 전에 예외를 던진다', () async {

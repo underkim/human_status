@@ -94,6 +94,22 @@ void main() {
       expect(report.topStatId, 'health');
     });
 
+    test('목표 연결 퀘스트는 실제 지급된 1.5배 XP로 집계한다', () {
+      final quest = _completedQuest('linked', DateTime(2026, 7, 7), {'health': 20});
+      quest.goalId = 'g1';
+
+      final report = ReportService.build(
+        quests: [quest],
+        goals: [],
+        transactions: [],
+        start: start,
+        end: end,
+      );
+
+      expect(report.xpByStat, {'health': 30});
+      expect(report.xpEarned, 30);
+    });
+
     test('기간 안에 달성한 목표 제목을 모은다', () {
       final report = ReportService.build(
         quests: [],

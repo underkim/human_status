@@ -93,5 +93,22 @@ void main() {
       expect(result['health'], 30);
       expect(result['mental'], 5);
     });
+
+    test('counts the 1.5x bonus of goal-linked quests, matching what was awarded', () {
+      final quest = Quest(
+        id: const Uuid().v4(),
+        title: 'linked',
+        description: '',
+        statRewards: const {'health': 20},
+        status: QuestStatus.completed,
+        goalId: 'g1',
+        createdAt: DateTime.now(),
+        completedAt: DateTime.now(),
+      );
+
+      expect(StatsInsightsService.totalXpByStat([quest])['health'], 30);
+      final today = DateTime(DateTime.now().year, DateTime.now().month, DateTime.now().day);
+      expect(StatsInsightsService.xpByDay([quest], days: 1)[today], 30);
+    });
   });
 }

@@ -24,6 +24,9 @@ class BackupService {
       'transactions': storage.getTransactions().map((t) => t.toJson()).toList(),
       'assetSnapshots': storage.getAssetSnapshots().map((a) => a.toJson()).toList(),
       'financialPlan': storage.getFinancialPlan().toJson(),
+      'achievements': storage
+          .getUnlockedAchievements()
+          .map((id, unlockedAt) => MapEntry(id, unlockedAt.toIso8601String())),
     };
     return const JsonEncoder.withIndent('  ').convert(data);
   }
@@ -48,6 +51,9 @@ class BackupService {
     final financialPlan = data['financialPlan'] != null
         ? FinancialPlan.fromJson(data['financialPlan'] as Map<String, dynamic>)
         : null;
+    // null = 이 키가 없던 구버전 백업 — 기존 업적을 지우지 않고 그대로 둔다.
+    final achievements = (data['achievements'] as Map?)
+        ?.map((k, v) => MapEntry(k as String, DateTime.parse(v as String)));
 
     await storage.statsBox.clear();
     await storage.questsBox.clear();
@@ -70,6 +76,12 @@ class BackupService {
     }
     if (financialPlan != null) {
       await storage.saveFinancialPlan(financialPlan);
+    }
+    if (achievements != null) {
+      await storage.achievementsBox.clear();
+      for (final e in achievements.entries) {
+        await storage.unlockAchievement(e.key, e.value);
+      }
     }
   }
 }

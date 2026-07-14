@@ -1,6 +1,7 @@
 import '../models/goal.dart';
 import '../models/quest.dart';
 import '../models/transaction.dart';
+import 'xp_service.dart';
 
 enum ReportPeriod { weekly, monthly }
 
@@ -96,7 +97,7 @@ class ReportService {
     for (final q in quests) {
       if (q.status != QuestStatus.completed || !_inRange(q.completedAt, start, end)) continue;
       final day = DateTime(q.completedAt!.year, q.completedAt!.month, q.completedAt!.day);
-      final xp = q.statRewards.values.fold(0.0, (a, b) => a + b);
+      final xp = XpService.effectiveRewards(q).values.fold(0.0, (a, b) => a + b);
       result[day] = (result[day] ?? 0) + xp;
     }
     return result;
@@ -130,7 +131,8 @@ class ReportService {
     for (final q in quests) {
       if (q.status != QuestStatus.completed || !_inRange(q.completedAt, start, end)) continue;
       questsCompleted++;
-      q.statRewards.forEach((statId, xp) {
+      // effectiveRewards: 목표 연결 퀘스트의 1.5배 보너스까지, 실제 지급된 값.
+      XpService.effectiveRewards(q).forEach((statId, xp) {
         xpByStat[statId] = (xpByStat[statId] ?? 0) + xp;
       });
     }

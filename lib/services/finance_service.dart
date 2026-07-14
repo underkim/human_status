@@ -79,7 +79,23 @@ class FinanceService {
     return goal;
   }
 
-  Future<void> deleteTransaction(String id) => storage.deleteTransaction(id);
+  /// Deletes [id], reverting its contribution to a linked financial goal's
+  /// currentAmount (the mirror of addTransaction's adjustment) so deleting
+  /// a mistaken entry doesn't leave phantom progress. Returns the adjusted
+  /// goal, or null when the transaction was unlinked or already gone.
+  Future<Goal?> deleteTransaction(String id) async {
+    final matches = storage.getTransactions().where((t) => t.id == id);
+    final tx = matches.isNotEmpty ? matches.first : null;
+    await storage.deleteTransaction(id);
+    if (tx == null || tx.linkedGoalId == null) return null;
+
+    final goal = storage.getGoal(tx.linkedGoalId!);
+    if (goal == null || goal.targetAmount == null) return null;
+
+    goal.currentAmount -= tx.type == TransactionType.expense ? -tx.amount : tx.amount;
+    await storage.saveGoal(goal);
+    return goal;
+  }
 
   /// Bulk-persists imported transactions. Imported rows never carry a
   /// linkedGoalId, so there's no goal-amount adjustment to do here.

@@ -40,8 +40,11 @@ class TransactionsNotifier extends StateNotifier<List<Transaction>> {
   }
 
   Future<void> deleteTransaction(String id) async {
-    await storage.deleteTransaction(id);
+    final adjustedGoal = await ref.read(financeServiceProvider).deleteTransaction(id);
     reload();
+    if (adjustedGoal != null) {
+      ref.read(goalsProvider.notifier).reload();
+    }
   }
 
   /// Bulk-imports transactions (e.g. from a CSV file). Unlike addTransaction,
