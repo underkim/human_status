@@ -10,6 +10,7 @@ import '../providers/profile_provider.dart';
 import '../services/financial_planning_service.dart';
 import '../theme/app_colors.dart';
 import '../utils/formatters.dart';
+import '../widgets/achievement_dialog.dart';
 
 const _financialHorizonsMonths = [6, 12, 36];
 
@@ -218,10 +219,13 @@ class _GoalFormScreenState extends ConsumerState<GoalFormScreen> {
       createdAt: DateTime.now(),
     );
 
-    final quests = await ref.read(goalsProvider.notifier).createGoal(goal);
+    final result = await ref.read(goalsProvider.notifier).createGoal(goal);
+    if (!mounted) return;
+    // '목표 설정' 같은 생성 기반 업적은 화면을 떠나기 전에 축하한다.
+    await showAchievementDialog(context, result.newAchievements);
     if (!mounted) return;
     final messenger = ScaffoldMessenger.of(context);
     Navigator.of(context).pop();
-    messenger.showSnackBar(SnackBar(content: Text('퀘스트 ${quests.length}개가 생성되었어요.')));
+    messenger.showSnackBar(SnackBar(content: Text('퀘스트 ${result.quests.length}개가 생성되었어요.')));
   }
 }

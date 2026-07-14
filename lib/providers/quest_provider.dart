@@ -4,7 +4,6 @@ import '../data/achievement_definitions.dart';
 import '../models/quest.dart';
 import '../services/achievement_service.dart';
 import '../services/quest_recommendation_service.dart';
-import '../services/stats_insights_service.dart';
 import '../services/storage_service.dart';
 import '../services/xp_service.dart';
 import 'goal_provider.dart';
@@ -107,16 +106,9 @@ class QuestsNotifier extends StateNotifier<List<Quest>> {
       }
     }
 
-    final stats = storage.getStats();
-    final completedQuests = storage.getQuests().where((q) => q.status == QuestStatus.completed).toList();
-    final context = AchievementContext(
-      stats: stats,
-      completedQuests: completedQuests,
-      streak: StatsInsightsService.currentStreak(completedQuests),
-      overallLevel: XpService.overallLevel(stats),
-      goals: storage.getGoals(),
-    );
-    final newAchievements = await ref.read(achievementServiceProvider).checkAndUnlock(context);
+    final achievementService = ref.read(achievementServiceProvider);
+    final newAchievements =
+        await achievementService.checkAndUnlock(achievementService.currentContext());
     final allNewAchievements = <AchievementDefinition>[
       ...(goalCompletion?.newAchievements ?? const []),
       ...newAchievements,

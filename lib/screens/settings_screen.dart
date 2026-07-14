@@ -187,10 +187,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     for (final s in StorageService.defaultStats) {
       await storage.saveStat(Stat(id: s.id, name: s.name, icon: s.icon));
     }
+    // lastQuestRefresh는 보존하지 않는다 — 초기화로 추천 퀘스트도 사라졌으니
+    // 다음 실행에서 24시간 간격을 기다리지 않고 바로 새 추천이 생성돼야 한다.
     await storage.saveProfile(UserProfile(
       claudeApiKey: preservedProfile.claudeApiKey,
       reminderMinutesSinceMidnight: preservedProfile.reminderMinutesSinceMidnight,
-      lastQuestRefresh: preservedProfile.lastQuestRefresh,
       weeklyReportReminderEnabled: preservedProfile.weeklyReportReminderEnabled,
     ));
     ref.read(statsProvider.notifier).reload();

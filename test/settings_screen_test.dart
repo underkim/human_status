@@ -10,6 +10,7 @@ void main() {
     final storage = await createTestStorage();
     final profile = storage.getProfile();
     profile.claudeApiKey = 'sk-ant-test';
+    profile.lastQuestRefresh = DateTime(2026, 7, 14, 9);
     await storage.saveProfile(profile);
     await storage.saveQuest(Quest(
       id: 'q1',
@@ -44,5 +45,7 @@ void main() {
     expect(storage.getStats().length, StorageService.defaultStats.length);
     expect(storage.getStat('health')!.level, 1);
     expect(storage.getProfile().claudeApiKey, 'sk-ant-test');
+    // 추천이 함께 사라졌으므로 24시간 간격을 기다리지 않고 재생성돼야 한다.
+    expect(storage.getProfile().lastQuestRefresh, isNull);
   });
 }
