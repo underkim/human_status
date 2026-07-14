@@ -17,6 +17,9 @@ class FinancialPlan {
   double? homePurchaseTargetAmount;
   double homePurchaseCurrentSaved;
 
+  /// 이번 달 지출 한도. null이면 예산 기능을 쓰지 않는 상태.
+  double? monthlyBudget;
+
   FinancialPlan({
     required this.updatedAt,
     this.expectedAnnualReturnPercent = 0,
@@ -29,6 +32,7 @@ class FinancialPlan {
     this.homePurchaseTargetDate,
     this.homePurchaseTargetAmount,
     this.homePurchaseCurrentSaved = 0,
+    this.monthlyBudget,
   });
 
   Map<String, dynamic> toJson() => {
@@ -43,6 +47,7 @@ class FinancialPlan {
         'homePurchaseTargetDate': homePurchaseTargetDate?.toIso8601String(),
         'homePurchaseTargetAmount': homePurchaseTargetAmount,
         'homePurchaseCurrentSaved': homePurchaseCurrentSaved,
+        'monthlyBudget': monthlyBudget,
       };
 
   factory FinancialPlan.fromJson(Map<String, dynamic> json) => FinancialPlan(
@@ -59,6 +64,7 @@ class FinancialPlan {
             : null,
         homePurchaseTargetAmount: (json['homePurchaseTargetAmount'] as num?)?.toDouble(),
         homePurchaseCurrentSaved: (json['homePurchaseCurrentSaved'] as num?)?.toDouble() ?? 0,
+        monthlyBudget: (json['monthlyBudget'] as num?)?.toDouble(),
       );
 }
 
@@ -84,13 +90,15 @@ class FinancialPlanAdapter extends TypeAdapter<FinancialPlan> {
       homePurchaseTargetDate: fields[8] as DateTime?,
       homePurchaseTargetAmount: fields[9] as double?,
       homePurchaseCurrentSaved: fields[10] as double,
+      // 필드 11은 나중에 추가됨 — 구버전 레코드에는 없으므로 null(예산 미설정).
+      monthlyBudget: fields[11] as double?,
     );
   }
 
   @override
   void write(BinaryWriter writer, FinancialPlan obj) {
     writer
-      ..writeByte(11)
+      ..writeByte(12)
       ..writeByte(0)
       ..write(obj.updatedAt)
       ..writeByte(1)
@@ -112,6 +120,8 @@ class FinancialPlanAdapter extends TypeAdapter<FinancialPlan> {
       ..writeByte(9)
       ..write(obj.homePurchaseTargetAmount)
       ..writeByte(10)
-      ..write(obj.homePurchaseCurrentSaved);
+      ..write(obj.homePurchaseCurrentSaved)
+      ..writeByte(11)
+      ..write(obj.monthlyBudget);
   }
 }

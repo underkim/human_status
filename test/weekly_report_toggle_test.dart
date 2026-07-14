@@ -53,6 +53,8 @@ void main() {
     expect(storage.getProfile().weeklyReportReminderEnabled, isTrue);
     expect(fake.scheduleWeeklyCalls, 1);
     expect(find.text('일요일 20:00에 주간 리포트를 알려드릴게요.'), findsOneWidget);
+    // 프로필 reload가 리스너에 실제로 전파되어 스위치 UI도 켜져야 한다.
+    expect(tester.widget<SwitchListTile>(find.byType(SwitchListTile)).value, isTrue);
   });
 
   testWidgets('주간 리포트 알림을 끄면 스케줄이 취소된다', (tester) async {

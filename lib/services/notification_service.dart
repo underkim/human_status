@@ -3,11 +3,14 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/data/latest_all.dart' as tz_data;
 import 'package:timezone/timezone.dart' as tz;
 
+import '../utils/formatters.dart';
+
 /// Local (on-device) daily reminder notifications. No-op on web, where the
 /// underlying plugin has no native scheduling support.
 class NotificationService {
   static const _dailyReminderId = 1;
   static const _weeklyReportId = 2;
+  static const _budgetExceededId = 3;
   static const _windowsGuid = 'f6f4d1a0-6b7a-4b0e-9c8a-6b2b6a2e0e01';
 
   /// 주간 리포트 알림이 울리는 요일·시각 — 한 주를 마감하는 일요일 저녁.
@@ -155,5 +158,26 @@ class NotificationService {
   Future<void> cancelWeeklyReportReminder() async {
     if (kIsWeb) return;
     await _plugin.cancel(id: _weeklyReportId);
+  }
+
+  /// Fires immediately when this month's spending first crosses the budget.
+  Future<void> showBudgetExceeded({required double spent, required double budget}) async {
+    if (kIsWeb) return;
+    await init();
+    await _plugin.show(
+      id: _budgetExceededId,
+      title: '예산 초과',
+      body: '이번 달 지출 ${formatWon(spent)} — 예산 ${formatWon(budget)}을 넘었어요.',
+      notificationDetails: const NotificationDetails(
+        android: AndroidNotificationDetails(
+          'budget_alert',
+          '예산 알림',
+          channelDescription: '월 지출이 예산을 넘으면 알려드려요.',
+        ),
+        iOS: DarwinNotificationDetails(),
+        macOS: DarwinNotificationDetails(),
+        linux: LinuxNotificationDetails(),
+      ),
+    );
   }
 }

@@ -38,6 +38,12 @@ class ProfileNotifier extends StateNotifier<UserProfile> {
 
   ProfileNotifier(this.storage) : super(storage.getProfile());
 
+  /// 프로필은 단일 레코드라 hive가 항상 같은 인스턴스를 돌려준다 — 제자리에서
+  /// 수정된 뒤 reload()하면 old/new가 identical이라 기본 구현은 리스너에
+  /// 알리지 않으므로, 무조건 알리도록 바꾼다.
+  @override
+  bool updateShouldNotify(UserProfile old, UserProfile current) => true;
+
   void reload() => state = storage.getProfile();
 }
 
