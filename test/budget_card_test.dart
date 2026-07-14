@@ -12,12 +12,12 @@ Future<void> _setBudget(StorageService storage, double amount) async {
   await storage.saveFinancialPlan(plan);
 }
 
-Future<void> _spend(StorageService storage, String id, double amount) {
-  final now = DateTime.now();
+Future<void> _spend(StorageService storage, String id, double amount, {String category = '식비', DateTime? date}) {
+  final now = date ?? DateTime.now();
   return storage.saveTransaction(Transaction(
     id: id,
     type: TransactionType.expense,
-    category: '식비',
+    category: category,
     memo: '',
     amount: amount,
     date: now,
@@ -100,6 +100,26 @@ void main() {
 
     expect(storage.getFinancialPlan().categoryBudgets, isEmpty);
     expect(find.text('월 지출 한도를 정하면 남은 예산과 초과 여부를 보여드려요.'), findsOneWidget);
+  });
+
+  testWidgets('지출이 있으면 추천 버튼이 뜨고 적용하면 카테고리 예산이 채워진다', (tester) async {
+    final storage = await createTestStorage();
+    // 이번 달 식비 400,000 지출 → 평균(1개월분)만 있어도 추천 대상.
+    await _spend(storage, 't1', 400000, category: '식비');
+
+    await pumpApp(tester, storage, const Scaffold(body: FinanceListView()));
+
+    await tester.tap(find.text('지출로 예산 추천'));
+    await tester.pumpAndSettle();
+
+    // 400000/3개월 평균 = 133333, *1.1=146666 → 15만원(올림).
+    expect(find.text('지출 기반 예산 추천'), findsOneWidget);
+    expect(find.text('150,000원'), findsOneWidget);
+    await tester.tap(find.text('적용'));
+    await tester.pumpAndSettle();
+
+    expect(storage.getFinancialPlan().categoryBudgets, {'식비': 150000});
+    expect(find.text('카테고리 예산 1개를 추가했어요.'), findsOneWidget);
   });
 
   testWidgets('예산 삭제 버튼은 카드를 미설정 상태로 되돌린다', (tester) async {

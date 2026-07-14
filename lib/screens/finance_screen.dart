@@ -98,10 +98,7 @@ class _FinanceListViewState extends ConsumerState<FinanceListView> {
         _BudgetCard(
           spentThisMonth: summary.expense,
           spentByCategory: byCategory,
-          knownCategories: {
-            for (final t in transactions)
-              if (t.type == TransactionType.expense) t.category,
-          },
+          categoryAverages: FinanceService.averageMonthlyExpenseByCategory(transactions),
         ),
         if (monthlyExpenses.values.any((v) => v > 0)) ...[
           const SizedBox(height: AppSpacing.lg),
@@ -449,12 +446,14 @@ class _MonthlyExpenseChartCard extends StatelessWidget {
 class _BudgetCard extends ConsumerWidget {
   final double spentThisMonth;
   final Map<String, double> spentByCategory;
-  final Set<String> knownCategories;
+
+  /// 지난 몇 달 카테고리별 월 평균 지출 — 예산 추천의 근거.
+  final Map<String, double> categoryAverages;
 
   const _BudgetCard({
     required this.spentThisMonth,
     required this.spentByCategory,
-    required this.knownCategories,
+    required this.categoryAverages,
   });
 
   Future<void> _editBudget(BuildContext context, WidgetRef ref) async {
@@ -556,6 +555,52 @@ class _BudgetCard extends ConsumerWidget {
     await ref.read(financialPlanProvider.notifier).savePlan(plan);
   }
 
+  /// [suggestions]를 미리보기로 띄우고, 적용하면 예산이 없던 카테고리에 한 번에
+  /// 채워 넣는다.
+  Future<void> _applySuggestions(
+      BuildContext context, WidgetRef ref, Map<String, double> suggestions) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('지출 기반 예산 추천'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('최근 3개월 평균 지출을 바탕으로 예산을 제안해요. 적용 후 언제든 수정할 수 있어요.'),
+            const SizedBox(height: AppSpacing.md),
+            for (final e in suggestions.entries)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 2),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(e.key),
+                    Text(formatWon(e.value), style: AppTypography.dataSmall(weight: FontWeight.w600)),
+                  ],
+                ),
+              ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('취소')),
+          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('적용')),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    final plan = ref.read(financialPlanProvider);
+    plan.categoryBudgets.addAll(suggestions);
+    plan.updatedAt = DateTime.now();
+    await ref.read(financialPlanProvider.notifier).savePlan(plan);
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('카테고리 예산 ${suggestions.length}개를 추가했어요.')),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final plan = ref.watch(financialPlanProvider);
@@ -564,11 +609,24 @@ class _BudgetCard extends ConsumerWidget {
     final status = BudgetService.status(budget: budget, spent: spentThisMonth);
     final colors = context.appColors;
 
+    final suggestions = BudgetService.suggestCategoryBudgets(
+      averages: categoryAverages,
+      alreadyBudgeted: categoryBudgets.keys.toSet(),
+    );
+
     final addCategoryButton = TextButton.icon(
       onPressed: () => _editCategoryBudget(context, ref),
       icon: const Icon(Icons.add, size: AppIconSize.sm),
       label: const Text('카테고리 예산 추가'),
     );
+
+    final suggestButton = suggestions.isEmpty
+        ? null
+        : TextButton.icon(
+            onPressed: () => _applySuggestions(context, ref, suggestions),
+            icon: const Icon(Icons.auto_awesome_outlined, size: AppIconSize.sm),
+            label: const Text('지출로 예산 추천'),
+          );
 
     if (status == BudgetStatus.none && categoryBudgets.isEmpty) {
       return Card(
@@ -587,7 +645,10 @@ class _BudgetCard extends ConsumerWidget {
               alignment: Alignment.centerLeft,
               child: Padding(
                 padding: const EdgeInsets.only(left: AppSpacing.sm, bottom: AppSpacing.xs),
-                child: addCategoryButton,
+                child: Wrap(
+                  spacing: AppSpacing.xs,
+                  children: [addCategoryButton, ?suggestButton],
+                ),
               ),
             ),
           ],
@@ -634,7 +695,10 @@ class _BudgetCard extends ConsumerWidget {
                   onTap: () => _editCategoryBudget(context, ref, category: e.key),
                 ),
             ],
-            addCategoryButton,
+            Wrap(
+              spacing: AppSpacing.xs,
+              children: [addCategoryButton, ?suggestButton],
+            ),
           ],
         ),
       ),

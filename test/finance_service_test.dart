@@ -85,6 +85,35 @@ void main() {
     });
   });
 
+  group('FinanceService.averageMonthlyExpenseByCategory', () {
+    test('averages each category over the window and sorts by amount desc', () {
+      final txs = [
+        // 식비: 7월 300 + 6월 300 + 5월 0 = 600 / 3 = 200
+        _tx(type: TransactionType.expense, amount: 300, category: '식비', date: DateTime(2026, 7, 5)),
+        _tx(type: TransactionType.expense, amount: 300, category: '식비', date: DateTime(2026, 6, 5)),
+        // 교통: 7월 90 / 3 = 30
+        _tx(type: TransactionType.expense, amount: 90, category: '교통', date: DateTime(2026, 7, 6)),
+        // 범위 밖(4월)과 수입은 제외
+        _tx(type: TransactionType.expense, amount: 999, category: '식비', date: DateTime(2026, 4, 1)),
+        _tx(type: TransactionType.income, amount: 999, category: '급여', date: DateTime(2026, 7, 1)),
+      ];
+
+      final result =
+          FinanceService.averageMonthlyExpenseByCategory(txs, now: DateTime(2026, 7, 14));
+
+      expect(result.keys.toList(), ['식비', '교통']);
+      expect(result['식비'], 200);
+      expect(result['교통'], 30);
+    });
+
+    test('is empty when there are no expenses in the window', () {
+      expect(
+        FinanceService.averageMonthlyExpenseByCategory([], now: DateTime(2026, 7, 14)),
+        isEmpty,
+      );
+    });
+  });
+
   group('FinanceService.monthlyExpenses', () {
     test('covers the last N months in past-to-present order, zero-filling empty months', () {
       final txs = [

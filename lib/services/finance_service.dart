@@ -50,6 +50,30 @@ class FinanceService {
     return result;
   }
 
+  /// 최근 [months]개월(기준 달 포함)의 카테고리별 '월 평균' 지출을 금액
+  /// 내림차순으로. 예산 추천의 근거로 쓴다 — 한 달만 보면 특이 지출에
+  /// 휘둘리므로 여러 달 평균을 낸다. 거래가 아예 없는 카테고리는 제외한다.
+  static Map<String, double> averageMonthlyExpenseByCategory(
+    List<Transaction> transactions, {
+    DateTime? now,
+    int months = 3,
+  }) {
+    final anchor = now ?? DateTime.now();
+    final monthKeys = <String>{
+      for (var i = 0; i < months; i++) monthKeyOf(DateTime(anchor.year, anchor.month - i)),
+    };
+
+    final totals = <String, double>{};
+    for (final t in transactions) {
+      if (t.type != TransactionType.expense || !monthKeys.contains(monthKeyOf(t.date))) continue;
+      totals[t.category] = (totals[t.category] ?? 0) + t.amount;
+    }
+
+    final averaged = {for (final e in totals.entries) e.key: e.value / months};
+    final sorted = averaged.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
+    return {for (final e in sorted) e.key: e.value};
+  }
+
   /// [monthKey]에 해당하는 지출을 카테고리별로 합산해, 금액 내림차순으로
   /// 정렬된 맵을 돌려준다 — "이번 달 돈이 어디로 갔는지" 분석용.
   static Map<String, double> expenseByCategory(List<Transaction> transactions, String monthKey) {

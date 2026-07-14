@@ -50,4 +50,31 @@ void main() {
       );
     });
   });
+
+  group('BudgetService.suggestCategoryBudgets', () {
+    test('평균에 10% 여유를 두고 1만원 단위로 올림한다', () {
+      final result = BudgetService.suggestCategoryBudgets(
+        averages: {'식비': 400000, '교통': 55000},
+        alreadyBudgeted: {},
+      );
+      // 400000*1.1=440000 → 440000, 55000*1.1=60500 → 70000(올림).
+      expect(result, {'식비': 440000, '교통': 70000});
+    });
+
+    test('이미 예산이 있는 카테고리와 하한 미만은 제외한다', () {
+      final result = BudgetService.suggestCategoryBudgets(
+        averages: {'식비': 400000, '교통': 55000, '군것질': 5000},
+        alreadyBudgeted: {'식비'},
+      );
+      // 식비=이미 있음, 군것질=1만원 미만 → 교통만 남는다.
+      expect(result.keys, ['교통']);
+    });
+
+    test('추천할 게 없으면 빈 맵', () {
+      expect(
+        BudgetService.suggestCategoryBudgets(averages: {'군것질': 3000}, alreadyBudgeted: {}),
+        isEmpty,
+      );
+    });
+  });
 }
