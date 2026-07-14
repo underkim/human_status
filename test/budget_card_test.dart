@@ -66,6 +66,42 @@ void main() {
     expect(find.text('113%'), findsOneWidget);
   });
 
+  testWidgets('카테고리 예산을 추가하면 행이 생기고 사용률이 표시된다', (tester) async {
+    final storage = await createTestStorage();
+    await _spend(storage, 't1', 120000);
+
+    await pumpApp(tester, storage, const Scaffold(body: FinanceListView()));
+
+    await tester.tap(find.text('카테고리 예산 추가'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).at(0), '식비');
+    await tester.enterText(find.byType(TextField).at(1), '100000');
+    await tester.tap(find.text('저장'));
+    await tester.pumpAndSettle();
+
+    expect(storage.getFinancialPlan().categoryBudgets, {'식비': 100000});
+    // 12만 지출 / 10만 예산 — 초과 상태 행.
+    expect(find.text('12만 / 10만'), findsOneWidget);
+  });
+
+  testWidgets('카테고리 예산 행을 탭해 삭제하면 미설정 상태로 돌아간다', (tester) async {
+    final storage = await createTestStorage();
+    final plan = storage.getFinancialPlan();
+    plan.categoryBudgets['교통'] = 50000;
+    await storage.saveFinancialPlan(plan);
+
+    await pumpApp(tester, storage, const Scaffold(body: FinanceListView()));
+    expect(find.text('교통'), findsOneWidget);
+
+    await tester.tap(find.text('교통'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('삭제'));
+    await tester.pumpAndSettle();
+
+    expect(storage.getFinancialPlan().categoryBudgets, isEmpty);
+    expect(find.text('월 지출 한도를 정하면 남은 예산과 초과 여부를 보여드려요.'), findsOneWidget);
+  });
+
   testWidgets('예산 삭제 버튼은 카드를 미설정 상태로 되돌린다', (tester) async {
     final storage = await createTestStorage();
     await _setBudget(storage, 300000);

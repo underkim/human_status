@@ -95,7 +95,14 @@ class _FinanceListViewState extends ConsumerState<FinanceListView> {
           ),
         ),
         const SizedBox(height: AppSpacing.lg),
-        _BudgetCard(spentThisMonth: summary.expense),
+        _BudgetCard(
+          spentThisMonth: summary.expense,
+          spentByCategory: byCategory,
+          knownCategories: {
+            for (final t in transactions)
+              if (t.type == TransactionType.expense) t.category,
+          },
+        ),
         if (monthlyExpenses.values.any((v) => v > 0)) ...[
           const SizedBox(height: AppSpacing.lg),
           _MonthlyExpenseChartCard(monthlyExpenses: monthlyExpenses),
@@ -437,11 +444,18 @@ class _MonthlyExpenseChartCard extends StatelessWidget {
 }
 
 /// 이번 달 지출 예산 카드 — 미설정 / 여유 / 경고(90%+) / 초과 네 상태를
-/// 색과 문구로 구분한다. 예산 자체는 FinancialPlan에 저장되어 백업에 포함.
+/// 색과 문구로 구분한다. 총 예산과 카테고리별 예산 모두 FinancialPlan에
+/// 저장되어 백업에 포함.
 class _BudgetCard extends ConsumerWidget {
   final double spentThisMonth;
+  final Map<String, double> spentByCategory;
+  final Set<String> knownCategories;
 
-  const _BudgetCard({required this.spentThisMonth});
+  const _BudgetCard({
+    required this.spentThisMonth,
+    required this.spentByCategory,
+    required this.knownCategories,
+  });
 
   Future<void> _editBudget(BuildContext context, WidgetRef ref) async {
     final plan = ref.read(financialPlanProvider);
@@ -481,27 +495,155 @@ class _BudgetCard extends ConsumerWidget {
     await ref.read(financialPlanProvider.notifier).savePlan(plan);
   }
 
+  /// [category]가 null이면 추가 모드(카테고리 입력 가능), 아니면 수정 모드.
+  Future<void> _editCategoryBudget(BuildContext context, WidgetRef ref, {String? category}) async {
+    final plan = ref.read(financialPlanProvider);
+    final categoryController = TextEditingController(text: category ?? '');
+    final amountController = TextEditingController(
+      text: category != null ? plan.categoryBudgets[category]!.round().toString() : '',
+    );
+
+    // null → 취소, (cat, 0) → 삭제, (cat, 양수) → 저장.
+    final result = await showDialog<(String, double)>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(category == null ? '카테고리 예산 추가' : '$category 예산'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: categoryController,
+              enabled: category == null,
+              autofocus: category == null,
+              decoration: const InputDecoration(labelText: '카테고리', hintText: '예: 식비'),
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            TextField(
+              controller: amountController,
+              autofocus: category != null,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(labelText: '월 지출 한도(원)', hintText: '예: 400000'),
+            ),
+          ],
+        ),
+        actions: [
+          if (category != null)
+            TextButton(
+              onPressed: () => Navigator.pop(context, (category, 0.0)),
+              child: const Text('삭제'),
+            ),
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('취소')),
+          FilledButton(
+            onPressed: () {
+              final cat = categoryController.text.trim();
+              final v = double.tryParse(amountController.text.replaceAll(RegExp(r'[^0-9]'), ''));
+              if (cat.isNotEmpty && v != null && v > 0) Navigator.pop(context, (cat, v));
+            },
+            child: const Text('저장'),
+          ),
+        ],
+      ),
+    );
+    if (result == null) return;
+
+    final (cat, amount) = result;
+    if (amount == 0) {
+      plan.categoryBudgets.remove(cat);
+    } else {
+      plan.categoryBudgets[cat] = amount;
+    }
+    plan.updatedAt = DateTime.now();
+    await ref.read(financialPlanProvider.notifier).savePlan(plan);
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final budget = ref.watch(financialPlanProvider).monthlyBudget;
+    final plan = ref.watch(financialPlanProvider);
+    final budget = plan.monthlyBudget;
+    final categoryBudgets = plan.categoryBudgets;
     final status = BudgetService.status(budget: budget, spent: spentThisMonth);
     final colors = context.appColors;
 
-    if (status == BudgetStatus.none) {
+    final addCategoryButton = TextButton.icon(
+      onPressed: () => _editCategoryBudget(context, ref),
+      icon: const Icon(Icons.add, size: AppIconSize.sm),
+      label: const Text('카테고리 예산 추가'),
+    );
+
+    if (status == BudgetStatus.none && categoryBudgets.isEmpty) {
       return Card(
-        child: ListTile(
-          leading: const Icon(Icons.savings_outlined),
-          title: const Text('이번 달 예산'),
-          subtitle: const Text('월 지출 한도를 정하면 남은 예산과 초과 여부를 보여드려요.'),
-          trailing: TextButton(
-            onPressed: () => _editBudget(context, ref),
-            child: const Text('설정'),
-          ),
+        child: Column(
+          children: [
+            ListTile(
+              leading: const Icon(Icons.savings_outlined),
+              title: const Text('이번 달 예산'),
+              subtitle: const Text('월 지출 한도를 정하면 남은 예산과 초과 여부를 보여드려요.'),
+              trailing: TextButton(
+                onPressed: () => _editBudget(context, ref),
+                child: const Text('설정'),
+              ),
+            ),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Padding(
+                padding: const EdgeInsets.only(left: AppSpacing.sm, bottom: AppSpacing.xs),
+                child: addCategoryButton,
+              ),
+            ),
+          ],
         ),
       );
     }
 
-    final ratio = (spentThisMonth / budget!).clamp(0.0, 1.0);
+    // 급한 것부터 — 예산 대비 사용률이 높은 카테고리가 위로.
+    final categoryEntries = categoryBudgets.entries.toList()
+      ..sort((a, b) => ((spentByCategory[b.key] ?? 0) / b.value)
+          .compareTo((spentByCategory[a.key] ?? 0) / a.value));
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(AppSpacing.lg),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text('이번 달 예산', style: Theme.of(context).textTheme.titleMedium),
+                if (budget != null)
+                  IconButton(
+                    icon: const Icon(Icons.edit_outlined, size: AppIconSize.md),
+                    tooltip: '예산 수정',
+                    onPressed: () => _editBudget(context, ref),
+                  )
+                else
+                  TextButton(
+                    onPressed: () => _editBudget(context, ref),
+                    child: const Text('총 예산 설정'),
+                  ),
+              ],
+            ),
+            if (budget != null) ..._totalBudgetSection(context, budget, status, colors),
+            if (categoryEntries.isNotEmpty) ...[
+              const SizedBox(height: AppSpacing.md),
+              for (final e in categoryEntries)
+                _CategoryBudgetRow(
+                  category: e.key,
+                  budget: e.value,
+                  spent: spentByCategory[e.key] ?? 0,
+                  onTap: () => _editCategoryBudget(context, ref, category: e.key),
+                ),
+            ],
+            addCategoryButton,
+          ],
+        ),
+      ),
+    );
+  }
+
+  List<Widget> _totalBudgetSection(
+      BuildContext context, double budget, BudgetStatus status, AppColors colors) {
+    final ratio = (spentThisMonth / budget).clamp(0.0, 1.0);
     final percent = (spentThisMonth / budget * 100).round();
     final barColor = switch (status) {
       BudgetStatus.exceeded => colors.error,
@@ -514,44 +656,86 @@ class _BudgetCard extends ConsumerWidget {
       _ => '남은 예산 ${formatWon(budget - spentThisMonth)}',
     };
 
-    return Card(
+    return [
+      ClipRRect(
+        borderRadius: BorderRadius.circular(AppRadius.sm),
+        child: LinearProgressIndicator(value: ratio, minHeight: 8, color: barColor),
+      ),
+      const SizedBox(height: AppSpacing.xs),
+      Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(
+            '${formatWon(spentThisMonth)} / ${formatWon(budget)}',
+            style: AppTypography.dataSmall(),
+          ),
+          Text('$percent%', style: AppTypography.dataSmall(weight: FontWeight.w700)),
+        ],
+      ),
+      const SizedBox(height: AppSpacing.xs),
+      Text(
+        statusText,
+        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: status == BudgetStatus.ok ? colors.textMuted : barColor,
+            ),
+      ),
+    ];
+  }
+}
+
+/// 카테고리 하나의 예산 행 — 탭하면 수정/삭제 다이얼로그.
+class _CategoryBudgetRow extends StatelessWidget {
+  final String category;
+  final double budget;
+  final double spent;
+  final VoidCallback onTap;
+
+  const _CategoryBudgetRow({
+    required this.category,
+    required this.budget,
+    required this.spent,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    final status = BudgetService.status(budget: budget, spent: spent);
+    final barColor = switch (status) {
+      BudgetStatus.exceeded => colors.error,
+      BudgetStatus.warning => colors.warning,
+      _ => Theme.of(context).colorScheme.primary,
+    };
+
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(AppRadius.sm),
       child: Padding(
-        padding: const EdgeInsets.all(AppSpacing.lg),
+        padding: const EdgeInsets.symmetric(vertical: AppSpacing.xs),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text('이번 달 예산', style: Theme.of(context).textTheme.titleMedium),
-                IconButton(
-                  icon: const Icon(Icons.edit_outlined, size: AppIconSize.md),
-                  tooltip: '예산 수정',
-                  onPressed: () => _editBudget(context, ref),
+                Expanded(child: Text(category, style: Theme.of(context).textTheme.bodyMedium)),
+                Text(
+                  '${formatWonCompact(spent)} / ${formatWonCompact(budget)}',
+                  style: AppTypography.dataSmall(
+                    color: status == BudgetStatus.ok ? colors.textMuted : barColor,
+                    weight: FontWeight.w600,
+                  ),
                 ),
               ],
             ),
+            const SizedBox(height: 3),
             ClipRRect(
               borderRadius: BorderRadius.circular(AppRadius.sm),
-              child: LinearProgressIndicator(value: ratio, minHeight: 8, color: barColor),
-            ),
-            const SizedBox(height: AppSpacing.xs),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  '${formatWon(spentThisMonth)} / ${formatWon(budget)}',
-                  style: AppTypography.dataSmall(),
-                ),
-                Text('$percent%', style: AppTypography.dataSmall(weight: FontWeight.w700)),
-              ],
-            ),
-            const SizedBox(height: AppSpacing.xs),
-            Text(
-              statusText,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: status == BudgetStatus.ok ? colors.textMuted : barColor,
-                  ),
+              child: LinearProgressIndicator(
+                value: (spent / budget).clamp(0.0, 1.0),
+                minHeight: 5,
+                color: barColor,
+              ),
             ),
           ],
         ),

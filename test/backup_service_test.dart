@@ -59,6 +59,7 @@ Future<StorageService> _seededStorage() async {
     retirementAge: 60,
     monthlyLivingCostAfterRetirement: 2500000,
     monthlyBudget: 1500000,
+    categoryBudgets: {'식비': 400000},
   ));
   return storage;
 }
@@ -108,6 +109,7 @@ void main() {
     expect(plan.retirementEnabled, isTrue);
     expect(plan.retirementAge, 60);
     expect(plan.monthlyBudget, 1500000);
+    expect(plan.categoryBudgets, {'식비': 400000});
   });
 
   test('구버전 백업(스텟·퀘스트만 있는 파일)도 복원된다', () async {
