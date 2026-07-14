@@ -1,3 +1,5 @@
+import 'package:fl_chart/fl_chart.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:human_status/models/quest.dart';
 import 'package:human_status/models/transaction.dart';
@@ -7,6 +9,8 @@ import 'helpers/test_app.dart';
 
 void main() {
   testWidgets('이번 주 퀘스트·재무가 지난주와 비교되어 표시된다', (tester) async {
+    // 차트 카드 아래의 재무 카드까지 스크롤 없이 화면에 들어오도록 세로를 늘린다.
+    setScreenSize(tester, const Size(600, 1600));
     final storage = await createTestStorage();
     final now = DateTime.now();
     final monday = DateTime(now.year, now.month, now.day - (now.weekday - 1));
@@ -39,6 +43,8 @@ void main() {
 
     expect(find.text('2개'), findsOneWidget); // 완료 퀘스트
     expect(find.text('50'), findsOneWidget); // 획득 XP
+    expect(find.text('XP 추이'), findsOneWidget);
+    expect(find.byType(BarChart), findsOneWidget);
     expect(find.text('지난주 대비 퀘스트 +1개 · XP +40'), findsOneWidget);
     expect(find.text('💪 건강'), findsOneWidget);
     expect(find.text('+50 XP'), findsOneWidget);
@@ -77,5 +83,7 @@ void main() {
 
     expect(find.text('이 기간에 완료한 퀘스트가 없어요.'), findsOneWidget);
     expect(find.text('이 기간에 기록된 거래가 없어요.'), findsOneWidget);
+    // 활동이 없으면 차트 카드는 아예 그리지 않는다.
+    expect(find.byType(BarChart), findsNothing);
   });
 }

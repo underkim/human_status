@@ -82,6 +82,42 @@ class ReportService {
   static bool _inRange(DateTime? d, DateTime start, DateTime end) =>
       d != null && !d.isBefore(start) && d.isBefore(end);
 
+  /// [start]~[end) 하루 단위 획득 XP. 완료가 없는 날도 0으로 채워 차트 축이
+  /// 끊기지 않게 한다.
+  static Map<DateTime, double> xpByDay({
+    required List<Quest> quests,
+    required DateTime start,
+    required DateTime end,
+  }) {
+    final result = <DateTime, double>{};
+    for (var d = start; d.isBefore(end); d = DateTime(d.year, d.month, d.day + 1)) {
+      result[d] = 0;
+    }
+    for (final q in quests) {
+      if (q.status != QuestStatus.completed || !_inRange(q.completedAt, start, end)) continue;
+      final day = DateTime(q.completedAt!.year, q.completedAt!.month, q.completedAt!.day);
+      final xp = q.statRewards.values.fold(0.0, (a, b) => a + b);
+      result[day] = (result[day] ?? 0) + xp;
+    }
+    return result;
+  }
+
+  /// [start]~[end) 주 단위(월요일 시작) 획득 XP, 기간 첫 주부터 순서대로.
+  /// 월간 리포트의 차트용 — 하루 단위는 한 달 화면에 너무 촘촘하다.
+  static Map<DateTime, double> xpByWeek({
+    required List<Quest> quests,
+    required DateTime start,
+    required DateTime end,
+  }) {
+    final byDay = xpByDay(quests: quests, start: start, end: end);
+    final result = <DateTime, double>{};
+    byDay.forEach((day, xp) {
+      final weekStart = DateTime(day.year, day.month, day.day - (day.weekday - 1));
+      result[weekStart] = (result[weekStart] ?? 0) + xp;
+    });
+    return result;
+  }
+
   static PeriodReport build({
     required List<Quest> quests,
     required List<Goal> goals,

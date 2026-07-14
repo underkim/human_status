@@ -155,6 +155,40 @@ void main() {
       expect(report.topExpenseAmount, 80000);
     });
 
+    test('xpByDay는 기간의 모든 날을 0으로 채우고 완료 XP를 날짜별로 합산한다', () {
+      final byDay = ReportService.xpByDay(
+        quests: [
+          _completedQuest('a', DateTime(2026, 7, 7, 9), {'health': 30}),
+          _completedQuest('b', DateTime(2026, 7, 7, 21), {'mental': 10}),
+          _completedQuest('out', DateTime(2026, 7, 13), {'health': 99}),
+        ],
+        start: start,
+        end: end,
+      );
+
+      expect(byDay.length, 7);
+      expect(byDay.keys.first, DateTime(2026, 7, 6));
+      expect(byDay.keys.last, DateTime(2026, 7, 12));
+      expect(byDay[DateTime(2026, 7, 7)], 40);
+      expect(byDay[DateTime(2026, 7, 8)], 0);
+    });
+
+    test('xpByWeek는 월요일 시작 주 단위로 묶는다', () {
+      final byWeek = ReportService.xpByWeek(
+        quests: [
+          _completedQuest('a', DateTime(2026, 7, 1), {'health': 10}), // 수요일 — 6/29 주
+          _completedQuest('b', DateTime(2026, 7, 6), {'health': 20}), // 월요일 — 7/6 주
+          _completedQuest('c', DateTime(2026, 7, 12), {'health': 5}), // 일요일 — 7/6 주
+        ],
+        start: DateTime(2026, 7, 1),
+        end: DateTime(2026, 8, 1),
+      );
+
+      expect(byWeek[DateTime(2026, 6, 29)], 10);
+      expect(byWeek[DateTime(2026, 7, 6)], 25);
+      expect(byWeek.keys.first, DateTime(2026, 6, 29));
+    });
+
     test('아무 활동이 없으면 isEmpty', () {
       final report =
           ReportService.build(quests: [], goals: [], transactions: [], start: start, end: end);

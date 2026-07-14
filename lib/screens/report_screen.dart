@@ -1,3 +1,4 @@
+import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
@@ -51,6 +52,10 @@ class _ReportScreenState extends ConsumerState<ReportScreen> {
         quests: quests, goals: goals, transactions: transactions, start: start, end: end);
     final previous = ReportService.build(
         quests: quests, goals: goals, transactions: transactions, start: prevStart, end: prevEnd);
+    // 주간은 하루 단위, 월간은 주 단위 버킷 — 한 달을 일 단위로 그리면 너무 촘촘하다.
+    final chartData = _period == ReportPeriod.weekly
+        ? ReportService.xpByDay(quests: quests, start: start, end: end)
+        : ReportService.xpByWeek(quests: quests, start: start, end: end);
 
     return Scaffold(
       appBar: AppBar(title: const Text('리포트')),
@@ -74,6 +79,10 @@ class _ReportScreenState extends ConsumerState<ReportScreen> {
             previous: previous,
             previousLabel: _previousLabel,
           ),
+          if (chartData.values.any((v) => v > 0)) ...[
+            const SizedBox(height: AppSpacing.lg),
+            _XpChartCard(period: _period, data: chartData),
+          ],
           const SizedBox(height: AppSpacing.lg),
           _StatGrowthCard(current: current, stats: stats),
           const SizedBox(height: AppSpacing.lg),
@@ -147,6 +156,86 @@ String _signed(num delta, String suffix) {
   if (delta == 0) return '변화 없음';
   final rounded = delta.round();
   return rounded > 0 ? '+$rounded$suffix' : '$rounded$suffix';
+}
+
+const _weekdayLabels = ['월', '화', '수', '목', '금', '토', '일'];
+
+/// 기간 내 XP 획득 추이 — 주간은 요일별, 월간은 주차별 막대.
+class _XpChartCard extends StatelessWidget {
+  final ReportPeriod period;
+  final Map<DateTime, double> data;
+
+  const _XpChartCard({required this.period, required this.data});
+
+  String _label(int index) {
+    if (period == ReportPeriod.weekly) {
+      final day = data.keys.elementAt(index);
+      return _weekdayLabels[(day.weekday - 1) % 7];
+    }
+    return '${index + 1}주';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final maxXp = data.values.fold<double>(0, (a, b) => b > a ? b : a);
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(AppSpacing.lg),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('XP 추이', style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: AppSpacing.md),
+            SizedBox(
+              height: 150,
+              child: BarChart(
+                BarChartData(
+                  alignment: BarChartAlignment.spaceAround,
+                  maxY: maxXp <= 0 ? 10 : maxXp * 1.2,
+                  titlesData: FlTitlesData(
+                    leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                    rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                    topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                    bottomTitles: AxisTitles(
+                      sideTitles: SideTitles(
+                        showTitles: true,
+                        getTitlesWidget: (value, meta) {
+                          final index = value.toInt();
+                          if (index < 0 || index >= data.length) return const SizedBox.shrink();
+                          return Padding(
+                            padding: const EdgeInsets.only(top: 4),
+                            child: Text(_label(index),
+                                style: Theme.of(context).textTheme.bodySmall),
+                          );
+                        },
+                      ),
+                    ),
+                  ),
+                  borderData: FlBorderData(show: false),
+                  gridData: const FlGridData(show: false),
+                  barGroups: [
+                    for (final (index, xp) in data.values.indexed)
+                      BarChartGroupData(
+                        x: index,
+                        barRods: [
+                          BarChartRodData(
+                            toY: xp,
+                            color: Theme.of(context).colorScheme.primary,
+                            width: period == ReportPeriod.weekly ? 18 : 28,
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                        ],
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class _SummaryNumber extends StatelessWidget {
