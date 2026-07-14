@@ -7,7 +7,12 @@ import 'package:timezone/timezone.dart' as tz;
 /// underlying plugin has no native scheduling support.
 class NotificationService {
   static const _dailyReminderId = 1;
+  static const _weeklyReportId = 2;
   static const _windowsGuid = 'f6f4d1a0-6b7a-4b0e-9c8a-6b2b6a2e0e01';
+
+  /// 주간 리포트 알림이 울리는 요일·시각 — 한 주를 마감하는 일요일 저녁.
+  static const weeklyReportWeekday = DateTime.sunday;
+  static const weeklyReportHour = 20;
 
   final FlutterLocalNotificationsPlugin _plugin = FlutterLocalNotificationsPlugin();
   bool _initialized = false;
@@ -103,5 +108,52 @@ class NotificationService {
   Future<void> cancelReminder() async {
     if (kIsWeb) return;
     await _plugin.cancel(id: _dailyReminderId);
+  }
+
+  /// Schedules (or reschedules) the weekly report notification for Sunday
+  /// 20:00. Same permission semantics as [scheduleDailyReminder]: false
+  /// means the alarm is registered but the OS will swallow it.
+  Future<bool> scheduleWeeklyReportReminder() async {
+    if (kIsWeb) return false;
+    await init();
+    final granted = await _plugin
+        .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
+        ?.requestNotificationsPermission();
+
+    final now = tz.TZDateTime.now(tz.local);
+    // 다음 일요일 20:00 — DST 경계에서 시각이 밀리지 않도록 Duration 덧셈 대신
+    // 달력 필드로 하루씩 재구성한다.
+    var scheduled =
+        tz.TZDateTime(tz.local, now.year, now.month, now.day, weeklyReportHour);
+    while (scheduled.weekday != weeklyReportWeekday || scheduled.isBefore(now)) {
+      scheduled = tz.TZDateTime(
+          tz.local, scheduled.year, scheduled.month, scheduled.day + 1, weeklyReportHour);
+    }
+
+    await _plugin.zonedSchedule(
+      id: _weeklyReportId,
+      title: '주간 리포트',
+      body: '이번 주 퀘스트·재무 요약이 준비됐어요. 더보기 → 리포트에서 확인해보세요.',
+      scheduledDate: scheduled,
+      notificationDetails: const NotificationDetails(
+        android: AndroidNotificationDetails(
+          'weekly_report',
+          '주간 리포트',
+          channelDescription: '일요일 저녁에 한 주 활동 요약을 알려드려요.',
+        ),
+        iOS: DarwinNotificationDetails(),
+        macOS: DarwinNotificationDetails(),
+        linux: LinuxNotificationDetails(),
+      ),
+      androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+      matchDateTimeComponents: DateTimeComponents.dayOfWeekAndTime,
+    );
+
+    return granted ?? true;
+  }
+
+  Future<void> cancelWeeklyReportReminder() async {
+    if (kIsWeb) return;
+    await _plugin.cancel(id: _weeklyReportId);
   }
 }

@@ -67,6 +67,17 @@ void main() {
     expect(stat.currentXp, 20);
   });
 
+  testWidgets('반복 퀘스트에는 매일 반복 배지가 보인다', (tester) async {
+    final storage = await createTestStorage();
+    final quest = _quest('r1', '아침 스트레칭');
+    quest.isRecurring = true;
+    await storage.saveQuest(quest);
+
+    await pumpApp(tester, storage, const QuestsScreen());
+
+    expect(find.text('🔁 매일 반복'), findsOneWidget);
+  });
+
   testWidgets('추천 퀘스트는 채택하면 진행중으로, 무시하면 목록에서 사라진다', (tester) async {
     final storage = await createTestStorage();
     await storage.saveQuest(_quest('s1', '아침 산책', status: QuestStatus.suggested));

@@ -78,12 +78,17 @@ class QuestCard extends StatelessWidget {
             Wrap(
               spacing: 6,
               runSpacing: 4,
-              children: quest.statRewards.entries
-                  .map((e) => Chip(
-                        label: Text('${_statName(e.key)} +${e.value.toInt()}XP'),
-                        visualDensity: VisualDensity.compact,
-                      ))
-                  .toList(),
+              children: [
+                if (quest.isRecurring)
+                  const Chip(
+                    label: Text('🔁 매일 반복'),
+                    visualDensity: VisualDensity.compact,
+                  ),
+                ...quest.statRewards.entries.map((e) => Chip(
+                      label: Text('${_statName(e.key)} +${e.value.toInt()}XP'),
+                      visualDensity: VisualDensity.compact,
+                    )),
+              ],
             ),
             if (actions.isNotEmpty) ...[
               const SizedBox(height: 8),

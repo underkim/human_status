@@ -136,6 +136,30 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     }
   }
 
+  Future<void> _toggleWeeklyReport(BuildContext context, WidgetRef ref, bool enabled) async {
+    final storage = ref.read(storageServiceProvider);
+    final profile = ref.read(profileProvider);
+    profile.weeklyReportReminderEnabled = enabled;
+    await storage.saveProfile(profile);
+
+    final notificationService = ref.read(notificationServiceProvider);
+    var granted = true;
+    if (enabled) {
+      granted = await notificationService.scheduleWeeklyReportReminder();
+    } else {
+      await notificationService.cancelWeeklyReportReminder();
+    }
+    ref.read(profileProvider.notifier).reload();
+
+    if (context.mounted && enabled) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(granted
+            ? '일요일 20:00에 주간 리포트를 알려드릴게요.'
+            : '설정은 저장됐지만 알림 권한이 꺼져 있어요 — 기기 설정에서 허용해주세요.'),
+      ));
+    }
+  }
+
   Future<void> _confirmReset(BuildContext context, WidgetRef ref) async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -167,6 +191,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       claudeApiKey: preservedProfile.claudeApiKey,
       reminderMinutesSinceMidnight: preservedProfile.reminderMinutesSinceMidnight,
       lastQuestRefresh: preservedProfile.lastQuestRefresh,
+      weeklyReportReminderEnabled: preservedProfile.weeklyReportReminderEnabled,
     ));
     ref.read(statsProvider.notifier).reload();
     ref.read(questsProvider.notifier).reload();
@@ -351,6 +376,15 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   )
                 : Text(reminderSubtitle),
             onTap: () => _editReminder(context, ref),
+          ),
+          SwitchListTile(
+            secondary: const Icon(Icons.summarize_outlined),
+            title: const Text('주간 리포트 알림'),
+            subtitle: Text(kIsWeb
+                ? '이 플랫폼(웹)에서는 지원되지 않아요'
+                : '일요일 20:00에 한 주 활동 요약을 알려드려요'),
+            value: profile.weeklyReportReminderEnabled && !kIsWeb,
+            onChanged: kIsWeb ? null : (v) => _toggleWeeklyReport(context, ref, v),
           ),
           ListTile(
             leading: const Icon(Icons.refresh),
