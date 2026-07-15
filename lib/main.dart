@@ -71,7 +71,6 @@ enum _BootstrapStatus { loading, ready, error }
 
 class _AppBootstrapState extends State<AppBootstrap> {
   _BootstrapStatus _status = _BootstrapStatus.loading;
-  Object? _error;
   ProviderContainer? _container;
   DailyRefreshController? _refreshController;
 
@@ -83,7 +82,10 @@ class _AppBootstrapState extends State<AppBootstrap> {
   @override
   void initState() {
     super.initState();
-    _start();
+    // _status already defaults to loading, so the first attempt doesn't
+    // need a setState to enter it — only retries (which may be resetting
+    // from the error state) do.
+    unawaited(_initialize(++_generation));
   }
 
   @override
@@ -92,14 +94,13 @@ class _AppBootstrapState extends State<AppBootstrap> {
     super.dispose();
   }
 
-  void _start() {
+  void _retry() {
     final generation = ++_generation;
     _container?.dispose();
     _container = null;
     _refreshController = null;
     setState(() {
       _status = _BootstrapStatus.loading;
-      _error = null;
     });
     unawaited(_initialize(generation));
   }
@@ -109,10 +110,12 @@ class _AppBootstrapState extends State<AppBootstrap> {
     try {
       storage = await widget.createStorage();
     } catch (e) {
+      // The raw error is deliberately not surfaced to the UI — initializer
+      // failures (e.g. a Hive exception) can embed on-disk file paths or
+      // other diagnostics that shouldn't be shown to the user.
       if (!mounted || generation != _generation) return;
       setState(() {
         _status = _BootstrapStatus.error;
-        _error = e;
       });
       return;
     }
@@ -157,7 +160,7 @@ class _AppBootstrapState extends State<AppBootstrap> {
       case _BootstrapStatus.loading:
         return const _BootstrapLoadingScreen();
       case _BootstrapStatus.error:
-        return _BootstrapErrorScreen(error: _error, onRetry: _start);
+        return _BootstrapErrorScreen(onRetry: _retry);
       case _BootstrapStatus.ready:
         return UncontrolledProviderScope(
           container: _container!,
@@ -196,9 +199,8 @@ class _BootstrapLoadingScreen extends StatelessWidget {
 }
 
 class _BootstrapErrorScreen extends StatelessWidget {
-  const _BootstrapErrorScreen({required this.error, required this.onRetry});
+  const _BootstrapErrorScreen({required this.onRetry});
 
-  final Object? error;
   final VoidCallback onRetry;
 
   @override
@@ -232,16 +234,6 @@ class _BootstrapErrorScreen extends StatelessWidget {
                     '기존 데이터는 삭제되지 않고 그대로 남아 있습니다. 다시 시도해 주세요.',
                     textAlign: TextAlign.center,
                   ),
-                  if (error != null) ...[
-                    const SizedBox(height: 12),
-                    Text(
-                      error.toString(),
-                      textAlign: TextAlign.center,
-                      maxLines: 3,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                  ],
                   const SizedBox(height: 24),
                   FilledButton(onPressed: onRetry, child: const Text('다시 시도')),
                 ],
