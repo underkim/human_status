@@ -15,6 +15,8 @@ class GoalProgressCard extends StatelessWidget {
   final String? targetDateLabel;
   final bool isCompleted;
   final VoidCallback? onComplete;
+  final VoidCallback? onEdit;
+  final VoidCallback? onDelete;
 
   /// 이 목표가 왜/어떻게 완료되는지 짧게 설명하는 캡션 — 금액이 차면
   /// 자동으로 완료되는 재무 목표와, 연결된 퀘스트를 다 마쳐야 수동으로
@@ -32,6 +34,8 @@ class GoalProgressCard extends StatelessWidget {
     this.targetDateLabel,
     this.isCompleted = false,
     this.onComplete,
+    this.onEdit,
+    this.onDelete,
     this.completionHint,
   });
 
@@ -51,6 +55,21 @@ class GoalProgressCard extends StatelessWidget {
                 Expanded(child: Text(title, style: theme.textTheme.titleMedium)),
                 if (statLabel != null)
                   Chip(label: Text(statLabel!), visualDensity: VisualDensity.compact),
+                if (onEdit != null || onDelete != null)
+                  PopupMenuButton<String>(
+                    icon: const Icon(Icons.more_vert, size: 18),
+                    tooltip: '더보기',
+                    onSelected: (v) {
+                      if (v == 'edit') onEdit?.call();
+                      if (v == 'delete') onDelete?.call();
+                    },
+                    itemBuilder: (context) => [
+                      if (onEdit != null)
+                        const PopupMenuItem(value: 'edit', child: Text('수정')),
+                      if (onDelete != null)
+                        const PopupMenuItem(value: 'delete', child: Text('삭제')),
+                    ],
+                  ),
               ],
             ),
             if (description != null && description!.isNotEmpty) ...[

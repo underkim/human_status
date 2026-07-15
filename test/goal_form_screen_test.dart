@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:human_status/models/goal.dart';
 import 'package:human_status/screens/goal_form_screen.dart';
 
 import 'helpers/test_app.dart';
@@ -83,5 +84,67 @@ void main() {
 
     expect(find.text('올바른 금액을 입력해주세요'), findsOneWidget);
     expect(storage.getGoals(), isEmpty);
+  });
+
+  testWidgets('편집 모드는 값을 채우고 저장 시 분해 없이 같은 목표를 갱신한다', (tester) async {
+    setScreenSize(tester, const Size(600, 1600));
+    final storage = await createTestStorage();
+    final existing = Goal(
+      id: 'g1',
+      title: '옛 목표',
+      description: '옛 설명',
+      statId: 'health',
+      targetDate: DateTime(2026, 9, 1),
+      createdAt: DateTime(2026, 7, 1),
+    );
+    await storage.saveGoal(existing);
+
+    await pumpApp(tester, storage, GoalFormScreen(existing: existing));
+
+    expect(find.text('목표 수정'), findsOneWidget);
+    expect(find.text('저장하기'), findsOneWidget);
+    // 편집 모드에선 추천/분해 안내가 숨겨진다.
+    expect(find.text('추천 목표 (약한 스텟 기준)'), findsNothing);
+    expect(find.widgetWithText(TextFormField, '옛 목표'), findsOneWidget);
+
+    await tester.enterText(find.widgetWithText(TextFormField, '옛 목표'), '새 목표');
+    await tester.tap(find.text('저장하기'));
+    await tester.pumpAndSettle();
+
+    // 같은 id가 갱신되고, 편집은 퀘스트를 분해하지 않는다.
+    expect(storage.getGoals().length, 1);
+    final updated = storage.getGoals().single;
+    expect(updated.id, 'g1');
+    expect(updated.title, '새 목표');
+    expect(updated.statId, 'health');
+    expect(updated.createdAt, DateTime(2026, 7, 1));
+    expect(storage.getQuests(), isEmpty);
+  });
+
+  testWidgets('재무 목표 편집은 목표 금액을 바꾸고 currentAmount를 보존한다', (tester) async {
+    setScreenSize(tester, const Size(600, 1600));
+    final storage = await createTestStorage();
+    final existing = Goal(
+      id: 'g1',
+      title: '비상금',
+      description: '',
+      statId: 'wealth',
+      targetAmount: 1000000,
+      currentAmount: 300000,
+      createdAt: DateTime(2026, 7, 1),
+    );
+    await storage.saveGoal(existing);
+
+    await pumpApp(tester, storage, GoalFormScreen(existing: existing));
+
+    // 재무 토글은 편집 중 잠겨 있다.
+    expect(tester.widget<SwitchListTile>(find.byType(SwitchListTile)).onChanged, isNull);
+    await tester.enterText(find.widgetWithText(TextFormField, '목표 금액'), '2000000');
+    await tester.tap(find.text('저장하기'));
+    await tester.pumpAndSettle();
+
+    final updated = storage.getGoals().single;
+    expect(updated.targetAmount, 2000000);
+    expect(updated.currentAmount, 300000); // 진행 금액은 보존
   });
 }

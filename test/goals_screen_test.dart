@@ -71,6 +71,41 @@ void main() {
     expect(health.currentXp, 0);
   });
 
+  testWidgets('목표 메뉴에서 삭제하면 확인 후 목록에서 사라진다', (tester) async {
+    setScreenSize(tester, const Size(600, 1600));
+    final storage = await createTestStorage();
+    await storage.saveGoal(_goal('g1', '지울 목표'));
+
+    await pumpApp(tester, storage, const GoalsScreen());
+
+    await tester.tap(find.byIcon(Icons.more_vert));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('삭제'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('삭제할까요'), findsOneWidget);
+    await tester.tap(find.widgetWithText(FilledButton, '삭제'));
+    await tester.pumpAndSettle();
+
+    expect(storage.getGoals(), isEmpty);
+  });
+
+  testWidgets('목표 메뉴의 수정은 편집 화면으로 이동한다', (tester) async {
+    setScreenSize(tester, const Size(600, 1600));
+    final storage = await createTestStorage();
+    await storage.saveGoal(_goal('g1', '수정할 목표'));
+
+    await pumpApp(tester, storage, const GoalsScreen());
+
+    await tester.tap(find.byIcon(Icons.more_vert));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('수정'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('목표 수정'), findsOneWidget);
+    expect(find.widgetWithText(TextFormField, '수정할 목표'), findsOneWidget);
+  });
+
   testWidgets('재무 목표는 직접 완료 버튼 없이 금액 진행률만 보여준다', (tester) async {
     setScreenSize(tester, const Size(600, 1600));
     final storage = await createTestStorage();

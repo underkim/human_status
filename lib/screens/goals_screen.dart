@@ -44,6 +44,25 @@ class GoalsListView extends ConsumerWidget {
     await showAchievementDialog(context, result.newAchievements);
   }
 
+  Future<void> _confirmDelete(BuildContext context, WidgetRef ref, Goal goal) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('목표 삭제'),
+        content: Text(
+          '"${goal.title}" 목표를 삭제할까요? 연결된 진행중 퀘스트는 일반 퀘스트로 남아요.',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('취소')),
+          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('삭제')),
+        ],
+      ),
+    );
+    if (confirmed == true) {
+      await ref.read(goalsProvider.notifier).deleteGoal(goal.id);
+    }
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final stats = ref.watch(statsProvider);
@@ -90,6 +109,10 @@ class GoalsListView extends ConsumerWidget {
                     ? '금액이 목표에 도달하면 자동으로 완료돼요'
                     : '연결된 퀘스트를 모두 마치면 자동으로 완료돼요 · 직접 완료도 가능해요',
                 onComplete: g.targetAmount == null ? () => _completeGoal(context, ref, g) : null,
+                onEdit: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => GoalFormScreen(existing: g)),
+                ),
+                onDelete: () => _confirmDelete(context, ref, g),
               )),
         ],
         if (completed.isNotEmpty) ...[

@@ -58,6 +58,31 @@ class GoalsNotifier extends StateNotifier<List<Goal>> {
 
   void reload() => state = storage.getGoals();
 
+  /// Persists edits to an existing goal (title/description/date/amount).
+  /// Does NOT re-run quest decomposition — that only happens at creation, so
+  /// editing never spawns duplicate quests.
+  Future<void> updateGoal(Goal goal) async {
+    await storage.saveGoal(goal);
+    reload();
+  }
+
+  /// Deletes [goalId]. Any still-active or suggested quests generated for it
+  /// are unlinked (goalId cleared) so they survive as ordinary quests instead
+  /// of pointing at a goal that no longer exists; completed quests keep their
+  /// link for history and for the bonus XP they already earned.
+  Future<void> deleteGoal(String goalId) async {
+    for (final q in storage.getQuests()) {
+      if (q.goalId != goalId) continue;
+      if (q.status == QuestStatus.active || q.status == QuestStatus.suggested) {
+        q.goalId = null;
+        await storage.saveQuest(q);
+      }
+    }
+    await storage.deleteGoal(goalId);
+    reload();
+    ref.read(questsProvider.notifier).reload();
+  }
+
   /// Persists [goal], then decomposes it into quests (Claude if configured,
   /// else the local template fallback) and adds them via questsProvider so
   /// the quest list stays in sync automatically. Also evaluates achievements
