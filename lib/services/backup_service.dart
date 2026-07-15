@@ -51,9 +51,11 @@ class BackupService {
     final financialPlan = data['financialPlan'] != null
         ? FinancialPlan.fromJson(data['financialPlan'] as Map<String, dynamic>)
         : null;
-    // null = 이 키가 없던 구버전 백업 — 기존 업적을 지우지 않고 그대로 둔다.
-    final achievements = (data['achievements'] as Map?)
-        ?.map((k, v) => MapEntry(k as String, DateTime.parse(v as String)));
+    // 구버전 백업엔 이 키가 없어 빈 맵으로 취급 — restore는 '전체 교체'라
+    // 기존 업적을 남기지 않는다(교체 후에도 조건을 만족하면 다음 완료
+    // 시점에 checkAndUnlock이 다시 해금한다).
+    final achievements = (data['achievements'] as Map? ?? const {})
+        .map((k, v) => MapEntry(k as String, DateTime.parse(v as String)));
 
     await storage.statsBox.clear();
     await storage.questsBox.clear();
@@ -77,11 +79,9 @@ class BackupService {
     if (financialPlan != null) {
       await storage.saveFinancialPlan(financialPlan);
     }
-    if (achievements != null) {
-      await storage.achievementsBox.clear();
-      for (final e in achievements.entries) {
-        await storage.unlockAchievement(e.key, e.value);
-      }
+    await storage.achievementsBox.clear();
+    for (final e in achievements.entries) {
+      await storage.unlockAchievement(e.key, e.value);
     }
   }
 }

@@ -60,10 +60,14 @@ class GoalsNotifier extends StateNotifier<List<Goal>> {
 
   /// Persists edits to an existing goal (title/description/date/amount).
   /// Does NOT re-run quest decomposition — that only happens at creation, so
-  /// editing never spawns duplicate quests.
-  Future<void> updateGoal(Goal goal) async {
+  /// editing never spawns duplicate quests. If the edit lowers a financial
+  /// goal's target to at or below its current amount, the goal is completed
+  /// right away (returning the result so the UI can celebrate) — otherwise a
+  /// financial goal has no manual complete button and would be stuck active.
+  Future<GoalCompletionResult?> updateGoal(Goal goal) async {
     await storage.saveGoal(goal);
     reload();
+    return checkFinancialGoalCompletion(goal.id);
   }
 
   /// Deletes [goalId]. Any still-active or suggested quests generated for it

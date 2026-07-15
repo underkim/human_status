@@ -94,8 +94,9 @@ class QuestsNotifier extends StateNotifier<List<Quest>> {
     final matches = storage.getQuests().where((q) => q.id == id);
     final quest = matches.isNotEmpty ? matches.first : null;
     // 완료 버튼이 리빌드 전에 연타되면 같은 id로 두 번 들어온다 — 이미
-    // 완료된(또는 사라진) 퀘스트에 XP를 중복 지급하지 않고 조용히 무시한다.
-    if (quest == null || quest.status == QuestStatus.completed) {
+    // 완료됐거나(또는 사라졌거나) 애초에 진행중이 아닌 퀘스트에는 XP를
+    // 지급하지 않고 조용히 무시한다(추천·삭제 상태 퀘스트 방어 포함).
+    if (quest == null || quest.status != QuestStatus.active) {
       return const QuestCompletionResult(levelUps: {}, newAchievements: []);
     }
 

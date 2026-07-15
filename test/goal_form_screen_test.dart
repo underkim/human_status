@@ -147,4 +147,36 @@ void main() {
     expect(updated.targetAmount, 2000000);
     expect(updated.currentAmount, 300000); // 진행 금액은 보존
   });
+
+  testWidgets('재무 목표를 이미 모은 금액 이하로 낮추면 그 자리에서 달성 처리된다', (tester) async {
+    setScreenSize(tester, const Size(600, 1600));
+    final storage = await createTestStorage();
+    final existing = Goal(
+      id: 'g1',
+      title: '비상금',
+      description: '',
+      statId: 'wealth',
+      targetAmount: 1000000,
+      currentAmount: 300000,
+      createdAt: DateTime(2026, 7, 1),
+    );
+    await storage.saveGoal(existing);
+
+    await pumpApp(tester, storage, GoalFormScreen(existing: existing));
+
+    // 목표액을 이미 모은 30만 이하(20만)로 낮춘다.
+    await tester.enterText(find.widgetWithText(TextFormField, '목표 금액'), '200000');
+    await tester.tap(find.text('저장하기'));
+    await tester.pumpAndSettle();
+
+    // 완료 보너스 XP로 레벨업/업적 다이얼로그가 뜨면 닫는다.
+    while (find.text('확인').evaluate().isNotEmpty) {
+      await tester.tap(find.text('확인').first);
+      await tester.pumpAndSettle();
+    }
+
+    final updated = storage.getGoals().single;
+    expect(updated.status, GoalStatus.completed);
+    expect(updated.completedAt, isNotNull);
+  });
 }

@@ -11,6 +11,7 @@ import '../services/financial_planning_service.dart';
 import '../theme/app_colors.dart';
 import '../utils/formatters.dart';
 import '../widgets/achievement_dialog.dart';
+import '../widgets/level_up_dialog.dart';
 
 const _financialHorizonsMonths = [6, 12, 36];
 
@@ -249,11 +250,20 @@ class _GoalFormScreenState extends ConsumerState<GoalFormScreen> {
       existing.description = _descriptionController.text.trim();
       existing.targetDate = _targetDate;
       existing.targetAmount = _isFinancial ? double.tryParse(_amountController.text) : null;
-      await ref.read(goalsProvider.notifier).updateGoal(existing);
+      final completion = await ref.read(goalsProvider.notifier).updateGoal(existing);
       if (!mounted) return;
+      // 목표액을 낮춰 이미 모은 금액이 목표에 도달하면 그 자리에서 완료 처리된다.
+      if (completion != null) {
+        await showLevelUpDialog(context, ref.read(statsProvider), {existing.statId: completion.levelUp});
+        if (!mounted) return;
+        await showAchievementDialog(context, completion.newAchievements);
+        if (!mounted) return;
+      }
       final messenger = ScaffoldMessenger.of(context);
       Navigator.of(context).pop();
-      messenger.showSnackBar(const SnackBar(content: Text('목표를 수정했어요.')));
+      messenger.showSnackBar(SnackBar(
+        content: Text(completion != null ? '목표를 달성했어요!' : '목표를 수정했어요.'),
+      ));
       return;
     }
 

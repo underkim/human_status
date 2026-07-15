@@ -47,6 +47,29 @@ void main() {
     expect(storage.getStat('health')!.currentXp, 0);
   });
 
+  test('진행중이 아닌(추천) 퀘스트를 완료 호출해도 XP를 지급하지 않는다', () async {
+    final storage = await createTestStorage();
+    await storage.saveQuest(Quest(
+      id: 's1',
+      title: '추천 퀘스트',
+      description: '',
+      statRewards: {'health': 30},
+      status: QuestStatus.suggested,
+      createdAt: DateTime(2026, 7, 14),
+    ));
+
+    final container = ProviderContainer(overrides: [
+      storageServiceProvider.overrideWithValue(storage),
+    ]);
+    addTearDown(container.dispose);
+
+    final result = await container.read(questsProvider.notifier).completeQuest('s1');
+    expect(result.levelUps, isEmpty);
+    expect(storage.getStat('health')!.currentXp, 0);
+    // 추천 상태 그대로 — 완료로 바뀌지 않는다.
+    expect(storage.getQuests().single.status, QuestStatus.suggested);
+  });
+
   test('목표 연결 퀘스트는 1.5배 보너스 XP를 지급한다', () async {
     final storage = await createTestStorage();
     await storage.saveQuest(Quest(

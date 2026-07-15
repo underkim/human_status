@@ -458,34 +458,12 @@ class _BudgetCard extends ConsumerWidget {
 
   Future<void> _editBudget(BuildContext context, WidgetRef ref) async {
     final plan = ref.read(financialPlanProvider);
-    final controller = TextEditingController(
-      text: plan.monthlyBudget != null ? plan.monthlyBudget!.round().toString() : '',
-    );
-
-    // null → 취소, 0 → 예산 삭제, 양수 → 설정.
+    // 다이얼로그를 StatefulWidget으로 분리해 컨트롤러가 자기 State의
+    // dispose에서 정리되도록 한다(await 뒤 즉시 dispose하면 닫힘 애니메이션
+    // 도중 "used after disposed" 오류가 난다).
     final result = await showDialog<double>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('이번 달 예산'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          keyboardType: TextInputType.number,
-          decoration: const InputDecoration(labelText: '월 지출 한도(원)', hintText: '예: 1500000'),
-        ),
-        actions: [
-          if (plan.monthlyBudget != null)
-            TextButton(onPressed: () => Navigator.pop(context, 0.0), child: const Text('예산 삭제')),
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('취소')),
-          FilledButton(
-            onPressed: () {
-              final v = double.tryParse(controller.text.replaceAll(RegExp(r'[^0-9]'), ''));
-              if (v != null && v > 0) Navigator.pop(context, v);
-            },
-            child: const Text('저장'),
-          ),
-        ],
-      ),
+      builder: (context) => _BudgetAmountDialog(initial: plan.monthlyBudget),
     );
     if (result == null) return;
 
@@ -497,50 +475,11 @@ class _BudgetCard extends ConsumerWidget {
   /// [category]가 null이면 추가 모드(카테고리 입력 가능), 아니면 수정 모드.
   Future<void> _editCategoryBudget(BuildContext context, WidgetRef ref, {String? category}) async {
     final plan = ref.read(financialPlanProvider);
-    final categoryController = TextEditingController(text: category ?? '');
-    final amountController = TextEditingController(
-      text: category != null ? plan.categoryBudgets[category]!.round().toString() : '',
-    );
-
-    // null → 취소, (cat, 0) → 삭제, (cat, 양수) → 저장.
     final result = await showDialog<(String, double)>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text(category == null ? '카테고리 예산 추가' : '$category 예산'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: categoryController,
-              enabled: category == null,
-              autofocus: category == null,
-              decoration: const InputDecoration(labelText: '카테고리', hintText: '예: 식비'),
-            ),
-            const SizedBox(height: AppSpacing.sm),
-            TextField(
-              controller: amountController,
-              autofocus: category != null,
-              keyboardType: TextInputType.number,
-              decoration: const InputDecoration(labelText: '월 지출 한도(원)', hintText: '예: 400000'),
-            ),
-          ],
-        ),
-        actions: [
-          if (category != null)
-            TextButton(
-              onPressed: () => Navigator.pop(context, (category, 0.0)),
-              child: const Text('삭제'),
-            ),
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('취소')),
-          FilledButton(
-            onPressed: () {
-              final cat = categoryController.text.trim();
-              final v = double.tryParse(amountController.text.replaceAll(RegExp(r'[^0-9]'), ''));
-              if (cat.isNotEmpty && v != null && v > 0) Navigator.pop(context, (cat, v));
-            },
-            child: const Text('저장'),
-          ),
-        ],
+      builder: (context) => _CategoryBudgetDialog(
+        category: category,
+        initialAmount: category != null ? plan.categoryBudgets[category] : null,
       ),
     );
     if (result == null) return;
@@ -804,6 +743,121 @@ class _CategoryBudgetRow extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// 총 예산 입력 다이얼로그. 컨트롤러를 State가 소유·정리한다.
+/// 반환: null=취소 / 0=예산 삭제 / 양수=설정.
+class _BudgetAmountDialog extends StatefulWidget {
+  final double? initial;
+
+  const _BudgetAmountDialog({required this.initial});
+
+  @override
+  State<_BudgetAmountDialog> createState() => _BudgetAmountDialogState();
+}
+
+class _BudgetAmountDialogState extends State<_BudgetAmountDialog> {
+  late final TextEditingController _controller =
+      TextEditingController(text: widget.initial != null ? widget.initial!.round().toString() : '');
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('이번 달 예산'),
+      content: TextField(
+        controller: _controller,
+        autofocus: true,
+        keyboardType: TextInputType.number,
+        decoration: const InputDecoration(labelText: '월 지출 한도(원)', hintText: '예: 1500000'),
+      ),
+      actions: [
+        if (widget.initial != null)
+          TextButton(onPressed: () => Navigator.pop(context, 0.0), child: const Text('예산 삭제')),
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text('취소')),
+        FilledButton(
+          onPressed: () {
+            final v = double.tryParse(_controller.text.replaceAll(RegExp(r'[^0-9]'), ''));
+            if (v != null && v > 0) Navigator.pop(context, v);
+          },
+          child: const Text('저장'),
+        ),
+      ],
+    );
+  }
+}
+
+/// 카테고리 예산 다이얼로그. [category]가 null이면 추가 모드(카테고리 입력),
+/// 아니면 수정 모드. 반환: null=취소 / (cat,0)=삭제 / (cat,양수)=저장.
+class _CategoryBudgetDialog extends StatefulWidget {
+  final String? category;
+  final double? initialAmount;
+
+  const _CategoryBudgetDialog({required this.category, required this.initialAmount});
+
+  @override
+  State<_CategoryBudgetDialog> createState() => _CategoryBudgetDialogState();
+}
+
+class _CategoryBudgetDialogState extends State<_CategoryBudgetDialog> {
+  late final TextEditingController _categoryController =
+      TextEditingController(text: widget.category ?? '');
+  late final TextEditingController _amountController = TextEditingController(
+      text: widget.initialAmount != null ? widget.initialAmount!.round().toString() : '');
+
+  @override
+  void dispose() {
+    _categoryController.dispose();
+    _amountController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isEditing = widget.category != null;
+    return AlertDialog(
+      title: Text(isEditing ? '${widget.category} 예산' : '카테고리 예산 추가'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          TextField(
+            controller: _categoryController,
+            enabled: !isEditing,
+            autofocus: !isEditing,
+            decoration: const InputDecoration(labelText: '카테고리', hintText: '예: 식비'),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          TextField(
+            controller: _amountController,
+            autofocus: isEditing,
+            keyboardType: TextInputType.number,
+            decoration: const InputDecoration(labelText: '월 지출 한도(원)', hintText: '예: 400000'),
+          ),
+        ],
+      ),
+      actions: [
+        if (isEditing)
+          TextButton(
+            onPressed: () => Navigator.pop(context, (widget.category!, 0.0)),
+            child: const Text('삭제'),
+          ),
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text('취소')),
+        FilledButton(
+          onPressed: () {
+            final cat = _categoryController.text.trim();
+            final v = double.tryParse(_amountController.text.replaceAll(RegExp(r'[^0-9]'), ''));
+            if (cat.isNotEmpty && v != null && v > 0) Navigator.pop(context, (cat, v));
+          },
+          child: const Text('저장'),
+        ),
+      ],
     );
   }
 }

@@ -117,6 +117,13 @@ class FinanceService {
     if (goal == null || goal.targetAmount == null) return null;
 
     goal.currentAmount -= tx.type == TransactionType.expense ? -tx.amount : tx.amount;
+    // 이 거래가 목표를 완료시켰는데 삭제로 금액이 목표 아래로 떨어졌다면,
+    // '달성한 목표'에 100% 미만인 완료 목표가 남지 않도록 다시 진행중으로
+    // 되돌린다(이미 지급된 완료 보너스 XP까지 되돌리진 않는다).
+    if (goal.status == GoalStatus.completed && goal.currentAmount < goal.targetAmount!) {
+      goal.status = GoalStatus.active;
+      goal.completedAt = null;
+    }
     await storage.saveGoal(goal);
     return goal;
   }

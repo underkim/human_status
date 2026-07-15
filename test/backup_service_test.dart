@@ -129,8 +129,8 @@ void main() {
     // 구버전에 없던 데이터는 교체 시맨틱에 따라 비워진다.
     expect(storage.getGoals(), isEmpty);
     expect(storage.getTransactions(), isEmpty);
-    // 단, 업적 키가 아예 없는 구버전 백업은 기존 업적을 지우지 않는다.
-    expect(storage.getUnlockedAchievements(), isNotEmpty);
+    // 업적도 replace-all — 업적 키가 없는 구버전 백업은 기존 업적을 남기지 않는다.
+    expect(storage.getUnlockedAchievements(), isEmpty);
   });
 
   test('망가진 백업은 기존 데이터를 건드리기 전에 예외를 던진다', () async {
