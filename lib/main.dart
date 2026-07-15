@@ -42,15 +42,36 @@ Future<void> main() async {
 
   // AI refreshes and notification scheduling run AFTER the first frame is up —
   // a slow or absent network must never delay opening the app, since the
-  // daily habit loop depends on it launching instantly.
-  unawaited(refreshController.refreshIfDue());
-  unawaited(_scheduleNotifications(storage));
+  // daily habit loop depends on it launching instantly. Notifications are
+  // scheduled only once the startup refresh has settled, so the active-quest
+  // count they read isn't a stale pre-respawn snapshot.
+  unawaited(runStartupSequence(refreshController, storage));
 }
 
-Future<void> _scheduleNotifications(StorageService storage) async {
+/// Runs the startup refresh to completion before scheduling notifications,
+/// so the reminder's active-quest count reflects post-respawn state rather
+/// than a stale pre-refresh snapshot. [notificationService] is injectable
+/// so tests can substitute a fake instead of hitting the real platform
+/// plugin (mirrors [DailyRefreshController]'s pattern for its own steps).
+Future<void> runStartupSequence(
+  DailyRefreshController refreshController,
+  StorageService storage, {
+  NotificationService? notificationService,
+}) async {
+  await refreshController.refreshIfDue();
+  await scheduleNotifications(
+    storage,
+    notificationService: notificationService,
+  );
+}
+
+Future<void> scheduleNotifications(
+  StorageService storage, {
+  NotificationService? notificationService,
+}) async {
   try {
-    final notificationService = NotificationService();
-    await notificationService.init();
+    final service = notificationService ?? NotificationService();
+    await service.init();
     final profile = storage.getProfile();
     final reminderMinutes = profile.reminderMinutesSinceMidnight;
     if (reminderMinutes != null) {
@@ -58,14 +79,14 @@ Future<void> _scheduleNotifications(StorageService storage) async {
           .getQuests()
           .where((q) => q.status == QuestStatus.active)
           .length;
-      await notificationService.scheduleDailyReminder(
+      await service.scheduleDailyReminder(
         hour: reminderMinutes ~/ 60,
         minute: reminderMinutes % 60,
         activeQuestCount: activeQuestCount,
       );
     }
     if (profile.weeklyReportReminderEnabled) {
-      await notificationService.scheduleWeeklyReportReminder();
+      await service.scheduleWeeklyReportReminder();
     }
   } catch (_) {}
 }
