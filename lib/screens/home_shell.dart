@@ -17,20 +17,26 @@ class HomeShell extends StatefulWidget {
 class _HomeShellState extends State<HomeShell> {
   int _index = 0;
 
-  static const _screens = [
-    DashboardScreen(),
-    QuestsScreen(),
-    GoalsScreen(),
-    FinanceScreen(),
-    MoreScreen(),
-  ];
+  static const _questsTabIndex = 1;
 
   static const _destinations = [
     (icon: Icons.home_outlined, selectedIcon: Icons.home, label: '홈'),
-    (icon: Icons.checklist_outlined, selectedIcon: Icons.checklist, label: '퀘스트'),
+    (
+      icon: Icons.checklist_outlined,
+      selectedIcon: Icons.checklist,
+      label: '퀘스트',
+    ),
     (icon: Icons.flag_outlined, selectedIcon: Icons.flag, label: '목표'),
-    (icon: Icons.account_balance_wallet_outlined, selectedIcon: Icons.account_balance_wallet, label: '재무'),
-    (icon: Icons.more_horiz_outlined, selectedIcon: Icons.more_horiz, label: '더보기'),
+    (
+      icon: Icons.account_balance_wallet_outlined,
+      selectedIcon: Icons.account_balance_wallet,
+      label: '재무',
+    ),
+    (
+      icon: Icons.more_horiz_outlined,
+      selectedIcon: Icons.more_horiz,
+      label: '더보기',
+    ),
   ];
 
   void _select(int i) => setState(() => _index = i);
@@ -38,7 +44,14 @@ class _HomeShellState extends State<HomeShell> {
   @override
   Widget build(BuildContext context) {
     final width = MediaQuery.sizeOf(context).width;
-    final body = IndexedStack(index: _index, children: _screens);
+    final screens = [
+      DashboardScreen(onViewAllQuests: () => _select(_questsTabIndex)),
+      const QuestsScreen(),
+      const GoalsScreen(),
+      const FinanceScreen(),
+      const MoreScreen(),
+    ];
+    final body = IndexedStack(index: _index, children: screens);
 
     // Compact(<600dp): 바텀 내비게이션 5개.
     if (AppBreakpoints.isCompact(width)) {
@@ -49,7 +62,11 @@ class _HomeShellState extends State<HomeShell> {
           onDestinationSelected: _select,
           destinations: [
             for (final d in _destinations)
-              NavigationDestination(icon: Icon(d.icon), selectedIcon: Icon(d.selectedIcon), label: d.label),
+              NavigationDestination(
+                icon: Icon(d.icon),
+                selectedIcon: Icon(d.selectedIcon),
+                label: d.label,
+              ),
           ],
         ),
       );
@@ -67,7 +84,9 @@ class _HomeShellState extends State<HomeShell> {
             onDestinationSelected: _select,
             extended: extended,
             minExtendedWidth: 180,
-            labelType: extended ? NavigationRailLabelType.none : NavigationRailLabelType.all,
+            labelType: extended
+                ? NavigationRailLabelType.none
+                : NavigationRailLabelType.all,
             destinations: [
               for (final d in _destinations)
                 NavigationRailDestination(

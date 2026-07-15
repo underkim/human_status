@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../data/achievement_definitions.dart';
 import '../models/quest.dart';
 import '../services/achievement_service.dart';
+import '../services/daily_summary_service.dart';
+import '../services/quest_priority_service.dart';
 import '../services/quest_recommendation_service.dart';
 import '../services/reward_transaction.dart';
 import '../services/storage_service.dart';
@@ -61,6 +63,16 @@ final completedQuestsProvider = Provider<List<Quest>>((ref) {
         (b.completedAt ?? b.createdAt).compareTo(a.completedAt ?? a.createdAt),
   );
   return quests;
+});
+
+/// 홈 허브에 강조할 단 하나의 "다음 퀘스트" — 규칙은 [selectNextQuest] 참고.
+final nextQuestProvider = Provider<Quest?>((ref) {
+  return selectNextQuest(ref.watch(activeQuestsProvider));
+});
+
+/// 오늘(로컬 달력 기준) 완료 개수와 실지급 XP 합계 — 홈 허브 요약에 쓰인다.
+final todaySummaryProvider = Provider<DailySummary>((ref) {
+  return computeTodaySummary(ref.watch(questsProvider));
 });
 
 class QuestsNotifier extends StateNotifier<List<Quest>> {
