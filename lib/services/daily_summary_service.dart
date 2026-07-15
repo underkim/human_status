@@ -24,6 +24,7 @@ DailySummary computeTodaySummary(List<Quest> quests, {DateTime? now}) {
     (q) =>
         q.status == QuestStatus.completed &&
         q.completedAt != null &&
+        !q.completedAt!.isAfter(today) &&
         isSameLocalDay(q.completedAt!, today),
   );
 
@@ -36,4 +37,24 @@ DailySummary computeTodaySummary(List<Quest> quests, {DateTime? now}) {
     }
   }
   return DailySummary(completedCount: count, xp: xp);
+}
+
+/// [xp]를 사용자에게 보여줄 문자열로 만든다 — 정수면 소수점 없이("10"),
+/// 소수라면 실제 지급액이 뭉개지지 않도록 소수점을 살리되("1.5") 부동소수점
+/// 연산의 잡음(예: 14.999999999999998)은 걷어낸다. [XpService.effectiveRewards]가
+/// 만들어내는 값과 화면 표시가 항상 일치해야 하므로, 반올림으로 실제 지급액을
+/// 감추지 않는다.
+String formatXp(double xp) {
+  final rounded = double.parse(xp.toStringAsFixed(2));
+  if (rounded == rounded.roundToDouble()) {
+    return rounded.toInt().toString();
+  }
+  var text = rounded.toStringAsFixed(2);
+  while (text.endsWith('0')) {
+    text = text.substring(0, text.length - 1);
+  }
+  if (text.endsWith('.')) {
+    text = text.substring(0, text.length - 1);
+  }
+  return text;
 }

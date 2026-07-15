@@ -39,7 +39,7 @@ void main() {
       final today2 = _quest(
         id: 'q2',
         status: QuestStatus.completed,
-        completedAt: DateTime(2026, 7, 16, 23, 59),
+        completedAt: DateTime(2026, 7, 16, 9, 0),
         statRewards: const {'health': 20},
       );
 
@@ -61,7 +61,7 @@ void main() {
       expect(summary.xp, 0);
     });
 
-    test('excludes quests completed in the future', () {
+    test('excludes quests completed on a future calendar date', () {
       final future = _quest(
         id: 'q1',
         status: QuestStatus.completed,
@@ -72,6 +72,25 @@ void main() {
       expect(summary.completedCount, 0);
       expect(summary.xp, 0);
     });
+
+    test(
+      'excludes quests completed later today than `now` (same calendar date)',
+      () {
+        // now is 09:30 on 7/16; this completion is later the same day and must
+        // not be counted yet — otherwise a quest completed "in the future"
+        // relative to `now` would still leak into today's summary just because
+        // it shares a calendar date.
+        final laterToday = _quest(
+          id: 'q1',
+          status: QuestStatus.completed,
+          completedAt: DateTime(2026, 7, 16, 23, 0),
+        );
+
+        final summary = computeTodaySummary([laterToday], now: now);
+        expect(summary.completedCount, 0);
+        expect(summary.xp, 0);
+      },
+    );
 
     test('excludes non-completed quests even with a completedAt-like date', () {
       final active = _quest(id: 'q1', status: QuestStatus.active);
@@ -85,7 +104,7 @@ void main() {
       final goalQuest = _quest(
         id: 'q1',
         status: QuestStatus.completed,
-        completedAt: DateTime(2026, 7, 16, 10),
+        completedAt: DateTime(2026, 7, 16, 9),
         goalId: 'goal-1',
         statRewards: const {'health': 10},
       );
@@ -108,5 +127,48 @@ void main() {
       final summary = computeTodaySummary([earlyToday], now: now);
       expect(summary.completedCount, 1);
     });
+
+    test(
+      'a completedAt exactly equal to `now` is included (inclusive boundary)',
+      () {
+        final exact = _quest(
+          id: 'q1',
+          status: QuestStatus.completed,
+          completedAt: now,
+        );
+
+        final summary = computeTodaySummary([exact], now: now);
+        expect(summary.completedCount, 1);
+      },
+    );
+  });
+
+  group('formatXp', () {
+    test('whole numbers show without a decimal point', () {
+      expect(formatXp(10), '10');
+      expect(formatXp(0), '0');
+      expect(formatXp(225), '225');
+    });
+
+    test('meaningful fractions are preserved, not rounded away', () {
+      // A base 1 XP goal-linked reward becomes 1.5 via the multiplier —
+      // rounding this to "2" would misreport the actual award.
+      expect(formatXp(1 * XpService.goalQuestXpMultiplier), '1.5');
+      expect(formatXp(22.5), '22.5');
+    });
+
+    test('floating point noise near a whole number collapses cleanly', () {
+      // 14.9999999999998-style artifacts from repeated addition should not
+      // leak into the UI as noisy decimals.
+      expect(formatXp(14.999999999999998), '15');
+      expect(formatXp(9.999999999999998), '10');
+    });
+
+    test(
+      'floating point noise near a fractional value still shows the fraction',
+      () {
+        expect(formatXp(1.4999999999999998), '1.5');
+      },
+    );
   });
 }

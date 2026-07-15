@@ -6,6 +6,7 @@ import 'package:human_status/screens/dashboard_screen.dart';
 import 'package:human_status/screens/goal_form_screen.dart';
 import 'package:human_status/screens/quest_form_screen.dart';
 import 'package:human_status/screens/quests_screen.dart';
+import 'package:human_status/widgets/action_hub_card.dart';
 
 import 'helpers/test_app.dart';
 
@@ -46,14 +47,18 @@ void main() {
     expect(find.text('시작해볼까요?'), findsNothing);
     expect(find.text('오늘의 행동'), findsOneWidget);
     expect(find.text('다음 퀘스트'), findsOneWidget);
-    // 앱바 바로 아래(스크롤 전 첫 화면)에서 강조 퀘스트와 완료 버튼이 보여야 한다.
-    expect(
-      tester.getTopLeft(find.text('오늘의 행동')).dy,
-      lessThan(_compactPhone.height),
-    );
     expect(find.text('스트레칭'), findsOneWidget);
     expect(find.widgetWithText(FilledButton, '완료'), findsOneWidget);
     expect(find.text('오늘 완료 0개 · +0 XP'), findsOneWidget);
+
+    // 스크롤/ensureVisible 없이 강조 퀘스트의 완료 버튼 실제 사각형이 초기
+    // 뷰포트(앱바 아래 화면) 안에 온전히 들어와야 한다 — 위젯이 트리에
+    // 있다는 것만으로는 실제로 스크롤 없이 보인다는 걸 보장하지 않는다.
+    final completeButtonRect = tester.getRect(
+      find.widgetWithText(FilledButton, '완료'),
+    );
+    expect(completeButtonRect.top, greaterThanOrEqualTo(0));
+    expect(completeButtonRect.bottom, lessThanOrEqualTo(_compactPhone.height));
 
     await tester.tap(find.text('완료'));
     await tester.pumpAndSettle();
@@ -103,6 +108,40 @@ void main() {
     expect(find.text('운동 30분'), findsOneWidget);
     expect(find.text('물 마시기'), findsOneWidget);
     expect(find.text('다음 퀘스트'), findsOneWidget);
+
+    // 허브 안의 완료 버튼만 골라 누른다 — 아래 목록의 남은 퀘스트도 각자
+    // 완료 버튼을 갖고 있으므로 텍스트만으로는 구분되지 않는다.
+    final hubCompleteButton = find.descendant(
+      of: find.byType(ActionHubCard),
+      matching: find.widgetWithText(FilledButton, '완료'),
+    );
+    await tester.tap(hubCompleteButton);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+
+    expect(find.text('"운동 30분" 완료!'), findsOneWidget);
+    // 첫 완료라면 업적 다이얼로그가 뜰 수 있으니, 있으면 닫아준다.
+    final confirmButton = find.text('확인');
+    if (confirmButton.evaluate().isNotEmpty) {
+      await tester.tap(confirmButton);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+    }
+
+    // 목표 연결 퀘스트가 완료됐으니 남은 하나(물 마시기)가 다음 강조 퀘스트가
+    // 되고, 아래 목록에서는 사라진다.
+    expect(find.text('다음 퀘스트'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byType(ActionHubCard),
+        matching: find.text('물 마시기'),
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('운동 30분'), findsNothing);
+
+    // 오늘 요약도 갱신된다: health 20 XP 기본값에 목표 연결 1.5배 보너스.
+    expect(find.text('오늘 완료 1개 · +30 XP'), findsOneWidget);
   });
 
   testWidgets('진행중 퀘스트가 없고 추천 퀘스트가 있으면 허브가 채택 CTA를 보여주고 채택하면 강조 퀘스트로 전환된다', (

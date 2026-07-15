@@ -6,6 +6,7 @@ import '../providers/profile_provider.dart';
 import '../providers/quest_provider.dart';
 import '../screens/quest_form_screen.dart';
 import '../screens/quests_screen.dart';
+import '../services/daily_summary_service.dart';
 import '../theme/app_spacing.dart';
 import 'achievement_dialog.dart';
 import 'level_up_dialog.dart';
@@ -169,7 +170,7 @@ class _ActionHubCardState extends ConsumerState<ActionHubCard> {
             Text('오늘의 행동', style: theme.textTheme.titleLarge),
             const SizedBox(height: AppSpacing.xs),
             Text(
-              '오늘 완료 ${summary.completedCount}개 · +${summary.xp.round()} XP',
+              '오늘 완료 ${summary.completedCount}개 · +${formatXp(summary.xp)} XP',
               style: theme.textTheme.bodyMedium,
             ),
             const SizedBox(height: AppSpacing.sm),
