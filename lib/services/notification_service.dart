@@ -1,13 +1,65 @@
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:flutter_timezone/flutter_timezone.dart';
 import 'package:timezone/data/latest_all.dart' as tz_data;
 import 'package:timezone/timezone.dart' as tz;
 
 import '../utils/formatters.dart';
 
+/// Thrown when the device's timezone identifier can't be resolved to a
+/// known IANA location. Callers must not fall back to scheduling in
+/// UTC/some arbitrary zone when this happens — [NotificationService.init]
+/// throws it instead, so the failure has to be handled explicitly.
+class NotificationTimezoneException implements Exception {
+  NotificationTimezoneException(this.identifier, [this.cause]);
+
+  /// The (possibly malformed/unknown) identifier resolution returned.
+  final String identifier;
+
+  /// The underlying error, if any (e.g. the exception thrown by the
+  /// timezone package or the platform channel lookup).
+  final Object? cause;
+
+  @override
+  String toString() =>
+      'NotificationTimezoneException: unknown timezone identifier "$identifier"'
+      '${cause != null ? ' ($cause)' : ''}';
+}
+
+/// Resolves an IANA timezone identifier (e.g. the value returned by
+/// `FlutterTimezone.getLocalTimezone().identifier`) to a timezone database
+/// [tz.Location]. Pure — takes the identifier as a plain string, so tests
+/// can exercise real IANA ids, including DST zones, without touching the
+/// platform channel that resolving the *device's* timezone requires.
+///
+/// Throws [NotificationTimezoneException] for an unknown identifier
+/// instead of silently falling back, so callers never end up scheduling in
+/// the wrong zone.
+tz.Location resolveTimezoneLocation(String identifier) {
+  try {
+    return tz.getLocation(identifier);
+  } on Object catch (e) {
+    throw NotificationTimezoneException(identifier, e);
+  }
+}
+
+/// Resolves the device's current IANA timezone identifier. Injectable on
+/// [NotificationService] so tests can substitute a fixed identifier instead
+/// of invoking the `flutter_timezone` platform channel.
+typedef TimezoneIdentifierResolver = Future<String> Function();
+
+Future<String> _defaultTimezoneIdentifierResolver() async {
+  final info = await FlutterTimezone.getLocalTimezone();
+  return info.identifier;
+}
+
 /// Local (on-device) daily reminder notifications. No-op on web, where the
 /// underlying plugin has no native scheduling support.
 class NotificationService {
+  NotificationService({
+    this._timezoneIdentifierResolver = _defaultTimezoneIdentifierResolver,
+  });
+
   static const _dailyReminderId = 1;
   static const _weeklyReportId = 2;
   static const _budgetExceededId = 3;
@@ -17,18 +69,29 @@ class NotificationService {
   static const weeklyReportWeekday = DateTime.sunday;
   static const weeklyReportHour = 20;
 
-  final FlutterLocalNotificationsPlugin _plugin = FlutterLocalNotificationsPlugin();
+  final FlutterLocalNotificationsPlugin _plugin =
+      FlutterLocalNotificationsPlugin();
+  final TimezoneIdentifierResolver _timezoneIdentifierResolver;
   bool _initialized = false;
 
+  /// Throws [NotificationTimezoneException] if the device's timezone
+  /// identifier can't be resolved — never silently schedules in UTC or the
+  /// wrong zone. Does not request the notification permission; that only
+  /// happens when actually scheduling a reminder.
   Future<void> init() async {
     if (kIsWeb || _initialized) return;
 
     tz_data.initializeTimeZones();
-    tz.setLocalLocation(tz.local);
+    final identifier = await _timezoneIdentifierResolver();
+    tz.setLocalLocation(resolveTimezoneLocation(identifier));
 
-    const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
+    const androidSettings = AndroidInitializationSettings(
+      '@mipmap/ic_launcher',
+    );
     const darwinSettings = DarwinInitializationSettings();
-    const linuxSettings = LinuxInitializationSettings(defaultActionName: 'Open');
+    const linuxSettings = LinuxInitializationSettings(
+      defaultActionName: 'Open',
+    );
     const windowsSettings = WindowsInitializationSettings(
       appName: 'Human Status',
       appUserModelId: 'com.humanstatus.app',
@@ -53,7 +116,9 @@ class NotificationService {
     if (kIsWeb) return false;
     await init();
     return _plugin
-        .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
+        .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin
+        >()
         ?.areNotificationsEnabled();
   }
 
@@ -71,11 +136,20 @@ class NotificationService {
     if (kIsWeb) return false;
     await init();
     final granted = await _plugin
-        .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
+        .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin
+        >()
         ?.requestNotificationsPermission();
 
     final now = tz.TZDateTime.now(tz.local);
-    var scheduled = tz.TZDateTime(tz.local, now.year, now.month, now.day, hour, minute);
+    var scheduled = tz.TZDateTime(
+      tz.local,
+      now.year,
+      now.month,
+      now.day,
+      hour,
+      minute,
+    );
     if (scheduled.isBefore(now)) {
       scheduled = scheduled.add(const Duration(days: 1));
     }
@@ -120,17 +194,30 @@ class NotificationService {
     if (kIsWeb) return false;
     await init();
     final granted = await _plugin
-        .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
+        .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin
+        >()
         ?.requestNotificationsPermission();
 
     final now = tz.TZDateTime.now(tz.local);
     // 다음 일요일 20:00 — DST 경계에서 시각이 밀리지 않도록 Duration 덧셈 대신
     // 달력 필드로 하루씩 재구성한다.
-    var scheduled =
-        tz.TZDateTime(tz.local, now.year, now.month, now.day, weeklyReportHour);
-    while (scheduled.weekday != weeklyReportWeekday || scheduled.isBefore(now)) {
+    var scheduled = tz.TZDateTime(
+      tz.local,
+      now.year,
+      now.month,
+      now.day,
+      weeklyReportHour,
+    );
+    while (scheduled.weekday != weeklyReportWeekday ||
+        scheduled.isBefore(now)) {
       scheduled = tz.TZDateTime(
-          tz.local, scheduled.year, scheduled.month, scheduled.day + 1, weeklyReportHour);
+        tz.local,
+        scheduled.year,
+        scheduled.month,
+        scheduled.day + 1,
+        weeklyReportHour,
+      );
     }
 
     await _plugin.zonedSchedule(
@@ -161,7 +248,10 @@ class NotificationService {
   }
 
   /// Fires immediately when this month's spending first crosses the budget.
-  Future<void> showBudgetExceeded({required double spent, required double budget}) async {
+  Future<void> showBudgetExceeded({
+    required double spent,
+    required double budget,
+  }) async {
     if (kIsWeb) return;
     await init();
     await _plugin.show(
