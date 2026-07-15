@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:human_status/data/achievement_definitions.dart';
@@ -98,6 +100,44 @@ class _ThrowsOnNthCheckAchievementService extends AchievementService {
         DateTime(2026, 7, 15),
       );
       throw StateError('simulated achievement check failure (call $_calls)');
+    }
+    return super.checkAndUnlock(context);
+  }
+}
+
+/// Blocks the first call to [checkAndUnlock] until released, so a test can
+/// prove that a second completion already queued behind the first on the
+/// shared [rewardLockProvider] actually runs — and succeeds — once the
+/// first call's failure has been rolled back, instead of the lock's queue
+/// getting stuck behind a failing transaction. The first call signals
+/// [entered] as soon as it's inside the achievement check (i.e. already
+/// holding the lock, past its own stat/status writes), then awaits
+/// [release]; once resumed it persists a fake achievement and throws.
+/// Every later call behaves exactly like the real service.
+class _HoldsThenThrowsAchievementService extends AchievementService {
+  _HoldsThenThrowsAchievementService(
+    StorageService storage, {
+    required this.entered,
+    required this.release,
+  }) : super(storage: storage);
+
+  final Completer<void> entered;
+  final Completer<void> release;
+  int _calls = 0;
+
+  @override
+  Future<List<AchievementDefinition>> checkAndUnlock(
+    AchievementContext context,
+  ) async {
+    _calls++;
+    if (_calls == 1) {
+      entered.complete();
+      await release.future;
+      await storage.unlockAchievement(
+        'test_fake_achievement',
+        DateTime(2026, 7, 15),
+      );
+      throw StateError('simulated achievement check failure (held)');
     }
     return super.checkAndUnlock(context);
   }
@@ -475,6 +515,69 @@ void main() {
             .where((g) => g.status == GoalStatus.completed)
             .length,
         1,
+      );
+    });
+
+    test('큐에 쌓인 완료가 앞선 완료의 실패/롤백에 막히지 않고 정확히 한 번 성공한다 (락 큐 무결성)', () async {
+      final storage = await createTestStorage();
+      await storage.saveQuest(_quest('q1', statRewards: {'health': 20}));
+      await storage.saveQuest(_quest('q2', statRewards: {'health': 15}));
+
+      final entered = Completer<void>();
+      final release = Completer<void>();
+      // A single ProviderContainer/rewardLockProvider for both calls — the
+      // whole point is proving the *shared* AsyncLock's queue survives a
+      // failure, which a fresh container per call would sidestep.
+      final container = ProviderContainer(
+        overrides: [
+          storageServiceProvider.overrideWithValue(storage),
+          achievementServiceProvider.overrideWith(
+            (ref) => _HoldsThenThrowsAchievementService(
+              ref.watch(storageServiceProvider),
+              entered: entered,
+              release: release,
+            ),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+      final notifier = container.read(questsProvider.notifier);
+
+      // q1 starts, acquires the shared lock, applies its own stat/quest
+      // writes, then blocks inside the achievement check — still holding
+      // the lock.
+      final q1Future = notifier.completeQuest('q1');
+      await entered.future;
+
+      // q2 is dispatched while q1 still holds the lock, so it must queue
+      // behind q1 rather than run concurrently with it.
+      final q2Future = notifier.completeQuest('q2');
+
+      // Release q1: it persists a fake achievement, then throws,
+      // triggering its own rollback before the lock hands off to q2.
+      release.complete();
+
+      await expectLater(q1Future, throwsA(isA<StateError>()));
+      // q2 was already queued behind q1 on the shared lock: it must still
+      // run to completion — and succeed exactly once — once q1's failure
+      // has been rolled back, proving the lock's queue (its `_tail`) was
+      // not poisoned/stuck by q1's failure.
+      final q2Result = await q2Future;
+      expect(q2Result.levelUps, isNotEmpty);
+
+      final q1Quest = storage.getQuests().firstWhere((q) => q.id == 'q1');
+      expect(q1Quest.status, QuestStatus.active);
+      expect(q1Quest.completedAt, isNull);
+      final q2Quest = storage.getQuests().firstWhere((q) => q.id == 'q2');
+      expect(q2Quest.status, QuestStatus.completed);
+
+      // q1's rollback restored 'health' to 0 before q2 ran, so only q2's
+      // own reward should be present — not erased by q1's rollback, and
+      // not double-applied.
+      expect(storage.getStat('health')!.currentXp, 15);
+      expect(
+        storage.getUnlockedAchievements().keys,
+        isNot(contains('test_fake_achievement')),
       );
     });
   });
