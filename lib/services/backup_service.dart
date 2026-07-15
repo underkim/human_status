@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'package:meta/meta.dart';
+
 import '../models/asset_snapshot.dart';
 import '../models/financial_plan.dart';
 import '../models/goal.dart';
@@ -88,9 +90,21 @@ class BackupService {
 
   /// Test-only fault injection point. When set, it fires exactly once,
   /// immediately after the first domain has been cleared/written during
-  /// [restore], then clears itself so the rollback that follows (which
-  /// reuses the same storage writes) isn't sabotaged by firing again.
+  /// [restore]'s apply phase, then clears itself so neither a later apply
+  /// step nor the rollback that follows (which reuses the same storage
+  /// writes) is sabotaged by firing again. Left `null` in production, so it
+  /// can never fire unless a test explicitly sets it.
+  @visibleForTesting
   void Function()? debugApplyFaultInjector;
+
+  /// Test-only fault injection point for the rollback path itself. When
+  /// set, it fires exactly once, immediately after the first domain has
+  /// been restored during [restore]'s rollback phase, then clears itself
+  /// so it can't sabotage the rest of that same rollback attempt. Left
+  /// `null` in production, so it can never fire unless a test explicitly
+  /// sets it.
+  @visibleForTesting
+  void Function()? debugRollbackFaultInjector;
 
   BackupService({required this.storage});
 
@@ -132,8 +146,11 @@ class BackupService {
   Future<void> restore(String jsonStr) async {
     final data = jsonDecode(jsonStr) as Map<String, dynamic>;
 
-    final schemaVersionRaw = data['schemaVersion'];
-    if (schemaVersionRaw != null) {
+    // 키가 아예 없는(구버전) 백업만 레거시로 취급한다 — 키는 있는데 값이
+    // null/문자열/실수 등 정수가 아니면 명시적으로 잘못된 백업이므로,
+    // "없으니 구버전"으로 관대하게 봐주지 않고 clear 전에 예외를 던진다.
+    if (data.containsKey('schemaVersion')) {
+      final schemaVersionRaw = data['schemaVersion'];
       if (schemaVersionRaw is! int) {
         throw FormatException(
           'schemaVersion must be an integer, got: $schemaVersionRaw',
@@ -277,12 +294,21 @@ class BackupService {
     preferredStatId: p.preferredStatId,
   );
 
-  void _maybeInjectFault() {
+  void _maybeInjectApplyFault() {
     final injector = debugApplyFaultInjector;
     if (injector == null) return;
     // 한 번만 발동시키고 스스로를 해제한다 — 그래야 실패 후 rollback이
     // 같은 박스들에 다시 쓸 때 또 걸려 넘어지지 않는다.
     debugApplyFaultInjector = null;
+    injector();
+  }
+
+  void _maybeInjectRollbackFault() {
+    final injector = debugRollbackFaultInjector;
+    if (injector == null) return;
+    // apply 주입과 마찬가지로 한 번만 발동시키고 스스로를 해제해, 같은
+    // rollback 시도 안에서 남은 박스들을 계속 복구하는 것을 막지 않는다.
+    debugRollbackFaultInjector = null;
     injector();
   }
 
@@ -308,7 +334,7 @@ class BackupService {
     for (final s in stats) {
       await storage.saveStat(s);
     }
-    _maybeInjectFault();
+    _maybeInjectApplyFault();
     for (final q in quests) {
       await storage.saveQuest(q);
     }
@@ -353,6 +379,7 @@ class BackupService {
     for (final s in snapshot.stats) {
       await storage.saveStat(s);
     }
+    _maybeInjectRollbackFault();
     await storage.questsBox.clear();
     for (final q in snapshot.quests) {
       await storage.saveQuest(q);

@@ -47,6 +47,7 @@ dependencies:
   csv: ^8.0.0
   cp949_codec: ^1.0.2
   excel: ^4.0.6
+  meta: ^1.16.0
   flutter_web_plugins:
     sdk: flutter
 

@@ -267,6 +267,23 @@ void main() {
     expect(storage.getGoals(), isNotEmpty);
   });
 
+  test('schemaVersion 키가 명시적으로 null이면(구버전 취급하지 않음) clear 전에 예외를 던진다', () async {
+    final storage = await _seededStorage();
+    final service = BackupService(storage: storage);
+    final malformed = jsonEncode({
+      'schemaVersion': null,
+      'stats': storage.getStats().map((s) => s.toJson()).toList(),
+      'quests': storage.getQuests().map((q) => q.toJson()).toList(),
+    });
+
+    await expectLater(
+      service.restore(malformed),
+      throwsA(isA<FormatException>()),
+    );
+    expect(storage.getQuests(), isNotEmpty);
+    expect(storage.getGoals(), isNotEmpty);
+  });
+
   test('schemaVersion이 정수가 아니면(문자열) clear 전에 예외를 던진다', () async {
     final storage = await _seededStorage();
     final service = BackupService(storage: storage);
@@ -391,5 +408,54 @@ void main() {
     // 주입한 실패는 한 번만 발동해야 한다 — rollback 자체가 다시 같은
     // 박스들을 쓰는데, 이때 재발동하면 rollback을 방해하게 된다.
     expect(service.debugApplyFaultInjector, isNull);
+  });
+
+  test('apply와 rollback이 모두 실패하면 두 원인이 그대로 노출된다', () async {
+    final storage = await _seededStorage();
+    final service = BackupService(storage: storage);
+    final incoming = jsonEncode({
+      'schemaVersion': 1,
+      'stats': [Stat(id: 'health', name: '건강', icon: '💪', level: 9).toJson()],
+      'quests': <Map<String, dynamic>>[],
+    });
+
+    final applyFailure = StateError('injected apply failure');
+    final rollbackFailure = StateError('injected rollback failure');
+    var applyInjected = false;
+    var rollbackInjected = false;
+    service.debugApplyFaultInjector = () {
+      applyInjected = true;
+      throw applyFailure;
+    };
+    service.debugRollbackFaultInjector = () {
+      rollbackInjected = true;
+      throw rollbackFailure;
+    };
+
+    Object? thrown;
+    try {
+      await service.restore(incoming);
+    } catch (e) {
+      thrown = e;
+    }
+
+    expect(applyInjected, isTrue);
+    expect(rollbackInjected, isTrue);
+    // 두 실패 모두 발동은 한 번만 되어야 한다 — 재발동하면 나머지 도메인의
+    // apply/rollback을 방해하게 된다.
+    expect(service.debugApplyFaultInjector, isNull);
+    expect(service.debugRollbackFaultInjector, isNull);
+
+    expect(thrown, isA<BackupRestoreRollbackFailedException>());
+    final failure = thrown as BackupRestoreRollbackFailedException;
+    // 원인과 스택 트레이스 둘 다 그대로 보존되어야 한다 — 어느 쪽도 삼켜지면
+    // 안 된다.
+    expect(failure.applyError, same(applyFailure));
+    expect(failure.rollbackError, same(rollbackFailure));
+    expect(failure.applyStackTrace, isNotNull);
+    expect(failure.rollbackStackTrace, isNotNull);
+    expect(failure.toString(), contains('injected apply failure'));
+    expect(failure.toString(), contains('injected rollback failure'));
+    expect(failure.toString(), contains('partial'));
   });
 }
