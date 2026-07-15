@@ -4,10 +4,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../data/achievement_definitions.dart';
 import '../providers/profile_provider.dart';
+import '../providers/progression_provider.dart';
 import '../providers/quest_provider.dart';
 import '../services/stats_insights_service.dart';
 import '../theme/app_colors.dart';
+import '../theme/app_spacing.dart';
 import '../widgets/completion_heatmap.dart';
+import '../widgets/progression_journey_card.dart';
 
 const _weekdayLabels = ['월', '화', '수', '목', '금', '토', '일'];
 
@@ -19,8 +22,11 @@ class InsightsScreen extends ConsumerWidget {
     final stats = ref.watch(statsProvider);
     final completedQuests = ref.watch(completedQuestsProvider);
 
-    final streak = StatsInsightsService.currentStreak(completedQuests);
-    final completionCounts = StatsInsightsService.completionCountByDay(completedQuests);
+    final snapshot = ref.watch(progressionSnapshotProvider);
+    final nextAchievement = ref.watch(nextAchievementProgressProvider);
+    final completionCounts = StatsInsightsService.completionCountByDay(
+      completedQuests,
+    );
     final xpByDay = StatsInsightsService.xpByDay(completedQuests, days: 7);
     final totalXpByStat = StatsInsightsService.totalXpByStat(completedQuests);
     final unlockedAchievements = ref.watch(unlockedAchievementsProvider);
@@ -34,15 +40,84 @@ class InsightsScreen extends ConsumerWidget {
         children: [
           Card(
             child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Row(
+              padding: const EdgeInsets.all(AppSpacing.lg),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('🔥', style: TextStyle(fontSize: 32)),
-                  const SizedBox(width: 12),
-                  Text(
-                    '$streak일 연속',
-                    style: Theme.of(context).textTheme.headlineSmall,
+                  Row(
+                    children: [
+                      const Text('🔥', style: TextStyle(fontSize: 32)),
+                      const SizedBox(width: 12),
+                      Text(
+                        '${snapshot.currentStreak}일 연속',
+                        style: Theme.of(context).textTheme.headlineSmall,
+                      ),
+                    ],
                   ),
+                  const SizedBox(height: AppSpacing.xs),
+                  Text(
+                    ProgressionJourneyCard.statusCopy(
+                      completedToday: snapshot.completedToday,
+                      currentStreak: snapshot.currentStreak,
+                    ),
+                    style: Theme.of(context).textTheme.bodyMedium,
+                  ),
+                  const SizedBox(height: AppSpacing.md),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          '최고 기록 ${snapshot.longestStreak}일',
+                          style: Theme.of(context).textTheme.bodyMedium,
+                        ),
+                      ),
+                      Expanded(
+                        child: Text(
+                          '이번 주 ${snapshot.activeDaysThisWeek}/7일',
+                          style: Theme.of(context).textTheme.bodyMedium,
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (nextAchievement != null) ...[
+                    const SizedBox(height: AppSpacing.md),
+                    Row(
+                      children: [
+                        Text(
+                          nextAchievement.icon,
+                          style: const TextStyle(fontSize: 18),
+                        ),
+                        const SizedBox(width: AppSpacing.sm),
+                        Expanded(
+                          child: Text(
+                            '다음 업적: ${nextAchievement.title}',
+                            style: Theme.of(context).textTheme.bodyMedium
+                                ?.copyWith(fontWeight: FontWeight.w600),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: AppSpacing.xs),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(AppRadius.sm),
+                      child: LinearProgressIndicator(
+                        value: nextAchievement.ratio,
+                        minHeight: 6,
+                      ),
+                    ),
+                    const SizedBox(height: AppSpacing.xs),
+                    Text(
+                      nextAchievement.label,
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ] else ...[
+                    const SizedBox(height: AppSpacing.md),
+                    Text(
+                      '모든 업적을 달성했어요! 🎉',
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -66,15 +141,22 @@ class InsightsScreen extends ConsumerWidget {
                 alignment: BarChartAlignment.spaceAround,
                 maxY: maxXp <= 0 ? 10 : maxXp * 1.2,
                 titlesData: FlTitlesData(
-                  leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                  rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                  topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                  leftTitles: const AxisTitles(
+                    sideTitles: SideTitles(showTitles: false),
+                  ),
+                  rightTitles: const AxisTitles(
+                    sideTitles: SideTitles(showTitles: false),
+                  ),
+                  topTitles: const AxisTitles(
+                    sideTitles: SideTitles(showTitles: false),
+                  ),
                   bottomTitles: AxisTitles(
                     sideTitles: SideTitles(
                       showTitles: true,
                       getTitlesWidget: (value, meta) {
                         final index = value.toInt();
-                        if (index < 0 || index >= xpByDay.length) return const SizedBox.shrink();
+                        if (index < 0 || index >= xpByDay.length)
+                          return const SizedBox.shrink();
                         final day = xpByDay.keys.elementAt(index);
                         return Padding(
                           padding: const EdgeInsets.only(top: 4),
@@ -86,7 +168,9 @@ class InsightsScreen extends ConsumerWidget {
                 ),
                 borderData: FlBorderData(show: false),
                 gridData: const FlGridData(show: false),
-                barGroups: xpByDay.entries.toList().asMap().entries.map((entry) {
+                barGroups: xpByDay.entries.toList().asMap().entries.map((
+                  entry,
+                ) {
                   final index = entry.key;
                   final xp = entry.value.value;
                   return BarChartGroupData(
@@ -133,14 +217,19 @@ class InsightsScreen extends ConsumerWidget {
               final isUnlocked = unlockedAt != null;
               final mutedColor = context.appColors.textMuted;
               return Card(
-                color: isUnlocked ? null : Theme.of(context).colorScheme.surfaceContainerHighest,
+                color: isUnlocked
+                    ? null
+                    : Theme.of(context).colorScheme.surfaceContainerHighest,
                 child: Padding(
                   padding: const EdgeInsets.all(8),
                   child: Row(
                     children: [
                       Text(
                         isUnlocked ? def.icon : '🔒',
-                        style: TextStyle(fontSize: 20, color: isUnlocked ? null : mutedColor),
+                        style: TextStyle(
+                          fontSize: 20,
+                          color: isUnlocked ? null : mutedColor,
+                        ),
                       ),
                       const SizedBox(width: 8),
                       Expanded(

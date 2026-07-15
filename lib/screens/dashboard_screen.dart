@@ -9,6 +9,7 @@ import '../widgets/achievement_dialog.dart';
 import '../widgets/action_hub_card.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/level_up_dialog.dart';
+import '../widgets/progression_journey_card.dart';
 import '../widgets/quest_card.dart';
 import '../widgets/stat_bar.dart';
 import 'goal_form_screen.dart';
@@ -100,6 +101,8 @@ class DashboardScreen extends ConsumerWidget {
             const SizedBox(height: AppSpacing.lg),
           ] else ...[
             ActionHubCard(onViewAllQuests: onViewAllQuests),
+            const SizedBox(height: AppSpacing.lg),
+            const ProgressionJourneyCard(),
             const SizedBox(height: AppSpacing.lg),
           ],
           Card(
