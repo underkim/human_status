@@ -42,7 +42,9 @@ class _QuestsScreenState extends ConsumerState<QuestsScreen>
     final result = await ref.read(questsProvider.notifier).completeQuest(id);
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(quest != null ? '"${quest.title}" 완료!' : '퀘스트를 완료했어요!')),
+      SnackBar(
+        content: Text(quest != null ? '"${quest.title}" 완료!' : '퀘스트를 완료했어요!'),
+      ),
     );
     await showLevelUpDialog(context, ref.read(statsProvider), result.levelUps);
     if (!mounted) return;
@@ -72,15 +74,25 @@ class _QuestsScreenState extends ConsumerState<QuestsScreen>
       body: TabBarView(
         controller: _tabController,
         children: [
-          _ActiveTab(quests: active, stats: stats, goals: goals, onComplete: _completeQuest),
+          _ActiveTab(
+            quests: active,
+            stats: stats,
+            goals: goals,
+            onComplete: _completeQuest,
+          ),
           _SuggestedTab(quests: suggested, stats: stats, goals: goals),
           _CompletedTab(quests: completed, stats: stats, goals: goals),
         ],
       ),
       floatingActionButton: FloatingActionButton(
-        onPressed: () => Navigator.of(context).push(
-          MaterialPageRoute(builder: (_) => const QuestFormScreen()),
-        ),
+        // HomeShell의 IndexedStack은 모든 탭을 동시에 마운트해두므로, 기본
+        // heroTag를 쓰면 이 화면 밖으로/안으로 라우트 전환이 일어날 때 다른
+        // 탭의 FAB과 태그가 겹쳐 Hero 어서션이 발생한다 — 탭마다 고유
+        // heroTag를 줘서 피한다.
+        heroTag: 'quests_fab',
+        onPressed: () => Navigator.of(
+          context,
+        ).push(MaterialPageRoute(builder: (_) => const QuestFormScreen())),
         child: const Icon(Icons.add),
       ),
     );
@@ -100,15 +112,25 @@ class _ActiveTab extends ConsumerWidget {
     required this.onComplete,
   });
 
-  Future<void> _confirmDelete(BuildContext context, WidgetRef ref, Quest quest) async {
+  Future<void> _confirmDelete(
+    BuildContext context,
+    WidgetRef ref,
+    Quest quest,
+  ) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('퀘스트 삭제'),
         content: Text('"${quest.title}" 퀘스트를 삭제할까요? 되돌릴 수 없어요.'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('취소')),
-          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('삭제')),
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('취소'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('삭제'),
+          ),
         ],
       ),
     );
@@ -127,21 +149,23 @@ class _ActiveTab extends ConsumerWidget {
     }
     return ListView(
       children: quests
-          .map<Widget>((q) => QuestCard(
-                quest: q,
-                stats: stats,
-                goals: goals,
-                onEdit: () => Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => QuestFormScreen(existing: q)),
+          .map<Widget>(
+            (q) => QuestCard(
+              quest: q,
+              stats: stats,
+              goals: goals,
+              onEdit: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => QuestFormScreen(existing: q)),
+              ),
+              onDelete: () => _confirmDelete(context, ref, q),
+              actions: [
+                FilledButton(
+                  onPressed: () => onComplete(q.id),
+                  child: const Text('완료'),
                 ),
-                onDelete: () => _confirmDelete(context, ref, q),
-                actions: [
-                  FilledButton(
-                    onPressed: () => onComplete(q.id),
-                    child: const Text('완료'),
-                  ),
-                ],
-              ))
+              ],
+            ),
+          )
           .toList(),
     );
   }
@@ -152,7 +176,11 @@ class _SuggestedTab extends ConsumerWidget {
   final List<Stat> stats;
   final List<Goal> goals;
 
-  const _SuggestedTab({required this.quests, required this.stats, required this.goals});
+  const _SuggestedTab({
+    required this.quests,
+    required this.stats,
+    required this.goals,
+  });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -164,22 +192,26 @@ class _SuggestedTab extends ConsumerWidget {
     }
     return ListView(
       children: quests
-          .map<Widget>((q) => QuestCard(
-                quest: q,
-                stats: stats,
-                goals: goals,
-                actions: [
-                  TextButton(
-                    onPressed: () => ref.read(questsProvider.notifier).dismissSuggestion(q.id),
-                    child: const Text('무시'),
-                  ),
-                  const SizedBox(width: 4),
-                  FilledButton(
-                    onPressed: () => ref.read(questsProvider.notifier).adoptSuggestion(q.id),
-                    child: const Text('채택'),
-                  ),
-                ],
-              ))
+          .map<Widget>(
+            (q) => QuestCard(
+              quest: q,
+              stats: stats,
+              goals: goals,
+              actions: [
+                TextButton(
+                  onPressed: () =>
+                      ref.read(questsProvider.notifier).dismissSuggestion(q.id),
+                  child: const Text('무시'),
+                ),
+                const SizedBox(width: 4),
+                FilledButton(
+                  onPressed: () =>
+                      ref.read(questsProvider.notifier).adoptSuggestion(q.id),
+                  child: const Text('채택'),
+                ),
+              ],
+            ),
+          )
           .toList(),
     );
   }
@@ -190,7 +222,11 @@ class _CompletedTab extends StatelessWidget {
   final List<Stat> stats;
   final List<Goal> goals;
 
-  const _CompletedTab({required this.quests, required this.stats, required this.goals});
+  const _CompletedTab({
+    required this.quests,
+    required this.stats,
+    required this.goals,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -201,7 +237,9 @@ class _CompletedTab extends StatelessWidget {
       );
     }
     return ListView(
-      children: quests.map<Widget>((q) => QuestCard(quest: q, stats: stats, goals: goals)).toList(),
+      children: quests
+          .map<Widget>((q) => QuestCard(quest: q, stats: stats, goals: goals))
+          .toList(),
     );
   }
 }

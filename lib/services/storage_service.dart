@@ -64,8 +64,9 @@ class StorageService {
     }
 
     // Passing `bytes` makes hive use its in-memory backend for the box.
-    Future<Box<T>> open<T>(String name) =>
-        inMemory ? Hive.openBox<T>(name, bytes: Uint8List(0)) : Hive.openBox<T>(name);
+    Future<Box<T>> open<T>(String name) => inMemory
+        ? Hive.openBox<T>(name, bytes: Uint8List(0))
+        : Hive.openBox<T>(name);
 
     statsBox = await open<Stat>(statsBoxName);
     questsBox = await open<Quest>(questsBoxName);
@@ -78,10 +79,7 @@ class StorageService {
 
     if (statsBox.isEmpty) {
       for (final s in defaultStats) {
-        await statsBox.put(
-          s.id,
-          Stat(id: s.id, name: s.name, icon: s.icon),
-        );
+        await statsBox.put(s.id, Stat(id: s.id, name: s.name, icon: s.icon));
       }
     }
     if (profileBox.get('profile') == null) {
@@ -106,11 +104,17 @@ class StorageService {
   Future<void> saveProfile(UserProfile profile) =>
       profileBox.put('profile', profile);
 
-  Map<String, DateTime> getUnlockedAchievements() =>
-      Map.fromEntries(achievementsBox.keys.map((k) => MapEntry(k as String, achievementsBox.get(k)!)));
+  Map<String, DateTime> getUnlockedAchievements() => Map.fromEntries(
+    achievementsBox.keys.map(
+      (k) => MapEntry(k as String, achievementsBox.get(k)!),
+    ),
+  );
 
   Future<void> unlockAchievement(String id, DateTime unlockedAt) =>
       achievementsBox.put(id, unlockedAt);
+
+  Future<void> deleteUnlockedAchievement(String id) =>
+      achievementsBox.delete(id);
 
   List<Goal> getGoals() => goalsBox.values.toList();
 

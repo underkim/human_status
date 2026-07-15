@@ -19,6 +19,8 @@ class FinanceScreen extends StatelessWidget {
       appBar: AppBar(title: const Text('재무')),
       body: const FinanceAssetTabView(),
       floatingActionButton: FloatingActionButton(
+        // 탭마다 고유 heroTag — quests_screen.dart의 FAB 주석 참고.
+        heroTag: 'finance_fab',
         onPressed: () => Navigator.of(context).push(
           MaterialPageRoute(builder: (_) => const BanksaladImportScreen()),
         ),
@@ -35,7 +37,8 @@ class FinanceAssetTabView extends ConsumerStatefulWidget {
   const FinanceAssetTabView({super.key});
 
   @override
-  ConsumerState<FinanceAssetTabView> createState() => _FinanceAssetTabViewState();
+  ConsumerState<FinanceAssetTabView> createState() =>
+      _FinanceAssetTabViewState();
 }
 
 class _FinanceAssetTabViewState extends ConsumerState<FinanceAssetTabView>
@@ -74,22 +77,37 @@ class _FinanceAssetTabViewState extends ConsumerState<FinanceAssetTabView>
     return Column(
       children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(AppSpacing.lg, AppSpacing.md, AppSpacing.lg, 0),
+          padding: const EdgeInsets.fromLTRB(
+            AppSpacing.lg,
+            AppSpacing.md,
+            AppSpacing.lg,
+            0,
+          ),
           child: Card(
             child: ListTile(
               leading: const Icon(Icons.map_outlined),
               title: const Text('장기 재무계획'),
-              subtitle: Text(subtitle, style: subtitleColor != null ? TextStyle(color: subtitleColor) : null),
+              subtitle: Text(
+                subtitle,
+                style: subtitleColor != null
+                    ? TextStyle(color: subtitleColor)
+                    : null,
+              ),
               trailing: const Icon(Icons.chevron_right),
               onTap: () => Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const FinancialPlanningWizardScreen()),
+                MaterialPageRoute(
+                  builder: (_) => const FinancialPlanningWizardScreen(),
+                ),
               ),
             ),
           ),
         ),
         TabBar(
           controller: _tabController,
-          tabs: const [Tab(text: '거래내역'), Tab(text: '자산현황')],
+          tabs: const [
+            Tab(text: '거래내역'),
+            Tab(text: '자산현황'),
+          ],
         ),
         Expanded(
           child: TabBarView(

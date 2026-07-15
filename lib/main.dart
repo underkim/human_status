@@ -104,16 +104,10 @@ class HumanStatusApp extends ConsumerStatefulWidget {
 
 class _HumanStatusAppState extends ConsumerState<HumanStatusApp>
     with WidgetsBindingObserver {
-  // 온보딩 여부는 최초 시작 시점 한 번만 판단한다 — 온보딩 완료 후에는
-  // _showOnboarding을 false로 바꿔 HomeShell로 넘어가므로, 이후
-  // profileProvider 갱신으로 이 값이 다시 계산돼 화면이 튀어서는 안 된다.
-  late bool _showOnboarding;
-
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _showOnboarding = shouldShowOnboarding(ref.read(storageServiceProvider));
   }
 
   @override
@@ -134,15 +128,25 @@ class _HumanStatusAppState extends ConsumerState<HumanStatusApp>
 
   @override
   Widget build(BuildContext context) {
+    // profileProvider를 watch해 온보딩 게이트를 매 빌드마다 다시 평가한다
+    // (시작 시 한 번만 계산하는 flag가 아님) — 온보딩 완료/건너뛰기는 물론
+    // 데이터 초기화로 onboardingCompleted가 다시 false가 되는 경우에도,
+    // 같은 실행 중에 즉시 반영되어 알맞은 화면으로 전환된다.
+    ref.watch(profileProvider);
+    final showOnboarding = shouldShowOnboarding(
+      ref.read(storageServiceProvider),
+    );
     return MaterialApp(
+      // Navigator는 그 자체로 상태를 갖는 위젯이라, 예를 들어 설정 화면이
+      // 몇 단계 push된 채로 온보딩 게이트가 바뀌면 `home`만 바꿔서는 이미
+      // push된 화면들이 그대로 남는다 — showOnboarding이 바뀔 때마다 키를
+      // 바꿔 앱 전체(그 안의 Navigator와 push 스택 포함)를 처음부터 다시
+      // 마운트해, 항상 깨끗한 화면에서 시작하게 한다.
+      key: ValueKey(showOnboarding),
       title: 'Human Status',
       theme: AppTheme.light,
       darkTheme: AppTheme.dark,
-      home: _showOnboarding
-          ? OnboardingScreen(
-              onFinished: () => setState(() => _showOnboarding = false),
-            )
-          : const HomeShell(),
+      home: showOnboarding ? const OnboardingScreen() : const HomeShell(),
     );
   }
 }

@@ -1,7 +1,9 @@
 import 'storage_service.dart';
 
 /// Whether the app should show the first-mission onboarding flow instead of
-/// [HomeShell] on launch.
+/// [HomeShell]. HumanStatusApp re-evaluates this on every build (not just at
+/// launch) so a mid-session change — completing/skipping onboarding, or a
+/// data reset in Settings — is reflected immediately.
 ///
 /// `UserProfile.onboardingCompleted` already defaults to `true` when read
 /// from a pre-onboarding Hive record (see UserProfileAdapter), so existing

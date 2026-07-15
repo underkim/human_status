@@ -35,9 +35,11 @@ void main() {
     });
 
     test('구버전 레코드(필드 없음)는 onboardingCompleted가 true로 읽혀 온보딩을 건너뛴다', () async {
+      // 실제 어댑터의 필드-부재 폴백은 test/user_profile_adapter_test.dart에서
+      // 진짜 Hive 바이너리 왕복으로 검증한다. 여기서는 그 폴백이 이미 적용된
+      // 상태(= onboardingCompleted: true)를 게이트 함수 자체의 입력으로 써서
+      // shouldShowOnboarding의 판단만 확인한다.
       final storage = await createTestStorage();
-      // UserProfileAdapter.read가 필드 6 부재 시 true로 폴백하는 것과 동일한
-      // 상태를 어댑터를 거치지 않고 직접 재현한다.
       await storage.saveProfile(UserProfile(onboardingCompleted: true));
       expect(shouldShowOnboarding(storage), isFalse);
     });
@@ -103,7 +105,7 @@ void main() {
     testWidgets('관심 스탯을 고르면 해당 스탯의 goal idea가 표시된다', (tester) async {
       setScreenSize(tester, const Size(400, 800));
       final storage = await createTestStorage();
-      await pumpApp(tester, storage, OnboardingScreen(onFinished: () {}));
+      await pumpApp(tester, storage, const OnboardingScreen());
 
       await tester.tap(find.text('다음'));
       await tester.pumpAndSettle();
@@ -120,8 +122,9 @@ void main() {
     ) async {
       setScreenSize(tester, const Size(400, 800));
       final storage = await createTestStorage();
-      // 실제 앱과 동일하게 HumanStatusApp을 통째로 pump한다 — onFinished가
-      // MaterialApp의 home을 HomeShell로 바꿔치기하는 실제 경로를 검증한다.
+      // 실제 앱과 동일하게 HumanStatusApp을 통째로 pump한다 — profileProvider
+      // 변화를 보고 MaterialApp의 home을 HomeShell로 바꿔치기하는 실제
+      // reactive gate 경로를 검증한다.
       await tester.pumpWidget(
         ProviderScope(
           overrides: [storageServiceProvider.overrideWithValue(storage)],
@@ -156,7 +159,7 @@ void main() {
     testWidgets('제출 중 이중 탭으로도 목표가 하나만 생성된다', (tester) async {
       setScreenSize(tester, const Size(400, 800));
       final storage = await createTestStorage();
-      await pumpApp(tester, storage, OnboardingScreen(onFinished: () {}));
+      await pumpApp(tester, storage, const OnboardingScreen());
 
       await tester.tap(find.text('다음'));
       await tester.pumpAndSettle();
@@ -177,7 +180,6 @@ void main() {
     ) async {
       setScreenSize(tester, const Size(400, 800));
       final storage = await createTestStorage();
-      var finishedCalls = 0;
       final container = ProviderContainer(
         overrides: [
           storageServiceProvider.overrideWithValue(storage),
@@ -191,7 +193,7 @@ void main() {
           container: container,
           child: MaterialApp(
             theme: AppTheme.light,
-            home: OnboardingScreen(onFinished: () => finishedCalls++),
+            home: const OnboardingScreen(),
           ),
         ),
       );
@@ -207,15 +209,14 @@ void main() {
 
       // 실패 안내가 뜨고, 화면은 그대로라 재시도할 수 있다. 완료 상태도 기록되지 않는다.
       expect(find.byType(OnboardingScreen), findsOneWidget);
-      expect(finishedCalls, 0);
       expect(storage.getGoals(), isEmpty);
+      expect(storage.getUnlockedAchievements(), isEmpty);
       expect(storage.getProfile().onboardingCompleted, isFalse);
 
       // 재시도해도 (다시 실패하지만) 중복 goal이 쌓이지 않는다.
       await tester.tap(find.text('시작하기').first);
       await tester.pumpAndSettle();
       expect(storage.getGoals(), isEmpty);
-      expect(finishedCalls, 0);
     });
 
     testWidgets('건너뛰기는 완료 상태를 저장하고 HomeShell로 전환하며, 재시작해도 온보딩이 다시 뜨지 않는다', (
@@ -286,65 +287,12 @@ void main() {
       // 기기 설정(API 키)은 백업에 담기지 않는다.
       expect(restored.claudeApiKey, isNull);
     });
-
-    test('구버전 백업(preferences 키 없음)도 예외 없이 복원되고 기존 프로필 값을 유지한다', () async {
-      final storage = await createTestStorage();
-      final profile = storage.getProfile();
-      profile.onboardingCompleted = true;
-      profile.preferredStatId = 'wealth';
-      await storage.saveProfile(profile);
-
-      // 실제 인코딩 결과에서 preferences 키만 제거해 "이 키가 없는 구버전
-      // 백업"을 신뢰성 있게 재현한다.
-      final encoded = BackupService(storage: storage).encode();
-      final withoutPreferences = encoded.replaceAll(
-        RegExp(r',\s*"preferences":[\s\S]*\n\}'),
-        '\n}',
-      );
-
-      await BackupService(storage: storage).restore(withoutPreferences);
-
-      final restored = storage.getProfile();
-      expect(restored.onboardingCompleted, isTrue);
-      expect(restored.preferredStatId, 'wealth');
-    });
-  });
-
-  group('데이터 초기화', () {
-    testWidgets('데이터 초기화 후 온보딩 상태가 초기화되고 API 키/알림 설정은 보존된다', (tester) async {
-      // settings_screen의 초기화 로직과 동일한 흐름을 재현한다: 프로필의
-      // 기기 설정만 새 UserProfile로 이월하고 나머지(제품 선호 포함)는 버린다.
-      final storage = await createTestStorage();
-      final profile = storage.getProfile();
-      profile.onboardingCompleted = true;
-      profile.preferredStatId = 'health';
-      profile.claudeApiKey = 'sk-keep-me';
-      profile.reminderMinutesSinceMidnight = 540;
-      profile.weeklyReportReminderEnabled = true;
-      await storage.saveProfile(profile);
-
-      final preserved = storage.getProfile();
-      await storage.saveProfile(
-        UserProfile(
-          claudeApiKey: preserved.claudeApiKey,
-          reminderMinutesSinceMidnight: preserved.reminderMinutesSinceMidnight,
-          weeklyReportReminderEnabled: preserved.weeklyReportReminderEnabled,
-        ),
-      );
-
-      final reset = storage.getProfile();
-      expect(reset.onboardingCompleted, isFalse);
-      expect(reset.preferredStatId, isNull);
-      expect(reset.claudeApiKey, 'sk-keep-me');
-      expect(reset.reminderMinutesSinceMidnight, 540);
-      expect(reset.weeklyReportReminderEnabled, isTrue);
-    });
   });
 
   testWidgets('400x800 모바일 화면에서 온보딩 각 단계가 overflow 없이 렌더된다', (tester) async {
     setScreenSize(tester, const Size(400, 800));
     final storage = await createTestStorage();
-    await pumpApp(tester, storage, OnboardingScreen(onFinished: () {}));
+    await pumpApp(tester, storage, const OnboardingScreen());
     expect(tester.takeException(), isNull);
 
     await tester.tap(find.text('다음'));

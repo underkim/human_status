@@ -11,20 +11,14 @@ import '../theme/app_colors.dart';
 import '../theme/app_spacing.dart';
 
 /// 완전한 신규 설치의 첫 화면. 게임 루프(퀘스트=현실 행동, 완료=XP/스탯
-/// 성장, 목표=퀘스트 묶음)를 짧게 안내하고, 우선 성장 스탯 선택 →
-/// 스타터 목표 선택 → 생성까지 이어진 뒤 [onFinished]를 호출해 HomeShell로
-/// 넘어간다. 언제든 건너뛸 수 있고, 건너뛰기도 완료 상태를 저장한다.
-///
-/// [onFinished]를 통해 화면 전환을 호출자(HumanStatusApp)에 위임하는 이유:
-/// HomeShell의 탭들은 IndexedStack으로 전부 동시에 마운트되는데 그중 여럿이
-/// 기본 heroTag의 FloatingActionButton을 갖고 있어, Navigator.push로 그
-/// 서브트리에 진입하면 Hero 충돌 어서션이 발생한다. 최상위 위젯이 같은
-/// MaterialApp의 `home`을 다시 빌드하는 방식으로 전환하면 라우트 전환이
-/// 아예 일어나지 않아 이 문제를 피한다.
+/// 성장, 목표=퀘스트 묶음)를 짧게 안내하고, 우선 성장 스탯 선택 → 스타터
+/// 목표 선택 → 생성까지 이어진다. 완료/건너뛰기 모두 UserProfile에
+/// onboardingCompleted=true를 저장할 뿐, 화면 전환 자체는 하지 않는다 —
+/// HumanStatusApp이 profileProvider를 watch해 그 변화를 보고 스스로
+/// HomeShell로 다시 빌드하므로(reactive gate), 이 화면은 그 상태 변경 이후
+/// 자신이 트리에서 교체되는 것을 기다리기만 하면 된다.
 class OnboardingScreen extends ConsumerStatefulWidget {
-  final VoidCallback onFinished;
-
-  const OnboardingScreen({super.key, required this.onFinished});
+  const OnboardingScreen({super.key});
 
   @override
   ConsumerState<OnboardingScreen> createState() => _OnboardingScreenState();
@@ -51,8 +45,6 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
 
   Future<void> _skip() async {
     await _finishOnboarding(preferredStatId: _selectedStatId);
-    if (!mounted) return;
-    widget.onFinished();
   }
 
   void _selectStat(String statId) {
@@ -60,13 +52,6 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
       _selectedStatId = statId;
       _step = _OnboardingStep.chooseGoal;
     });
-    // 우선 스탯은 스타터 목표를 끝까지 만들지 않고 건너뛰어도 GoalFormScreen
-    // 추천에 반영돼야 하므로, 선택 즉시(완료 처리와 별개로) 저장해둔다.
-    final storage = ref.read(storageServiceProvider);
-    final profile = ref.read(profileProvider);
-    profile.preferredStatId = statId;
-    storage.saveProfile(profile);
-    ref.read(profileProvider.notifier).reload();
   }
 
   Future<void> _startGoal(GoalIdea idea) async {
@@ -85,18 +70,13 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     );
 
     try {
-      final result = await ref.read(goalsProvider.notifier).createGoal(goal);
-      if (result.quests.isEmpty) {
-        // 목표는 이미 저장됐지만 연결 퀘스트가 하나도 안 만들어졌다 —
-        // 빈 게임 상태에 가두지 않도록 목표를 되돌려 재시도해도 중복
-        // 생성되지 않게 한다.
-        await ref.read(goalsProvider.notifier).deleteGoal(goal.id);
-        throw StateError('no quests generated');
-      }
-
+      // requireQuests: 스타터 목표는 실행할 퀘스트가 하나도 없으면 의미가
+      // 없으므로, GoalsNotifier가 그 경우 아무것도 저장하지 않고 예외를
+      // 던지게 한다 — 재시도해도 중복 goal이 생기지 않는다.
+      await ref
+          .read(goalsProvider.notifier)
+          .createGoal(goal, requireQuests: true);
       await _finishOnboarding(preferredStatId: idea.statId);
-      if (!mounted) return;
-      widget.onFinished();
     } catch (_) {
       if (!mounted) return;
       setState(() {
