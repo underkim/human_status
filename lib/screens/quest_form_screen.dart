@@ -14,7 +14,10 @@ const _difficultyXp = {
 };
 
 class QuestFormScreen extends ConsumerStatefulWidget {
-  const QuestFormScreen({super.key});
+  /// 값이 있으면 편집 모드 — 폼이 미리 채워지고 저장 시 이 퀘스트를 갱신한다.
+  final Quest? existing;
+
+  const QuestFormScreen({super.key, this.existing});
 
   @override
   ConsumerState<QuestFormScreen> createState() => _QuestFormScreenState();
@@ -27,6 +30,22 @@ class _QuestFormScreenState extends ConsumerState<QuestFormScreen> {
   String? _selectedStatId;
   QuestDifficulty _difficulty = QuestDifficulty.easy;
   bool _isRecurring = false;
+
+  bool get _isEditing => widget.existing != null;
+
+  @override
+  void initState() {
+    super.initState();
+    final existing = widget.existing;
+    if (existing != null) {
+      _titleController.text = existing.title;
+      _descriptionController.text = existing.description;
+      _difficulty = existing.difficulty;
+      _isRecurring = existing.isRecurring;
+      // statRewards의 첫 스텟을 연결 스텟으로 되살린다(폼은 스텟 하나만 다룬다).
+      _selectedStatId = existing.statRewards.keys.isNotEmpty ? existing.statRewards.keys.first : null;
+    }
+  }
 
   @override
   void dispose() {
@@ -41,7 +60,7 @@ class _QuestFormScreenState extends ConsumerState<QuestFormScreen> {
     _selectedStatId ??= stats.isNotEmpty ? stats.first.id : null;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('퀘스트 추가')),
+      appBar: AppBar(title: Text(_isEditing ? '퀘스트 수정' : '퀘스트 추가')),
       body: Form(
         key: _formKey,
         child: ListView(
@@ -88,7 +107,7 @@ class _QuestFormScreenState extends ConsumerState<QuestFormScreen> {
             const SizedBox(height: 16),
             FilledButton(
               onPressed: _submit,
-              child: const Text('추가하기'),
+              child: Text(_isEditing ? '저장하기' : '추가하기'),
             ),
           ],
         ),
@@ -99,19 +118,29 @@ class _QuestFormScreenState extends ConsumerState<QuestFormScreen> {
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate() || _selectedStatId == null) return;
 
-    final quest = Quest(
-      id: const Uuid().v4(),
-      title: _titleController.text.trim(),
-      description: _descriptionController.text.trim(),
-      statRewards: {_selectedStatId!: _difficultyXp[_difficulty]!},
-      difficulty: _difficulty,
-      isRecurring: _isRecurring,
-      status: QuestStatus.active,
-      source: QuestSource.manual,
-      createdAt: DateTime.now(),
-    );
-
-    await ref.read(questsProvider.notifier).addQuest(quest);
+    final notifier = ref.read(questsProvider.notifier);
+    final existing = widget.existing;
+    if (existing != null) {
+      // id·상태·생성시각·목표연결은 유지하고 편집 가능한 필드만 갱신한다.
+      existing.title = _titleController.text.trim();
+      existing.description = _descriptionController.text.trim();
+      existing.statRewards = {_selectedStatId!: _difficultyXp[_difficulty]!};
+      existing.difficulty = _difficulty;
+      existing.isRecurring = _isRecurring;
+      await notifier.updateQuest(existing);
+    } else {
+      await notifier.addQuest(Quest(
+        id: const Uuid().v4(),
+        title: _titleController.text.trim(),
+        description: _descriptionController.text.trim(),
+        statRewards: {_selectedStatId!: _difficultyXp[_difficulty]!},
+        difficulty: _difficulty,
+        isRecurring: _isRecurring,
+        status: QuestStatus.active,
+        source: QuestSource.manual,
+        createdAt: DateTime.now(),
+      ));
+    }
     if (mounted) Navigator.of(context).pop();
   }
 }

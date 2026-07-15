@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:human_status/models/quest.dart';
 import 'package:human_status/screens/quests_screen.dart';
@@ -65,6 +66,41 @@ void main() {
     final stat = storage.getStat('health')!;
     expect(stat.level, 2);
     expect(stat.currentXp, 20);
+  });
+
+  testWidgets('진행중 퀘스트 메뉴에서 삭제하면 확인 후 목록에서 사라진다', (tester) async {
+    final storage = await createTestStorage();
+    await storage.saveQuest(_quest('q1', '지울 퀘스트'));
+
+    await pumpApp(tester, storage, const QuestsScreen());
+
+    await tester.tap(find.byIcon(Icons.more_vert));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('삭제'));
+    await tester.pumpAndSettle();
+
+    // 확인 다이얼로그.
+    expect(find.textContaining('삭제할까요'), findsOneWidget);
+    await tester.tap(find.widgetWithText(FilledButton, '삭제'));
+    await tester.pumpAndSettle();
+
+    expect(storage.getQuests(), isEmpty);
+    expect(find.text('진행중 (0)'), findsOneWidget);
+  });
+
+  testWidgets('진행중 퀘스트 메뉴의 수정은 편집 화면으로 이동한다', (tester) async {
+    final storage = await createTestStorage();
+    await storage.saveQuest(_quest('q1', '수정할 퀘스트'));
+
+    await pumpApp(tester, storage, const QuestsScreen());
+
+    await tester.tap(find.byIcon(Icons.more_vert));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('수정'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('퀘스트 수정'), findsOneWidget);
+    expect(find.widgetWithText(TextFormField, '수정할 퀘스트'), findsOneWidget);
   });
 
   testWidgets('반복 퀘스트에는 매일 반복 배지가 보인다', (tester) async {

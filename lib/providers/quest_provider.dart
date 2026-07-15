@@ -60,6 +60,19 @@ class QuestsNotifier extends StateNotifier<List<Quest>> {
     reload();
   }
 
+  /// Persists edits to an existing quest (title/description/rewards/etc.).
+  /// XP already awarded for a completed quest is not retroactively changed —
+  /// this only rewrites the stored record.
+  Future<void> updateQuest(Quest quest) async {
+    await storage.saveQuest(quest);
+    reload();
+  }
+
+  Future<void> deleteQuest(String id) async {
+    await storage.deleteQuest(id);
+    reload();
+  }
+
   Future<void> adoptSuggestion(String id) async {
     final quest = storage.getQuests().firstWhere((q) => q.id == id);
     quest.status = QuestStatus.active;

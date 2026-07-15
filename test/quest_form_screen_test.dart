@@ -57,4 +57,41 @@ void main() {
 
     expect(storage.getQuests().single.isRecurring, isTrue);
   });
+
+  testWidgets('편집 모드는 기존 값을 채우고 저장 시 같은 퀘스트를 갱신한다', (tester) async {
+    setScreenSize(tester, const Size(600, 1200));
+    final storage = await createTestStorage();
+    final existing = Quest(
+      id: 'q1',
+      title: '옛 제목',
+      description: '옛 설명',
+      statRewards: {'health': 30},
+      difficulty: QuestDifficulty.medium,
+      status: QuestStatus.active,
+      createdAt: DateTime(2026, 7, 1),
+      goalId: 'g1',
+    );
+    await storage.saveQuest(existing);
+
+    await pumpApp(tester, storage, QuestFormScreen(existing: existing));
+
+    // 헤더·버튼이 편집 모드로 바뀌고 값이 미리 채워진다.
+    expect(find.text('퀘스트 수정'), findsOneWidget);
+    expect(find.text('저장하기'), findsOneWidget);
+    expect(find.widgetWithText(TextFormField, '옛 제목'), findsOneWidget);
+    expect(find.widgetWithText(TextFormField, '옛 설명'), findsOneWidget);
+
+    await tester.enterText(find.widgetWithText(TextFormField, '옛 제목'), '새 제목');
+    await tester.tap(find.text('저장하기'));
+    await tester.pumpAndSettle();
+
+    // 새 퀘스트가 생기지 않고 같은 id가 갱신되며, 상태·생성시각·목표연결은 유지.
+    expect(storage.getQuests().length, 1);
+    final updated = storage.getQuests().single;
+    expect(updated.id, 'q1');
+    expect(updated.title, '새 제목');
+    expect(updated.status, QuestStatus.active);
+    expect(updated.createdAt, DateTime(2026, 7, 1));
+    expect(updated.goalId, 'g1');
+  });
 }

@@ -15,6 +15,8 @@ class QuestCard extends StatelessWidget {
   final List<Stat> stats;
   final List<Widget> actions;
   final List<Goal> goals;
+  final VoidCallback? onEdit;
+  final VoidCallback? onDelete;
 
   const QuestCard({
     super.key,
@@ -22,6 +24,8 @@ class QuestCard extends StatelessWidget {
     required this.stats,
     this.actions = const [],
     this.goals = const [],
+    this.onEdit,
+    this.onDelete,
   });
 
   String _statName(String id) {
@@ -70,6 +74,21 @@ class QuestCard extends StatelessWidget {
                   label: Text(difficultyLabel(quest.difficulty)),
                   visualDensity: VisualDensity.compact,
                 ),
+                if (onEdit != null || onDelete != null)
+                  PopupMenuButton<String>(
+                    icon: const Icon(Icons.more_vert, size: 18),
+                    tooltip: '더보기',
+                    onSelected: (v) {
+                      if (v == 'edit') onEdit?.call();
+                      if (v == 'delete') onDelete?.call();
+                    },
+                    itemBuilder: (context) => [
+                      if (onEdit != null)
+                        const PopupMenuItem(value: 'edit', child: Text('수정')),
+                      if (onDelete != null)
+                        const PopupMenuItem(value: 'delete', child: Text('삭제')),
+                    ],
+                  ),
               ],
             ),
             const SizedBox(height: 4),
