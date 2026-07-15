@@ -7,6 +7,7 @@ import '../providers/profile_provider.dart';
 import '../providers/quest_provider.dart';
 import '../services/stats_insights_service.dart';
 import '../theme/app_colors.dart';
+import '../widgets/completion_heatmap.dart';
 
 const _weekdayLabels = ['월', '화', '수', '목', '금', '토', '일'];
 
@@ -19,6 +20,7 @@ class InsightsScreen extends ConsumerWidget {
     final completedQuests = ref.watch(completedQuestsProvider);
 
     final streak = StatsInsightsService.currentStreak(completedQuests);
+    final completionCounts = StatsInsightsService.completionCountByDay(completedQuests);
     final xpByDay = StatsInsightsService.xpByDay(completedQuests, days: 7);
     final totalXpByStat = StatsInsightsService.totalXpByStat(completedQuests);
     final unlockedAchievements = ref.watch(unlockedAchievementsProvider);
@@ -46,6 +48,15 @@ class InsightsScreen extends ConsumerWidget {
             ),
           ),
           const SizedBox(height: 16),
+          Text('완료 기록', style: Theme.of(context).textTheme.titleLarge),
+          const SizedBox(height: 8),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: CompletionHeatmap(countsByDay: completionCounts),
+            ),
+          ),
+          const SizedBox(height: 24),
           Text('최근 7일 XP', style: Theme.of(context).textTheme.titleLarge),
           const SizedBox(height: 8),
           SizedBox(
