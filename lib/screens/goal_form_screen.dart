@@ -62,10 +62,18 @@ class _GoalFormScreenState extends ConsumerState<GoalFormScreen> {
     super.dispose();
   }
 
-  List<GoalIdea> _recommendedIdeas(List<Stat> stats) {
+  /// 온보딩에서 고른 우선 스탯을 우선 적용하고, 그 선호가 없거나(구버전
+  /// 프로필) 존재하지 않는 스탯 id를 가리키면(데이터 손상) 기존
+  /// weakest-stat 추천으로 폴백한다.
+  List<GoalIdea> _recommendedIdeas(List<Stat> stats, String? preferredStatId) {
     if (stats.isEmpty) return [];
-    final weakest = ([...stats]..sort((a, b) => a.level.compareTo(b.level))).first;
-    return goalIdeaBank.where((i) => i.statId == weakest.id).take(3).toList();
+    final preferredMatches = preferredStatId == null
+        ? const <Stat>[]
+        : stats.where((s) => s.id == preferredStatId).toList();
+    final target = preferredMatches.isNotEmpty
+        ? preferredMatches.first
+        : ([...stats]..sort((a, b) => a.level.compareTo(b.level))).first;
+    return goalIdeaBank.where((i) => i.statId == target.id).take(3).toList();
   }
 
   void _applyIdea(GoalIdea idea) {
@@ -94,7 +102,9 @@ class _GoalFormScreenState extends ConsumerState<GoalFormScreen> {
     final stats = ref.watch(statsProvider);
     _selectedStatId ??= stats.isNotEmpty ? stats.first.id : null;
 
-    final recommendedIdeas = _recommendedIdeas(stats);
+    final preferredStatId = ref.watch(profileProvider).preferredStatId;
+    final recommendedIdeas = _recommendedIdeas(stats, preferredStatId);
+    final hasPreferred = preferredStatId != null && stats.any((s) => s.id == preferredStatId);
     final avgMonthlySaving = _isFinancial
         ? FinancialPlanningService.recentAverageMonthlySaving(ref.watch(storageServiceProvider))
         : 0.0;
@@ -117,7 +127,10 @@ class _GoalFormScreenState extends ConsumerState<GoalFormScreen> {
                 ),
                 const SizedBox(height: 16),
                 if (recommendedIdeas.isNotEmpty) ...[
-                  Text('추천 목표 (약한 스텟 기준)', style: Theme.of(context).textTheme.titleSmall),
+                  Text(
+                    hasPreferred ? '추천 목표 (관심 분야 기준)' : '추천 목표 (약한 스텟 기준)',
+                    style: Theme.of(context).textTheme.titleSmall,
+                  ),
                   const SizedBox(height: 6),
                   Wrap(
                     spacing: 8,

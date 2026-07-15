@@ -8,8 +8,10 @@ import 'providers/financial_advisor_provider.dart';
 import 'providers/profile_provider.dart';
 import 'providers/quest_provider.dart';
 import 'screens/home_shell.dart';
+import 'screens/onboarding_screen.dart';
 import 'services/daily_refresh_controller.dart';
 import 'services/notification_service.dart';
+import 'services/onboarding_gate.dart';
 import 'services/storage_service.dart';
 import 'theme/app_theme.dart';
 
@@ -91,21 +93,27 @@ Future<void> scheduleNotifications(
   } catch (_) {}
 }
 
-class HumanStatusApp extends StatefulWidget {
+class HumanStatusApp extends ConsumerStatefulWidget {
   const HumanStatusApp({super.key, this.refreshController});
 
   final DailyRefreshController? refreshController;
 
   @override
-  State<HumanStatusApp> createState() => _HumanStatusAppState();
+  ConsumerState<HumanStatusApp> createState() => _HumanStatusAppState();
 }
 
-class _HumanStatusAppState extends State<HumanStatusApp>
+class _HumanStatusAppState extends ConsumerState<HumanStatusApp>
     with WidgetsBindingObserver {
+  // 온보딩 여부는 최초 시작 시점 한 번만 판단한다 — 온보딩 완료 후에는
+  // _showOnboarding을 false로 바꿔 HomeShell로 넘어가므로, 이후
+  // profileProvider 갱신으로 이 값이 다시 계산돼 화면이 튀어서는 안 된다.
+  late bool _showOnboarding;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _showOnboarding = shouldShowOnboarding(ref.read(storageServiceProvider));
   }
 
   @override
@@ -130,7 +138,11 @@ class _HumanStatusAppState extends State<HumanStatusApp>
       title: 'Human Status',
       theme: AppTheme.light,
       darkTheme: AppTheme.dark,
-      home: const HomeShell(),
+      home: _showOnboarding
+          ? OnboardingScreen(
+              onFinished: () => setState(() => _showOnboarding = false),
+            )
+          : const HomeShell(),
     );
   }
 }

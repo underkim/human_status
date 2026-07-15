@@ -1,0 +1,380 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:uuid/uuid.dart';
+
+import '../data/goal_idea_bank.dart';
+import '../models/goal.dart';
+import '../models/stat.dart';
+import '../providers/goal_provider.dart';
+import '../providers/profile_provider.dart';
+import '../theme/app_colors.dart';
+import '../theme/app_spacing.dart';
+
+/// 완전한 신규 설치의 첫 화면. 게임 루프(퀘스트=현실 행동, 완료=XP/스탯
+/// 성장, 목표=퀘스트 묶음)를 짧게 안내하고, 우선 성장 스탯 선택 →
+/// 스타터 목표 선택 → 생성까지 이어진 뒤 [onFinished]를 호출해 HomeShell로
+/// 넘어간다. 언제든 건너뛸 수 있고, 건너뛰기도 완료 상태를 저장한다.
+///
+/// [onFinished]를 통해 화면 전환을 호출자(HumanStatusApp)에 위임하는 이유:
+/// HomeShell의 탭들은 IndexedStack으로 전부 동시에 마운트되는데 그중 여럿이
+/// 기본 heroTag의 FloatingActionButton을 갖고 있어, Navigator.push로 그
+/// 서브트리에 진입하면 Hero 충돌 어서션이 발생한다. 최상위 위젯이 같은
+/// MaterialApp의 `home`을 다시 빌드하는 방식으로 전환하면 라우트 전환이
+/// 아예 일어나지 않아 이 문제를 피한다.
+class OnboardingScreen extends ConsumerStatefulWidget {
+  final VoidCallback onFinished;
+
+  const OnboardingScreen({super.key, required this.onFinished});
+
+  @override
+  ConsumerState<OnboardingScreen> createState() => _OnboardingScreenState();
+}
+
+enum _OnboardingStep { intro, chooseStat, chooseGoal }
+
+class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
+  _OnboardingStep _step = _OnboardingStep.intro;
+  String? _selectedStatId;
+  bool _isSubmitting = false;
+  String? _errorMessage;
+
+  Future<void> _finishOnboarding({String? preferredStatId}) async {
+    final storage = ref.read(storageServiceProvider);
+    final profile = ref.read(profileProvider);
+    profile.onboardingCompleted = true;
+    if (preferredStatId != null) {
+      profile.preferredStatId = preferredStatId;
+    }
+    await storage.saveProfile(profile);
+    ref.read(profileProvider.notifier).reload();
+  }
+
+  Future<void> _skip() async {
+    await _finishOnboarding(preferredStatId: _selectedStatId);
+    if (!mounted) return;
+    widget.onFinished();
+  }
+
+  void _selectStat(String statId) {
+    setState(() {
+      _selectedStatId = statId;
+      _step = _OnboardingStep.chooseGoal;
+    });
+    // 우선 스탯은 스타터 목표를 끝까지 만들지 않고 건너뛰어도 GoalFormScreen
+    // 추천에 반영돼야 하므로, 선택 즉시(완료 처리와 별개로) 저장해둔다.
+    final storage = ref.read(storageServiceProvider);
+    final profile = ref.read(profileProvider);
+    profile.preferredStatId = statId;
+    storage.saveProfile(profile);
+    ref.read(profileProvider.notifier).reload();
+  }
+
+  Future<void> _startGoal(GoalIdea idea) async {
+    if (_isSubmitting) return;
+    setState(() {
+      _isSubmitting = true;
+      _errorMessage = null;
+    });
+
+    final goal = Goal(
+      id: const Uuid().v4(),
+      title: idea.title,
+      description: idea.description,
+      statId: idea.statId,
+      createdAt: DateTime.now(),
+    );
+
+    try {
+      final result = await ref.read(goalsProvider.notifier).createGoal(goal);
+      if (result.quests.isEmpty) {
+        // 목표는 이미 저장됐지만 연결 퀘스트가 하나도 안 만들어졌다 —
+        // 빈 게임 상태에 가두지 않도록 목표를 되돌려 재시도해도 중복
+        // 생성되지 않게 한다.
+        await ref.read(goalsProvider.notifier).deleteGoal(goal.id);
+        throw StateError('no quests generated');
+      }
+
+      await _finishOnboarding(preferredStatId: idea.statId);
+      if (!mounted) return;
+      widget.onFinished();
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _errorMessage = '목표를 만들지 못했어요. 다시 시도해주세요.';
+      });
+    } finally {
+      if (mounted) setState(() => _isSubmitting = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('시작하기'),
+        automaticallyImplyLeading: false,
+        actions: [
+          TextButton(
+            onPressed: _isSubmitting ? null : _skip,
+            child: const Text('나중에 하기'),
+          ),
+        ],
+      ),
+      body: SafeArea(
+        child: switch (_step) {
+          _OnboardingStep.intro => _IntroStep(
+            onNext: () => setState(() => _step = _OnboardingStep.chooseStat),
+          ),
+          _OnboardingStep.chooseStat => _ChooseStatStep(
+            stats: ref.watch(statsProvider),
+            selectedStatId: _selectedStatId,
+            onSelect: _selectStat,
+          ),
+          _OnboardingStep.chooseGoal => _ChooseGoalStep(
+            statId: _selectedStatId!,
+            isSubmitting: _isSubmitting,
+            errorMessage: _errorMessage,
+            onStart: _startGoal,
+            onBack: () => setState(() {
+              _step = _OnboardingStep.chooseStat;
+              _errorMessage = null;
+            }),
+          ),
+        },
+      ),
+    );
+  }
+}
+
+class _IntroStep extends StatelessWidget {
+  final VoidCallback onNext;
+
+  const _IntroStep({required this.onNext});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(AppSpacing.lg),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Human Status에 오신 걸 환영해요', style: theme.textTheme.headlineSmall),
+          const SizedBox(height: AppSpacing.lg),
+          _InfoRow(
+            icon: Icons.checklist,
+            title: '퀘스트 = 현실 행동',
+            body: '앱은 오늘 할 수 있는 작은 행동을 퀘스트로 보여줘요.',
+          ),
+          const SizedBox(height: AppSpacing.md),
+          _InfoRow(
+            icon: Icons.bolt,
+            title: '완료하면 XP와 스탯이 자라요',
+            body: '퀘스트를 완료할 때마다 관련 스탯이 성장하고 레벨이 올라요.',
+          ),
+          const SizedBox(height: AppSpacing.md),
+          _InfoRow(
+            icon: Icons.flag,
+            title: '목표 = 퀘스트 묶음',
+            body: '장기 목표를 만들면 실행 가능한 퀘스트로 자동으로 나눠드려요.',
+          ),
+          const SizedBox(height: AppSpacing.xl),
+          FilledButton(onPressed: onNext, child: const Text('다음')),
+        ],
+      ),
+    );
+  }
+}
+
+class _InfoRow extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String body;
+
+  const _InfoRow({required this.icon, required this.title, required this.body});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, color: theme.colorScheme.primary),
+        const SizedBox(width: AppSpacing.md),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(title, style: theme.textTheme.titleMedium),
+              const SizedBox(height: AppSpacing.xs),
+              Text(
+                body,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: context.appColors.textMuted,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ChooseStatStep extends StatelessWidget {
+  final List<Stat> stats;
+  final String? selectedStatId;
+  final ValueChanged<String> onSelect;
+
+  const _ChooseStatStep({
+    required this.stats,
+    required this.selectedStatId,
+    required this.onSelect,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(AppSpacing.lg),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('먼저 키우고 싶은 영역을 골라주세요', style: theme.textTheme.headlineSmall),
+          const SizedBox(height: AppSpacing.xs),
+          Text(
+            '고른 영역을 기준으로 목표를 추천해드려요. 나중에 언제든 다른 영역도 키울 수 있어요.',
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: context.appColors.textMuted,
+            ),
+          ),
+          const SizedBox(height: AppSpacing.lg),
+          for (final stat in stats)
+            Padding(
+              padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+              child: Semantics(
+                button: true,
+                selected: selectedStatId == stat.id,
+                label: '${stat.name} 선택',
+                child: OutlinedButton(
+                  onPressed: () => onSelect(stat.id),
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(
+                      vertical: AppSpacing.md,
+                      horizontal: AppSpacing.lg,
+                    ),
+                    alignment: Alignment.centerLeft,
+                    backgroundColor: selectedStatId == stat.id
+                        ? theme.colorScheme.primaryContainer
+                        : null,
+                  ),
+                  child: Row(
+                    children: [
+                      Text(stat.icon, style: const TextStyle(fontSize: 20)),
+                      const SizedBox(width: AppSpacing.md),
+                      Expanded(
+                        child: Text(
+                          stat.name,
+                          style: theme.textTheme.titleMedium,
+                        ),
+                      ),
+                      if (selectedStatId == stat.id)
+                        Icon(
+                          Icons.check_circle,
+                          color: theme.colorScheme.primary,
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ChooseGoalStep extends StatelessWidget {
+  final String statId;
+  final bool isSubmitting;
+  final String? errorMessage;
+  final ValueChanged<GoalIdea> onStart;
+  final VoidCallback onBack;
+
+  const _ChooseGoalStep({
+    required this.statId,
+    required this.isSubmitting,
+    required this.errorMessage,
+    required this.onStart,
+    required this.onBack,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final ideas = goalIdeaBank.where((i) => i.statId == statId).toList();
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(AppSpacing.lg),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              IconButton(
+                onPressed: isSubmitting ? null : onBack,
+                icon: const Icon(Icons.arrow_back),
+              ),
+              const SizedBox(width: AppSpacing.xs),
+              Expanded(
+                child: Text(
+                  '스타터 목표를 골라주세요',
+                  style: theme.textTheme.headlineSmall,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.xs),
+          Text(
+            '고르면 바로 목표가 만들어지고, 실행할 퀘스트도 함께 준비돼요.',
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: context.appColors.textMuted,
+            ),
+          ),
+          const SizedBox(height: AppSpacing.lg),
+          for (final idea in ideas)
+            Card(
+              margin: const EdgeInsets.only(bottom: AppSpacing.sm),
+              child: ListTile(
+                title: Text(idea.title),
+                subtitle: Text(idea.description),
+                trailing: FilledButton(
+                  onPressed: isSubmitting ? null : () => onStart(idea),
+                  child: const Text('시작하기'),
+                ),
+              ),
+            ),
+          if (isSubmitting) ...[
+            const SizedBox(height: AppSpacing.md),
+            const Center(
+              child: Padding(
+                padding: EdgeInsets.symmetric(vertical: AppSpacing.sm),
+                child: SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+              ),
+            ),
+          ],
+          if (errorMessage != null) ...[
+            const SizedBox(height: AppSpacing.md),
+            Text(
+              errorMessage!,
+              style: TextStyle(color: context.appColors.error),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}

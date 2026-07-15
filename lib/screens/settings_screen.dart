@@ -322,6 +322,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       await BackupService(storage: ref.read(storageServiceProvider)).restore(jsonStr);
       ref.read(statsProvider.notifier).reload();
       ref.read(questsProvider.notifier).reload();
+      ref.read(profileProvider.notifier).reload();
       ref.read(unlockedAchievementsProvider.notifier).reload();
       ref.read(goalsProvider.notifier).reload();
       ref.read(transactionsProvider.notifier).reload();

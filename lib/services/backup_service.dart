@@ -8,15 +8,19 @@ import '../models/stat.dart';
 import '../models/transaction.dart';
 import 'storage_service.dart';
 
-/// Serializes user data to a JSON backup and restores it back. UserProfile
-/// is intentionally excluded: the API key and reminder settings are
-/// device-specific and must not travel to another device via a backup file.
+/// Serializes user data to a JSON backup and restores it back. Most of
+/// UserProfile is intentionally excluded: the API key and reminder settings
+/// are device-specific and must not travel to another device via a backup
+/// file. Product preferences (onboarding completion, preferred stat) are the
+/// exception — those are safe to round-trip and live under a dedicated
+/// `preferences` key so they never get confused with device settings.
 class BackupService {
   final StorageService storage;
 
   BackupService({required this.storage});
 
   String encode() {
+    final profile = storage.getProfile();
     final data = {
       'stats': storage.getStats().map((s) => s.toJson()).toList(),
       'quests': storage.getQuests().map((q) => q.toJson()).toList(),
@@ -27,6 +31,10 @@ class BackupService {
       'achievements': storage
           .getUnlockedAchievements()
           .map((id, unlockedAt) => MapEntry(id, unlockedAt.toIso8601String())),
+      'preferences': {
+        'onboardingCompleted': profile.onboardingCompleted,
+        'preferredStatId': profile.preferredStatId,
+      },
     };
     return const JsonEncoder.withIndent('  ').convert(data);
   }
@@ -82,6 +90,18 @@ class BackupService {
     await storage.achievementsBox.clear();
     for (final e in achievements.entries) {
       await storage.unlockAchievement(e.key, e.value);
+    }
+
+    // preferences는 API 키/알림 같은 기기 설정과 분리된 제품 선호라 프로필의
+    // 나머지 필드는 그대로 두고 이 두 값만 덮어쓴다. 구버전 백업엔 이 키가
+    // 없으므로 현재 프로필 값을 그대로 유지한다(신규 사용자를 강제로
+    // onboardingCompleted=true로 만들지 않기 위해).
+    final preferences = data['preferences'] as Map<String, dynamic>?;
+    if (preferences != null) {
+      final profile = storage.getProfile();
+      profile.onboardingCompleted = preferences['onboardingCompleted'] as bool? ?? profile.onboardingCompleted;
+      profile.preferredStatId = preferences['preferredStatId'] as String? ?? profile.preferredStatId;
+      await storage.saveProfile(profile);
     }
   }
 }
