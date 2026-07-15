@@ -220,11 +220,15 @@ void main() {
         'human_status_advisor_test_',
       );
       Hive.init(tempDir.path);
-      if (!Hive.isAdapterRegistered(3)) Hive.registerAdapter(GoalAdapter());
-      if (!Hive.isAdapterRegistered(4))
+      if (!Hive.isAdapterRegistered(3)) {
+        Hive.registerAdapter(GoalAdapter());
+      }
+      if (!Hive.isAdapterRegistered(4)) {
         Hive.registerAdapter(TransactionAdapter());
-      if (!Hive.isAdapterRegistered(5))
+      }
+      if (!Hive.isAdapterRegistered(5)) {
         Hive.registerAdapter(AssetSnapshotAdapter());
+      }
 
       storage = StorageService();
       final suffix = DateTime.now().microsecondsSinceEpoch;

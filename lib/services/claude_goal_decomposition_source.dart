@@ -23,16 +23,15 @@ class ClaudeGoalDecompositionSource implements GoalDecompositionSource {
   /// Caller-supplied HTTP client, e.g. for tests. When null, a fresh
   /// [http.Client] is created per request and closed afterwards; a supplied
   /// client is never closed by this source, since the caller owns it.
-  final http.Client? _httpClient;
+  final http.Client? httpClient;
 
   ClaudeGoalDecompositionSource({
     required this.apiKey,
     this.model = 'claude-sonnet-5',
     this.timeout = kClaudeRequestTimeout,
-    http.Client? httpClient,
+    this.httpClient,
     Uuid? uuid,
-  }) : _httpClient = httpClient,
-       _uuid = uuid ?? const Uuid();
+  }) : _uuid = uuid ?? const Uuid();
 
   static const _endpoint = 'https://api.anthropic.com/v1/messages';
 
@@ -68,7 +67,7 @@ Suggest $count concrete quests that make tangible progress toward this goal. Res
 {"title": string, "description": string, "difficulty": "easy" | "medium" | "hard", "xp": number}
 ''';
 
-    final client = _httpClient ?? http.Client();
+    final client = httpClient ?? http.Client();
     http.Response response;
     try {
       response = await client
@@ -89,7 +88,7 @@ Suggest $count concrete quests that make tangible progress toward this goal. Res
           )
           .timeout(timeout);
     } finally {
-      if (_httpClient == null) client.close();
+      if (httpClient == null) client.close();
     }
 
     if (response.statusCode != 200) {
