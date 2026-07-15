@@ -3,6 +3,18 @@ import 'local_calendar.dart' as cal;
 import 'xp_service.dart';
 
 class StatsInsightsService {
+  /// True when [q] is a genuinely valid completion as of [now]: actually
+  /// [QuestStatus.completed] (not active/suggested/dismissed, even if a
+  /// stale `completedAt` lingers on the record), has a `completedAt`, and
+  /// that timestamp is not later than [now]. Every calendar-day calculation
+  /// in this service funnels through this single check, so a caller that
+  /// passes a raw/unfiltered quest list directly gets the same trustworthy
+  /// semantics as one that pre-filtered through `completedQuestsProvider`.
+  static bool _isValidCompletion(Quest q, DateTime now) =>
+      q.status == QuestStatus.completed &&
+      q.completedAt != null &&
+      !q.completedAt!.isAfter(now);
+
   /// Consecutive days (ending today or yesterday) with at least one
   /// completed quest. If nothing was completed today, the streak is still
   /// considered "alive" as long as yesterday had a completion. A completion
@@ -12,9 +24,7 @@ class StatsInsightsService {
   static int currentStreak(List<Quest> completedQuests, {DateTime? now}) {
     final effectiveNow = now ?? DateTime.now();
     final dates = completedQuests
-        .where(
-          (q) => q.completedAt != null && !q.completedAt!.isAfter(effectiveNow),
-        )
+        .where((q) => _isValidCompletion(q, effectiveNow))
         .map((q) => cal.dateOnly(q.completedAt!))
         .toSet();
     if (dates.isEmpty) return 0;
@@ -34,19 +44,23 @@ class StatsInsightsService {
   }
 
   /// Total XP (summed across all stats) earned per calendar day for the
-  /// last [days] days, oldest first. Days with no completions are 0.
+  /// last [days] days, oldest first. Days with no completions are 0. A
+  /// completion timestamped later than [now] (even if it falls on today's
+  /// calendar date) is excluded, so it can never inflate a total the user
+  /// hasn't actually earned yet.
   static Map<DateTime, double> xpByDay(
     List<Quest> completedQuests, {
     int days = 7,
     DateTime? now,
   }) {
-    final today = cal.dateOnly(now ?? DateTime.now());
+    final effectiveNow = now ?? DateTime.now();
+    final today = cal.dateOnly(effectiveNow);
     final result = <DateTime, double>{
       for (var i = days - 1; i >= 0; i--) cal.addDays(today, -i): 0.0,
     };
 
     for (final q in completedQuests) {
-      if (q.completedAt == null) continue;
+      if (!_isValidCompletion(q, effectiveNow)) continue;
       final day = cal.dateOnly(q.completedAt!);
       if (!result.containsKey(day)) continue;
       final xp = XpService.effectiveRewards(

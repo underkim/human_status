@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'models/quest.dart';
 import 'providers/financial_advisor_provider.dart';
 import 'providers/profile_provider.dart';
+import 'providers/progression_provider.dart';
 import 'providers/quest_provider.dart';
 import 'screens/home_shell.dart';
 import 'screens/onboarding_screen.dart';
@@ -121,7 +122,13 @@ class _HumanStatusAppState extends ConsumerState<HumanStatusApp>
     // 앱을 켜 둔 채 자정을 넘기고 돌아왔을 때도 반복 퀘스트/추천이 오늘
     // 기준으로 맞춰지도록 한다 — 실제로 다시 돌지 여부는 컨트롤러가 날짜
     // 경계로 판단하므로 같은 날 반복 resume는 UI를 막지 않고 그냥 끝난다.
+    //
+    // nowProvider는 (다른 Provider와 마찬가지로) 무효화 전까지 값을 캐시해
+    // 두므로, 앱을 켜 둔 채 자정을 넘기고 돌아와도 여기서 명시적으로
+    // invalidate하지 않으면 성장 여정 스냅샷이 어제에 멈춰 있는다 — 퀘스트
+    // 데이터가 전혀 안 바뀐 resume라도 마찬가지다.
     if (state == AppLifecycleState.resumed) {
+      ref.invalidate(nowProvider);
       widget.refreshController?.refreshIfDue();
     }
   }

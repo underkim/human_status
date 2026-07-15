@@ -1,6 +1,5 @@
 import '../data/achievement_definitions.dart';
 import '../models/goal.dart';
-import 'daily_summary_service.dart';
 
 /// A single achievement's measured progress toward completion. [ratio] is
 /// always clamped to 0..1 so a stale or over-target value (e.g. currentXp
@@ -61,42 +60,20 @@ AchievementProgress _levelProgress(int current, int target) {
   );
 }
 
-/// Progress toward the financial-goal achievement, driven by the active
-/// financial goal (targetAmount set) closest to its own target — the same
-/// "best candidate" a user would actually be working on. Returns null when
-/// no active financial goal exists, so this achievement is excluded from
-/// "next" selection rather than reported as 0% (which would be misleading:
-/// there's nothing in progress to show a bar for).
-AchievementProgress? _financialGoalProgress(AchievementContext ctx) {
-  Goal? best;
-  double bestRatio = -1;
-  for (final g in ctx.goals) {
-    if (g.status != GoalStatus.active) continue;
-    final target = g.targetAmount;
-    if (target == null || target <= 0) continue;
-    final ratio = (g.currentAmount / target).clamp(0, 1).toDouble();
-    if (ratio > bestRatio) {
-      bestRatio = ratio;
-      best = g;
-    }
-  }
-  if (best == null) return null;
-
-  final target = best.targetAmount!;
-  final current = best.currentAmount > target ? target : best.currentAmount;
-  return AchievementProgress(
-    current: current,
-    target: target,
-    label: '${formatXp(current)}/${formatXp(target)}원',
-  );
-}
-
 /// Measures progress toward the achievement identified by [id], deriving
 /// current/target from the exact same [AchievementContext] fields that
 /// [AchievementDefinition.isUnlocked] reads — so a progress bar showing
 /// "100%" and the achievement actually unlocking are never inconsistent.
-/// Returns null for achievements with no meaningful measurable progress
-/// (unrecognized id, or a financial goal with no active candidate).
+/// Returns null for achievements with no meaningful measurable progress:
+/// an unrecognized id, or `financial_goal_reached`, whose unlock predicate
+/// requires a *completed* financial goal (see [AchievementDefinition] for
+/// `financial_goal_reached`) — there is no continuous signal (an active
+/// goal's amount ratio) that stays threshold-consistent with that
+/// predicate, since an active goal at 100% of its target is not the same
+/// as a completed one. Reporting a fabricated ratio here would risk a
+/// progress bar reading 100% while the achievement itself never unlocks,
+/// so this achievement is excluded from "next" selection entirely rather
+/// than measured inconsistently.
 AchievementProgress? measureAchievementProgress(
   String id,
   AchievementContext ctx,
@@ -132,7 +109,9 @@ AchievementProgress? measureAchievementProgress(
     case 'goals_completed_5':
       return _countProgress(_completedGoalsCount(ctx), 5, '개 달성');
     case 'financial_goal_reached':
-      return _financialGoalProgress(ctx);
+      // Excluded — see the doc comment above for why no active-goal ratio
+      // can be reported without contradicting isUnlocked's own threshold.
+      return null;
     default:
       return null;
   }

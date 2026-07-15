@@ -182,31 +182,37 @@ void main() {
         },
       );
 
-      test('financial_goal_reached tracks the best active financial goal', () {
-        final ctx = _ctx(
-          goals: [
-            _goal(
-              status: GoalStatus.active,
-              targetAmount: 1000,
-              currentAmount: 200,
-            ),
-            _goal(
-              status: GoalStatus.active,
-              targetAmount: 500,
-              currentAmount: 400,
-            ),
-          ],
-        );
-        final progress = measureAchievementProgress(
-          'financial_goal_reached',
-          ctx,
-        )!;
-        // The second goal (400/500 = 0.8) is closer than the first (0.2).
-        expect(progress.ratio, closeTo(0.8, 1e-9));
-      });
+      test(
+        'financial_goal_reached is always excluded (null), even at 100% of an active goal',
+        () {
+          // An active financial goal sitting exactly at its target would
+          // report ratio 1.0 if measured continuously — but isUnlocked
+          // requires GoalStatus.completed, so that active goal does NOT
+          // unlock the achievement. Reporting 100% here would contradict
+          // isUnlocked's own threshold, so this must stay null regardless
+          // of how close (or exactly at) target an active goal sits.
+          final atTarget = _ctx(
+            goals: [
+              _goal(
+                status: GoalStatus.active,
+                targetAmount: 500,
+                currentAmount: 500,
+              ),
+            ],
+          );
+          final def = achievementDefinitions.firstWhere(
+            (d) => d.id == 'financial_goal_reached',
+          );
+          expect(def.isUnlocked(atTarget), isFalse);
+          expect(
+            measureAchievementProgress('financial_goal_reached', atTarget),
+            isNull,
+          );
+        },
+      );
 
       test(
-        'financial_goal_reached is excluded (null) when no active financial goal exists',
+        'financial_goal_reached stays excluded with no goals, and once truly completed',
         () {
           expect(
             measureAchievementProgress(
@@ -215,19 +221,26 @@ void main() {
             ),
             isNull,
           );
-          expect(
-            measureAchievementProgress(
-              'financial_goal_reached',
-              _ctx(
-                goals: [
-                  _goal(
-                    status: GoalStatus.completed,
-                    targetAmount: 100,
-                    currentAmount: 100,
-                  ),
-                ],
+
+          final completed = _ctx(
+            goals: [
+              _goal(
+                status: GoalStatus.completed,
+                targetAmount: 100,
+                currentAmount: 100,
               ),
-            ),
+            ],
+          );
+          final def = achievementDefinitions.firstWhere(
+            (d) => d.id == 'financial_goal_reached',
+          );
+          expect(def.isUnlocked(completed), isTrue);
+          // Even where isUnlocked is actually true, this stays null — a
+          // just-unlocked achievement is filtered out by the unlockedIds
+          // set at the computeNextAchievementProgress layer, not by this
+          // per-achievement measurement.
+          expect(
+            measureAchievementProgress('financial_goal_reached', completed),
             isNull,
           );
         },
@@ -272,6 +285,24 @@ void main() {
       'excludes financial_goal_reached from candidates when unmeasurable',
       () {
         final ctx = _ctx(); // no goals at all
+        final next = computeNextAchievementProgress(ctx, {});
+        expect(next, isNotNull);
+        expect(next!.definition.id, isNot('financial_goal_reached'));
+      },
+    );
+
+    test(
+      'never selects financial_goal_reached even with an active goal sitting at its target',
+      () {
+        final ctx = _ctx(
+          goals: [
+            _goal(
+              status: GoalStatus.active,
+              targetAmount: 500,
+              currentAmount: 500,
+            ),
+          ],
+        );
         final next = computeNextAchievementProgress(ctx, {});
         expect(next, isNotNull);
         expect(next!.definition.id, isNot('financial_goal_reached'));

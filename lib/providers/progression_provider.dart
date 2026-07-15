@@ -8,8 +8,14 @@ import 'profile_provider.dart';
 import 'quest_provider.dart';
 
 /// The instant "now" is evaluated at for every progression calculation.
-/// Overridden with a fixed value in widget tests for determinism; normal
-/// runtime resolves fresh on every read via [DateTime.now].
+/// Like any Riverpod [Provider], the value this computes is cached until
+/// invalidated — it does NOT call [DateTime.now] again on every read, so a
+/// session left open across midnight would otherwise keep reporting
+/// yesterday's snapshot forever. `HumanStatusApp` invalidates this provider
+/// whenever the app resumes from the background (alongside
+/// `DailyRefreshController.refreshIfDue`, see main.dart), which is enough to
+/// pick up the new day without a timer of its own. Overridden with a fixed
+/// value (or a mutable closure) in widget tests for determinism.
 final nowProvider = Provider<DateTime>((ref) => DateTime.now());
 
 /// Reactive [ProgressionSnapshot] — rebuilds whenever quests change (a
