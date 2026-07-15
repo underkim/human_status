@@ -67,6 +67,29 @@ void main() {
     });
   });
 
+  group('completionCountByDay', () {
+    test('covers full Monday→Sunday weeks and counts completions per day', () {
+      // 2026-07-14는 화요일 → 이번 주 일요일은 7/19, 4주면 시작은 6/22(월).
+      final now = DateTime(2026, 7, 14, 10);
+      final quests = [
+        _completedOn(DateTime(2026, 7, 14, 9)),
+        _completedOn(DateTime(2026, 7, 14, 20)), // 같은 날 2건
+        _completedOn(DateTime(2026, 6, 22, 8)), // 창 시작일
+        _completedOn(DateTime(2026, 6, 1)), // 창 밖
+      ];
+
+      final result = StatsInsightsService.completionCountByDay(quests, now: now, weeks: 4);
+
+      expect(result.length, 28); // 4주 * 7일
+      expect(result.keys.first, DateTime(2026, 6, 22)); // 월요일 시작
+      expect(result.keys.last, DateTime(2026, 7, 19)); // 일요일 끝
+      expect(result[DateTime(2026, 7, 14)], 2);
+      expect(result[DateTime(2026, 6, 22)], 1);
+      expect(result[DateTime(2026, 6, 1)], isNull); // 창 밖은 포함 안 됨
+      expect(result[DateTime(2026, 7, 13)], 0); // 완료 없는 날은 0
+    });
+  });
+
   group('totalXpByStat', () {
     test('sums xp across stats and quests', () {
       final quests = [
@@ -92,6 +115,23 @@ void main() {
       final result = StatsInsightsService.totalXpByStat(quests);
       expect(result['health'], 30);
       expect(result['mental'], 5);
+    });
+
+    test('counts the 1.5x bonus of goal-linked quests, matching what was awarded', () {
+      final quest = Quest(
+        id: const Uuid().v4(),
+        title: 'linked',
+        description: '',
+        statRewards: const {'health': 20},
+        status: QuestStatus.completed,
+        goalId: 'g1',
+        createdAt: DateTime.now(),
+        completedAt: DateTime.now(),
+      );
+
+      expect(StatsInsightsService.totalXpByStat([quest])['health'], 30);
+      final today = DateTime(DateTime.now().year, DateTime.now().month, DateTime.now().day);
+      expect(StatsInsightsService.xpByDay([quest], days: 1)[today], 30);
     });
   });
 }

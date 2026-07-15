@@ -6,12 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../models/asset_snapshot.dart';
-import '../models/financial_plan.dart';
-import '../models/goal.dart';
-import '../models/quest.dart';
 import '../models/stat.dart';
-import '../models/transaction.dart';
 import '../models/user_profile.dart';
 import '../providers/asset_snapshot_provider.dart';
 import '../providers/finance_provider.dart';
@@ -19,6 +14,7 @@ import '../providers/financial_planning_provider.dart';
 import '../providers/goal_provider.dart';
 import '../providers/profile_provider.dart';
 import '../providers/quest_provider.dart';
+import '../services/backup_service.dart';
 import '../services/storage_service.dart';
 import '../theme/app_colors.dart';
 
@@ -140,6 +136,30 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     }
   }
 
+  Future<void> _toggleWeeklyReport(BuildContext context, WidgetRef ref, bool enabled) async {
+    final storage = ref.read(storageServiceProvider);
+    final profile = ref.read(profileProvider);
+    profile.weeklyReportReminderEnabled = enabled;
+    await storage.saveProfile(profile);
+
+    final notificationService = ref.read(notificationServiceProvider);
+    var granted = true;
+    if (enabled) {
+      granted = await notificationService.scheduleWeeklyReportReminder();
+    } else {
+      await notificationService.cancelWeeklyReportReminder();
+    }
+    ref.read(profileProvider.notifier).reload();
+
+    if (context.mounted && enabled) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(granted
+            ? '일요일 20:00에 주간 리포트를 알려드릴게요.'
+            : '설정은 저장됐지만 알림 권한이 꺼져 있어요 — 기기 설정에서 허용해주세요.'),
+      ));
+    }
+  }
+
   Future<void> _confirmReset(BuildContext context, WidgetRef ref) async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -167,10 +187,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     for (final s in StorageService.defaultStats) {
       await storage.saveStat(Stat(id: s.id, name: s.name, icon: s.icon));
     }
+    // lastQuestRefresh는 보존하지 않는다 — 초기화로 추천 퀘스트도 사라졌으니
+    // 다음 실행에서 24시간 간격을 기다리지 않고 바로 새 추천이 생성돼야 한다.
     await storage.saveProfile(UserProfile(
       claudeApiKey: preservedProfile.claudeApiKey,
       reminderMinutesSinceMidnight: preservedProfile.reminderMinutesSinceMidnight,
-      lastQuestRefresh: preservedProfile.lastQuestRefresh,
+      weeklyReportReminderEnabled: preservedProfile.weeklyReportReminderEnabled,
     ));
     ref.read(statsProvider.notifier).reload();
     ref.read(questsProvider.notifier).reload();
@@ -186,16 +208,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   Future<void> _exportBackup(BuildContext context, WidgetRef ref) async {
-    final storage = ref.read(storageServiceProvider);
-    final data = {
-      'stats': storage.getStats().map((s) => s.toJson()).toList(),
-      'quests': storage.getQuests().map((q) => q.toJson()).toList(),
-      'goals': storage.getGoals().map((g) => g.toJson()).toList(),
-      'transactions': storage.getTransactions().map((t) => t.toJson()).toList(),
-      'assetSnapshots': storage.getAssetSnapshots().map((a) => a.toJson()).toList(),
-      'financialPlan': storage.getFinancialPlan().toJson(),
-    };
-    final jsonStr = const JsonEncoder.withIndent('  ').convert(data);
+    final jsonStr = BackupService(storage: ref.read(storageServiceProvider)).encode();
 
     if (!context.mounted) return;
 
@@ -306,49 +319,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     if (confirmed != true) return;
 
     try {
-      final data = jsonDecode(jsonStr) as Map<String, dynamic>;
-      final stats = (data['stats'] as List).map((e) => Stat.fromJson(e as Map<String, dynamic>)).toList();
-      final quests = (data['quests'] as List).map((e) => Quest.fromJson(e as Map<String, dynamic>)).toList();
-      final goals = (data['goals'] as List? ?? [])
-          .map((e) => Goal.fromJson(e as Map<String, dynamic>))
-          .toList();
-      final transactions = (data['transactions'] as List? ?? [])
-          .map((e) => Transaction.fromJson(e as Map<String, dynamic>))
-          .toList();
-      final assetSnapshots = (data['assetSnapshots'] as List? ?? [])
-          .map((e) => AssetSnapshot.fromJson(e as Map<String, dynamic>))
-          .toList();
-      final financialPlan = data['financialPlan'] != null
-          ? FinancialPlan.fromJson(data['financialPlan'] as Map<String, dynamic>)
-          : null;
-
-      final storage = ref.read(storageServiceProvider);
-      await storage.statsBox.clear();
-      await storage.questsBox.clear();
-      await storage.goalsBox.clear();
-      await storage.transactionsBox.clear();
-      await storage.assetSnapshotsBox.clear();
-      await storage.financialPlanBox.clear();
-      for (final s in stats) {
-        await storage.saveStat(s);
-      }
-      for (final q in quests) {
-        await storage.saveQuest(q);
-      }
-      for (final g in goals) {
-        await storage.saveGoal(g);
-      }
-      for (final t in transactions) {
-        await storage.saveTransaction(t);
-      }
-      for (final a in assetSnapshots) {
-        await storage.saveAssetSnapshot(a);
-      }
-      if (financialPlan != null) {
-        await storage.saveFinancialPlan(financialPlan);
-      }
+      await BackupService(storage: ref.read(storageServiceProvider)).restore(jsonStr);
       ref.read(statsProvider.notifier).reload();
       ref.read(questsProvider.notifier).reload();
+      ref.read(unlockedAchievementsProvider.notifier).reload();
       ref.read(goalsProvider.notifier).reload();
       ref.read(transactionsProvider.notifier).reload();
       ref.read(assetSnapshotsProvider.notifier).reload();
@@ -404,6 +378,15 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   )
                 : Text(reminderSubtitle),
             onTap: () => _editReminder(context, ref),
+          ),
+          SwitchListTile(
+            secondary: const Icon(Icons.summarize_outlined),
+            title: const Text('주간 리포트 알림'),
+            subtitle: Text(kIsWeb
+                ? '이 플랫폼(웹)에서는 지원되지 않아요'
+                : '일요일 20:00에 한 주 활동 요약을 알려드려요'),
+            value: profile.weeklyReportReminderEnabled && !kIsWeb,
+            onChanged: kIsWeb ? null : (v) => _toggleWeeklyReport(context, ref, v),
           ),
           ListTile(
             leading: const Icon(Icons.refresh),

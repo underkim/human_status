@@ -17,6 +17,12 @@ class FinancialPlan {
   double? homePurchaseTargetAmount;
   double homePurchaseCurrentSaved;
 
+  /// 이번 달 지출 한도. null이면 예산 기능을 쓰지 않는 상태.
+  double? monthlyBudget;
+
+  /// 카테고리명 → 월 지출 한도. 총 예산과 독립적으로 설정할 수 있다.
+  Map<String, double> categoryBudgets;
+
   FinancialPlan({
     required this.updatedAt,
     this.expectedAnnualReturnPercent = 0,
@@ -29,7 +35,9 @@ class FinancialPlan {
     this.homePurchaseTargetDate,
     this.homePurchaseTargetAmount,
     this.homePurchaseCurrentSaved = 0,
-  });
+    this.monthlyBudget,
+    Map<String, double>? categoryBudgets,
+  }) : categoryBudgets = categoryBudgets ?? {};
 
   Map<String, dynamic> toJson() => {
         'updatedAt': updatedAt.toIso8601String(),
@@ -43,6 +51,8 @@ class FinancialPlan {
         'homePurchaseTargetDate': homePurchaseTargetDate?.toIso8601String(),
         'homePurchaseTargetAmount': homePurchaseTargetAmount,
         'homePurchaseCurrentSaved': homePurchaseCurrentSaved,
+        'monthlyBudget': monthlyBudget,
+        'categoryBudgets': categoryBudgets,
       };
 
   factory FinancialPlan.fromJson(Map<String, dynamic> json) => FinancialPlan(
@@ -59,6 +69,10 @@ class FinancialPlan {
             : null,
         homePurchaseTargetAmount: (json['homePurchaseTargetAmount'] as num?)?.toDouble(),
         homePurchaseCurrentSaved: (json['homePurchaseCurrentSaved'] as num?)?.toDouble() ?? 0,
+        monthlyBudget: (json['monthlyBudget'] as num?)?.toDouble(),
+        categoryBudgets: (json['categoryBudgets'] as Map?)?.map(
+          (k, v) => MapEntry(k as String, (v as num).toDouble()),
+        ),
       );
 }
 
@@ -84,13 +98,17 @@ class FinancialPlanAdapter extends TypeAdapter<FinancialPlan> {
       homePurchaseTargetDate: fields[8] as DateTime?,
       homePurchaseTargetAmount: fields[9] as double?,
       homePurchaseCurrentSaved: fields[10] as double,
+      // 필드 11·12는 나중에 추가됨 — 구버전 레코드에는 없으므로 기본값.
+      monthlyBudget: fields[11] as double?,
+      categoryBudgets:
+          fields[12] != null ? Map<String, double>.from(fields[12] as Map) : null,
     );
   }
 
   @override
   void write(BinaryWriter writer, FinancialPlan obj) {
     writer
-      ..writeByte(11)
+      ..writeByte(13)
       ..writeByte(0)
       ..write(obj.updatedAt)
       ..writeByte(1)
@@ -112,6 +130,10 @@ class FinancialPlanAdapter extends TypeAdapter<FinancialPlan> {
       ..writeByte(9)
       ..write(obj.homePurchaseTargetAmount)
       ..writeByte(10)
-      ..write(obj.homePurchaseCurrentSaved);
+      ..write(obj.homePurchaseCurrentSaved)
+      ..writeByte(11)
+      ..write(obj.monthlyBudget)
+      ..writeByte(12)
+      ..write(obj.categoryBudgets);
   }
 }

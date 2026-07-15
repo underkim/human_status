@@ -87,7 +87,7 @@ class _QuestsScreenState extends ConsumerState<QuestsScreen>
   }
 }
 
-class _ActiveTab extends StatelessWidget {
+class _ActiveTab extends ConsumerWidget {
   final List<Quest> quests;
   final List<Stat> stats;
   final List<Goal> goals;
@@ -100,8 +100,25 @@ class _ActiveTab extends StatelessWidget {
     required this.onComplete,
   });
 
+  Future<void> _confirmDelete(BuildContext context, WidgetRef ref, Quest quest) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('퀘스트 삭제'),
+        content: Text('"${quest.title}" 퀘스트를 삭제할까요? 되돌릴 수 없어요.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('취소')),
+          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('삭제')),
+        ],
+      ),
+    );
+    if (confirmed == true) {
+      await ref.read(questsProvider.notifier).deleteQuest(quest.id);
+    }
+  }
+
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     if (quests.isEmpty) {
       return const EmptyState(
         icon: Icons.checklist_outlined,
@@ -114,6 +131,10 @@ class _ActiveTab extends StatelessWidget {
                 quest: q,
                 stats: stats,
                 goals: goals,
+                onEdit: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => QuestFormScreen(existing: q)),
+                ),
+                onDelete: () => _confirmDelete(context, ref, q),
                 actions: [
                   FilledButton(
                     onPressed: () => onComplete(q.id),

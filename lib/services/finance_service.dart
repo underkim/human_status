@@ -50,6 +50,30 @@ class FinanceService {
     return result;
   }
 
+  /// 최근 [months]개월(기준 달 포함)의 카테고리별 '월 평균' 지출을 금액
+  /// 내림차순으로. 예산 추천의 근거로 쓴다 — 한 달만 보면 특이 지출에
+  /// 휘둘리므로 여러 달 평균을 낸다. 거래가 아예 없는 카테고리는 제외한다.
+  static Map<String, double> averageMonthlyExpenseByCategory(
+    List<Transaction> transactions, {
+    DateTime? now,
+    int months = 3,
+  }) {
+    final anchor = now ?? DateTime.now();
+    final monthKeys = <String>{
+      for (var i = 0; i < months; i++) monthKeyOf(DateTime(anchor.year, anchor.month - i)),
+    };
+
+    final totals = <String, double>{};
+    for (final t in transactions) {
+      if (t.type != TransactionType.expense || !monthKeys.contains(monthKeyOf(t.date))) continue;
+      totals[t.category] = (totals[t.category] ?? 0) + t.amount;
+    }
+
+    final averaged = {for (final e in totals.entries) e.key: e.value / months};
+    final sorted = averaged.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
+    return {for (final e in sorted) e.key: e.value};
+  }
+
   /// [monthKey]에 해당하는 지출을 카테고리별로 합산해, 금액 내림차순으로
   /// 정렬된 맵을 돌려준다 — "이번 달 돈이 어디로 갔는지" 분석용.
   static Map<String, double> expenseByCategory(List<Transaction> transactions, String monthKey) {
@@ -79,7 +103,30 @@ class FinanceService {
     return goal;
   }
 
-  Future<void> deleteTransaction(String id) => storage.deleteTransaction(id);
+  /// Deletes [id], reverting its contribution to a linked financial goal's
+  /// currentAmount (the mirror of addTransaction's adjustment) so deleting
+  /// a mistaken entry doesn't leave phantom progress. Returns the adjusted
+  /// goal, or null when the transaction was unlinked or already gone.
+  Future<Goal?> deleteTransaction(String id) async {
+    final matches = storage.getTransactions().where((t) => t.id == id);
+    final tx = matches.isNotEmpty ? matches.first : null;
+    await storage.deleteTransaction(id);
+    if (tx == null || tx.linkedGoalId == null) return null;
+
+    final goal = storage.getGoal(tx.linkedGoalId!);
+    if (goal == null || goal.targetAmount == null) return null;
+
+    goal.currentAmount -= tx.type == TransactionType.expense ? -tx.amount : tx.amount;
+    // 이 거래가 목표를 완료시켰는데 삭제로 금액이 목표 아래로 떨어졌다면,
+    // '달성한 목표'에 100% 미만인 완료 목표가 남지 않도록 다시 진행중으로
+    // 되돌린다(이미 지급된 완료 보너스 XP까지 되돌리진 않는다).
+    if (goal.status == GoalStatus.completed && goal.currentAmount < goal.targetAmount!) {
+      goal.status = GoalStatus.active;
+      goal.completedAt = null;
+    }
+    await storage.saveGoal(goal);
+    return goal;
+  }
 
   /// Bulk-persists imported transactions. Imported rows never carry a
   /// linkedGoalId, so there's no goal-amount adjustment to do here.

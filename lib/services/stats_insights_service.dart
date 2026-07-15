@@ -1,4 +1,5 @@
 import '../models/quest.dart';
+import 'xp_service.dart';
 
 class StatsInsightsService {
   static DateTime _dateOnly(DateTime d) => DateTime(d.year, d.month, d.day);
@@ -45,17 +46,46 @@ class StatsInsightsService {
       if (q.completedAt == null) continue;
       final day = _dateOnly(q.completedAt!);
       if (!result.containsKey(day)) continue;
-      final xp = q.statRewards.values.fold(0.0, (a, b) => a + b);
+      final xp = XpService.effectiveRewards(q).values.fold(0.0, (a, b) => a + b);
       result[day] = result[day]! + xp;
     }
     return result;
   }
 
+  /// Completed-quest count per day for the [weeks]-week window ending on the
+  /// week that contains today, as full Monday→Sunday weeks (so a heatmap
+  /// grid has no ragged edges). Ordered oldest day first; days with no
+  /// completions are 0. The window always starts on a Monday and ends on the
+  /// Sunday of the current week.
+  static Map<DateTime, int> completionCountByDay(
+    List<Quest> completedQuests, {
+    DateTime? now,
+    int weeks = 16,
+  }) {
+    final today = _dateOnly(now ?? DateTime.now());
+    // 이번 주 일요일(주의 끝)까지 채운 뒤 weeks*7일 전 월요일부터 시작.
+    final endOfWeek = _addDays(today, 7 - today.weekday); // 일요일
+    final start = _addDays(endOfWeek, -(weeks * 7 - 1)); // 월요일
+
+    final result = <DateTime, int>{};
+    for (var d = start; !d.isAfter(endOfWeek); d = _addDays(d, 1)) {
+      result[d] = 0;
+    }
+    for (final q in completedQuests) {
+      if (q.completedAt == null) continue;
+      final day = _dateOnly(q.completedAt!);
+      if (result.containsKey(day)) result[day] = result[day]! + 1;
+    }
+    return result;
+  }
+
   /// Total XP ever earned per stat, summed across all completed quests.
+  /// Uses effectiveRewards so goal-linked quests count their 1.5x bonus,
+  /// matching what applyXp actually credited.
   static Map<String, double> totalXpByStat(List<Quest> completedQuests) {
     final result = <String, double>{};
     for (final q in completedQuests) {
-      q.statRewards.forEach((statId, xp) {
+      XpService.effectiveRewards(q).forEach((statId, xp) {
         result[statId] = (result[statId] ?? 0) + xp;
       });
     }

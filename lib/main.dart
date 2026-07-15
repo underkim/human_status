@@ -11,6 +11,7 @@ import 'screens/home_shell.dart';
 import 'services/financial_advisor_service.dart';
 import 'services/notification_service.dart';
 import 'services/quest_recommendation_service.dart';
+import 'services/recurring_quest_service.dart';
 import 'services/storage_service.dart';
 import 'theme/app_theme.dart';
 
@@ -40,6 +41,12 @@ Future<void> main() async {
 
 Future<void> _refreshInBackground(ProviderContainer container, StorageService storage) async {
   try {
+    // 어제까지 완료된 '매일 반복' 퀘스트를 오늘의 활성 퀘스트로 되살린다.
+    await RecurringQuestService(storage: storage).respawnDue();
+    container.read(questsProvider.notifier).reload();
+  } catch (_) {}
+
+  try {
     await QuestRecommendationService(storage: storage).refreshIfNeeded();
     container.read(questsProvider.notifier).reload();
   } catch (_) {
@@ -55,7 +62,8 @@ Future<void> _refreshInBackground(ProviderContainer container, StorageService st
   try {
     final notificationService = NotificationService();
     await notificationService.init();
-    final reminderMinutes = storage.getProfile().reminderMinutesSinceMidnight;
+    final profile = storage.getProfile();
+    final reminderMinutes = profile.reminderMinutesSinceMidnight;
     if (reminderMinutes != null) {
       final activeQuestCount =
           storage.getQuests().where((q) => q.status == QuestStatus.active).length;
@@ -64,6 +72,9 @@ Future<void> _refreshInBackground(ProviderContainer container, StorageService st
         minute: reminderMinutes % 60,
         activeQuestCount: activeQuestCount,
       );
+    }
+    if (profile.weeklyReportReminderEnabled) {
+      await notificationService.scheduleWeeklyReportReminder();
     }
   } catch (_) {}
 }

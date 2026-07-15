@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
 
 import 'insights_screen.dart';
+import 'report_screen.dart';
 import 'settings_screen.dart';
 
-/// Low-frequency features (통계·설정) live behind this thin hub instead of
+/// Low-frequency features (리포트·통계·설정) live behind this thin hub instead of
 /// occupying their own top-level bottom-nav destinations — see the IA
 /// redesign's rationale for collapsing a 6-tab bar down to 5.
 class MoreScreen extends StatelessWidget {
@@ -15,6 +16,15 @@ class MoreScreen extends StatelessWidget {
       appBar: AppBar(title: const Text('더보기')),
       body: ListView(
         children: [
+          ListTile(
+            leading: const Icon(Icons.summarize_outlined),
+            title: const Text('리포트'),
+            subtitle: const Text('주간·월간 활동 요약'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const ReportScreen()),
+            ),
+          ),
           ListTile(
             leading: const Icon(Icons.insights_outlined),
             title: const Text('통계'),

@@ -1,3 +1,4 @@
+import '../models/quest.dart';
 import '../models/stat.dart';
 
 class LevelUpResult {
@@ -22,6 +23,14 @@ class XpService {
   static const double goalCompletionBonusXp = 100.0;
 
   static double applyGoalMultiplier(double baseXp) => baseXp * goalQuestXpMultiplier;
+
+  /// [quest]가 완료 시 실제로 지급하는 스텟별 XP — 목표 연결 퀘스트의 1.5배
+  /// 보너스가 반영된 값. 지급(completeQuest)과 집계(통계·리포트)가 반드시
+  /// 같은 값을 읽도록 여기 한 곳에서만 계산한다.
+  static Map<String, double> effectiveRewards(Quest quest) => {
+        for (final e in quest.statRewards.entries)
+          e.key: quest.goalId != null ? applyGoalMultiplier(e.value) : e.value,
+      };
 
   /// Adds [xpGained] to [stat], rolling over into level-ups as needed.
   /// Mutates [stat] in place and returns the result of the operation.

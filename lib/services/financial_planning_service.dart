@@ -44,24 +44,29 @@ class FinancialPlanningService {
   /// future-value-of-an-annuity formula solved for payment:
   ///   PMT = (FV - PV*(1+r)^n) / (((1+r)^n - 1) / r)
   /// Falls back to simple division when the rate is 0 (avoids /0), and
-  /// returns the raw shortfall when [months] isn't positive.
+  /// uses the raw shortfall when [months] isn't positive. Never returns a
+  /// negative number — 이미 목표를 넘겼으면 "월 -12,000원 필요" 대신 0원.
   static double requiredMonthlySaving({
     required double targetAmount,
     required double currentAmount,
     required int months,
     required double annualReturnPercent,
   }) {
-    if (months <= 0) return targetAmount - currentAmount;
-
-    final monthlyRate = annualReturnPercent / 100 / 12;
-    if (monthlyRate == 0) {
-      return (targetAmount - currentAmount) / months;
+    final double raw;
+    if (months <= 0) {
+      raw = targetAmount - currentAmount;
+    } else {
+      final monthlyRate = annualReturnPercent / 100 / 12;
+      if (monthlyRate == 0) {
+        raw = (targetAmount - currentAmount) / months;
+      } else {
+        final growthFactor = pow(1 + monthlyRate, months).toDouble();
+        final futureValueOfCurrent = currentAmount * growthFactor;
+        final annuityFactor = (growthFactor - 1) / monthlyRate;
+        raw = (targetAmount - futureValueOfCurrent) / annuityFactor;
+      }
     }
-
-    final growthFactor = pow(1 + monthlyRate, months).toDouble();
-    final futureValueOfCurrent = currentAmount * growthFactor;
-    final annuityFactor = (growthFactor - 1) / monthlyRate;
-    return (targetAmount - futureValueOfCurrent) / annuityFactor;
+    return raw < 0 ? 0 : raw;
   }
 
   /// Average net (income - expense) over the last [months] calendar months,

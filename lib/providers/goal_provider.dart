@@ -4,7 +4,6 @@ import '../data/achievement_definitions.dart';
 import '../models/goal.dart';
 import '../models/quest.dart';
 import '../services/goal_service.dart';
-import '../services/stats_insights_service.dart';
 import '../services/storage_service.dart';
 import '../services/xp_service.dart';
 import 'profile_provider.dart';
@@ -44,6 +43,13 @@ class GoalCompletionResult {
   const GoalCompletionResult({required this.levelUp, required this.newAchievements});
 }
 
+class GoalCreationResult {
+  final List<Quest> quests;
+  final List<AchievementDefinition> newAchievements;
+
+  const GoalCreationResult({required this.quests, required this.newAchievements});
+}
+
 class GoalsNotifier extends StateNotifier<List<Goal>> {
   final StorageService storage;
   final Ref ref;
@@ -52,11 +58,42 @@ class GoalsNotifier extends StateNotifier<List<Goal>> {
 
   void reload() => state = storage.getGoals();
 
+  /// Persists edits to an existing goal (title/description/date/amount).
+  /// Does NOT re-run quest decomposition — that only happens at creation, so
+  /// editing never spawns duplicate quests. If the edit lowers a financial
+  /// goal's target to at or below its current amount, the goal is completed
+  /// right away (returning the result so the UI can celebrate) — otherwise a
+  /// financial goal has no manual complete button and would be stuck active.
+  Future<GoalCompletionResult?> updateGoal(Goal goal) async {
+    await storage.saveGoal(goal);
+    reload();
+    return checkFinancialGoalCompletion(goal.id);
+  }
+
+  /// Deletes [goalId]. Any still-active or suggested quests generated for it
+  /// are unlinked (goalId cleared) so they survive as ordinary quests instead
+  /// of pointing at a goal that no longer exists; completed quests keep their
+  /// link for history and for the bonus XP they already earned.
+  Future<void> deleteGoal(String goalId) async {
+    for (final q in storage.getQuests()) {
+      if (q.goalId != goalId) continue;
+      if (q.status == QuestStatus.active || q.status == QuestStatus.suggested) {
+        q.goalId = null;
+        await storage.saveQuest(q);
+      }
+    }
+    await storage.deleteGoal(goalId);
+    reload();
+    ref.read(questsProvider.notifier).reload();
+  }
+
   /// Persists [goal], then decomposes it into quests (Claude if configured,
   /// else the local template fallback) and adds them via questsProvider so
-  /// the quest list stays in sync automatically. Returns the generated
-  /// quests (may be empty if decomposition failed entirely).
-  Future<List<Quest>> createGoal(Goal goal) async {
+  /// the quest list stays in sync automatically. Also evaluates achievements
+  /// right away — '목표 설정' 같은 생성 기반 업적이 다음 완료 시점까지
+  /// 밀리지 않도록. Returns the generated quests (may be empty if
+  /// decomposition failed entirely) plus any newly-unlocked achievements.
+  Future<GoalCreationResult> createGoal(Goal goal) async {
     await storage.saveGoal(goal);
     reload();
 
@@ -64,7 +101,14 @@ class GoalsNotifier extends StateNotifier<List<Goal>> {
     for (final q in quests) {
       await ref.read(questsProvider.notifier).addQuest(q);
     }
-    return quests;
+
+    final achievementService = ref.read(achievementServiceProvider);
+    final newAchievements =
+        await achievementService.checkAndUnlock(achievementService.currentContext());
+    if (newAchievements.isNotEmpty) {
+      ref.read(unlockedAchievementsProvider.notifier).reload();
+    }
+    return GoalCreationResult(quests: quests, newAchievements: newAchievements);
   }
 
   /// Marks [goalId] completed, awards a lump-sum XP bonus to its linked
@@ -88,16 +132,9 @@ class GoalsNotifier extends StateNotifier<List<Goal>> {
           XpService.goalCompletionBonusXp,
         );
 
-    final stats = storage.getStats();
-    final completedQuests = storage.getQuests().where((q) => q.status == QuestStatus.completed).toList();
-    final context = AchievementContext(
-      stats: stats,
-      completedQuests: completedQuests,
-      streak: StatsInsightsService.currentStreak(completedQuests),
-      overallLevel: XpService.overallLevel(stats),
-      goals: storage.getGoals(),
-    );
-    final newAchievements = await ref.read(achievementServiceProvider).checkAndUnlock(context);
+    final achievementService = ref.read(achievementServiceProvider);
+    final newAchievements =
+        await achievementService.checkAndUnlock(achievementService.currentContext());
     if (newAchievements.isNotEmpty) {
       ref.read(unlockedAchievementsProvider.notifier).reload();
     }

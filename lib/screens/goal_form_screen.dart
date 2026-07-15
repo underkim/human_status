@@ -10,11 +10,17 @@ import '../providers/profile_provider.dart';
 import '../services/financial_planning_service.dart';
 import '../theme/app_colors.dart';
 import '../utils/formatters.dart';
+import '../widgets/achievement_dialog.dart';
+import '../widgets/level_up_dialog.dart';
 
 const _financialHorizonsMonths = [6, 12, 36];
 
 class GoalFormScreen extends ConsumerStatefulWidget {
-  const GoalFormScreen({super.key});
+  /// 값이 있으면 편집 모드 — 폼이 미리 채워지고 저장 시 이 목표를 갱신한다.
+  /// 편집은 퀘스트를 다시 분해하지 않으므로 연결 스텟·재무 여부는 잠긴다.
+  final Goal? existing;
+
+  const GoalFormScreen({super.key, this.existing});
 
   @override
   ConsumerState<GoalFormScreen> createState() => _GoalFormScreenState();
@@ -29,6 +35,24 @@ class _GoalFormScreenState extends ConsumerState<GoalFormScreen> {
   DateTime? _targetDate;
   bool _isFinancial = false;
   bool _isSubmitting = false;
+
+  bool get _isEditing => widget.existing != null;
+
+  @override
+  void initState() {
+    super.initState();
+    final existing = widget.existing;
+    if (existing != null) {
+      _titleController.text = existing.title;
+      _descriptionController.text = existing.description;
+      _selectedStatId = existing.statId;
+      _targetDate = existing.targetDate;
+      _isFinancial = existing.targetAmount != null;
+      if (existing.targetAmount != null) {
+        _amountController.text = existing.targetAmount!.round().toString();
+      }
+    }
+  }
 
   @override
   void dispose() {
@@ -76,7 +100,7 @@ class _GoalFormScreenState extends ConsumerState<GoalFormScreen> {
         : 0.0;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('목표 추가')),
+      appBar: AppBar(title: Text(_isEditing ? '목표 수정' : '목표 추가')),
       body: AbsorbPointer(
         absorbing: _isSubmitting,
         child: Form(
@@ -84,25 +108,29 @@ class _GoalFormScreenState extends ConsumerState<GoalFormScreen> {
           child: ListView(
             padding: const EdgeInsets.all(16),
             children: [
-              Text(
-                '목표를 저장하면 AI가 실행할 작은 퀘스트로 자동으로 나눠드려요.',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(color: context.appColors.textMuted),
-              ),
-              const SizedBox(height: 16),
-              if (recommendedIdeas.isNotEmpty) ...[
-                Text('추천 목표 (약한 스텟 기준)', style: Theme.of(context).textTheme.titleSmall),
-                const SizedBox(height: 6),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: recommendedIdeas
-                      .map((idea) => ActionChip(
-                            label: Text(idea.title),
-                            onPressed: () => _applyIdea(idea),
-                          ))
-                      .toList(),
+              // 추천 아이디어·분해 안내는 새 목표를 만들 때만 도움이 되는
+              // 요소라 편집 모드에서는 숨긴다.
+              if (!_isEditing) ...[
+                Text(
+                  '목표를 저장하면 AI가 실행할 작은 퀘스트로 자동으로 나눠드려요.',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(color: context.appColors.textMuted),
                 ),
                 const SizedBox(height: 16),
+                if (recommendedIdeas.isNotEmpty) ...[
+                  Text('추천 목표 (약한 스텟 기준)', style: Theme.of(context).textTheme.titleSmall),
+                  const SizedBox(height: 6),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: recommendedIdeas
+                        .map((idea) => ActionChip(
+                              label: Text(idea.title),
+                              onPressed: () => _applyIdea(idea),
+                            ))
+                        .toList(),
+                  ),
+                  const SizedBox(height: 16),
+                ],
               ],
               TextFormField(
                 controller: _titleController,
@@ -116,34 +144,40 @@ class _GoalFormScreenState extends ConsumerState<GoalFormScreen> {
                 maxLines: 2,
               ),
               const SizedBox(height: 12),
+              // 편집 중 재무/일반 성격을 바꾸면 진행률·연결 퀘스트 의미가
+              // 어긋나므로 편집 모드에서는 토글을 잠근다.
               SwitchListTile(
                 title: const Text('재무 목표예요'),
                 subtitle: const Text('저축·투자처럼 금액으로 진행률을 추적해요.'),
                 value: _isFinancial,
-                onChanged: (v) => setState(() {
-                  _isFinancial = v;
-                  if (v) _selectedStatId = 'wealth';
-                }),
+                onChanged: _isEditing
+                    ? null
+                    : (v) => setState(() {
+                          _isFinancial = v;
+                          if (v) _selectedStatId = 'wealth';
+                        }),
                 contentPadding: EdgeInsets.zero,
               ),
               if (_isFinancial) ...[
                 const SizedBox(height: 8),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: _financialHorizonsMonths
-                      .map((months) => ActionChip(
-                            label: Text(_horizonLabel(months)),
-                            onPressed: () => _applyFinancialHorizon(months, avgMonthlySaving),
-                          ))
-                      .toList(),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  '최근 평균 월 저축액 ${formatWon(avgMonthlySaving)} 기준으로 기한·금액을 추천해요.',
-                  style: TextStyle(fontSize: 12, color: context.appColors.textMuted),
-                ),
-                const SizedBox(height: 8),
+                if (!_isEditing) ...[
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: _financialHorizonsMonths
+                        .map((months) => ActionChip(
+                              label: Text(_horizonLabel(months)),
+                              onPressed: () => _applyFinancialHorizon(months, avgMonthlySaving),
+                            ))
+                        .toList(),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    '최근 평균 월 저축액 ${formatWon(avgMonthlySaving)} 기준으로 기한·금액을 추천해요.',
+                    style: TextStyle(fontSize: 12, color: context.appColors.textMuted),
+                  ),
+                  const SizedBox(height: 8),
+                ],
                 TextFormField(
                   controller: _amountController,
                   keyboardType: TextInputType.number,
@@ -163,7 +197,8 @@ class _GoalFormScreenState extends ConsumerState<GoalFormScreen> {
                 items: stats
                     .map((s) => DropdownMenuItem(value: s.id, child: Text('${s.icon} ${s.name}')))
                     .toList(),
-                onChanged: (v) => setState(() => _selectedStatId = v),
+                // 연결 스텟은 목표 완료 보너스가 갈 곳이라 편집 중엔 잠근다.
+                onChanged: _isEditing ? null : (v) => setState(() => _selectedStatId = v),
               ),
               const SizedBox(height: 12),
               ListTile(
@@ -195,7 +230,7 @@ class _GoalFormScreenState extends ConsumerState<GoalFormScreen> {
                 ),
               FilledButton(
                 onPressed: _isSubmitting ? null : _submit,
-                child: const Text('추가하기'),
+                child: Text(_isEditing ? '저장하기' : '추가하기'),
               ),
             ],
           ),
@@ -206,6 +241,32 @@ class _GoalFormScreenState extends ConsumerState<GoalFormScreen> {
 
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate() || _selectedStatId == null) return;
+
+    final existing = widget.existing;
+    if (existing != null) {
+      // 편집: 분해 없이 편집 가능한 필드만 갱신. id·상태·생성시각·연결 스텟·
+      // currentAmount는 그대로 두어 진행률·연결 퀘스트가 깨지지 않게 한다.
+      existing.title = _titleController.text.trim();
+      existing.description = _descriptionController.text.trim();
+      existing.targetDate = _targetDate;
+      existing.targetAmount = _isFinancial ? double.tryParse(_amountController.text) : null;
+      final completion = await ref.read(goalsProvider.notifier).updateGoal(existing);
+      if (!mounted) return;
+      // 목표액을 낮춰 이미 모은 금액이 목표에 도달하면 그 자리에서 완료 처리된다.
+      if (completion != null) {
+        await showLevelUpDialog(context, ref.read(statsProvider), {existing.statId: completion.levelUp});
+        if (!mounted) return;
+        await showAchievementDialog(context, completion.newAchievements);
+        if (!mounted) return;
+      }
+      final messenger = ScaffoldMessenger.of(context);
+      Navigator.of(context).pop();
+      messenger.showSnackBar(SnackBar(
+        content: Text(completion != null ? '목표를 달성했어요!' : '목표를 수정했어요.'),
+      ));
+      return;
+    }
+
     setState(() => _isSubmitting = true);
 
     final goal = Goal(
@@ -218,10 +279,13 @@ class _GoalFormScreenState extends ConsumerState<GoalFormScreen> {
       createdAt: DateTime.now(),
     );
 
-    final quests = await ref.read(goalsProvider.notifier).createGoal(goal);
+    final result = await ref.read(goalsProvider.notifier).createGoal(goal);
+    if (!mounted) return;
+    // '목표 설정' 같은 생성 기반 업적은 화면을 떠나기 전에 축하한다.
+    await showAchievementDialog(context, result.newAchievements);
     if (!mounted) return;
     final messenger = ScaffoldMessenger.of(context);
     Navigator.of(context).pop();
-    messenger.showSnackBar(SnackBar(content: Text('퀘스트 ${quests.length}개가 생성되었어요.')));
+    messenger.showSnackBar(SnackBar(content: Text('퀘스트 ${result.quests.length}개가 생성되었어요.')));
   }
 }

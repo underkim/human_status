@@ -57,6 +57,24 @@ void main() {
 
       expect(balance, closeTo(targetAmount, 0.01));
     });
+
+    test('never goes negative when the target is already reached', () {
+      final overfunded = FinancialPlanningService.requiredMonthlySaving(
+        targetAmount: 10000,
+        currentAmount: 50000,
+        months: 12,
+        annualReturnPercent: 5,
+      );
+      expect(overfunded, 0);
+
+      final overfundedNoHorizon = FinancialPlanningService.requiredMonthlySaving(
+        targetAmount: 10000,
+        currentAmount: 50000,
+        months: 0,
+        annualReturnPercent: 5,
+      );
+      expect(overfundedNoHorizon, 0);
+    });
   });
 
   group('FinancialPlanningService storage-backed methods', () {
