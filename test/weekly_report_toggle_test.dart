@@ -10,14 +10,19 @@ import 'package:human_status/theme/app_theme.dart';
 import 'helpers/test_app.dart';
 
 /// 실제 플러그인은 테스트 바인딩에 없으므로 스케줄/취소 호출만 기록한다.
+/// [granted]를 false로 주면 예외 없이 권한 거부(false) 결과를 돌려준다.
 class _FakeNotificationService extends NotificationService {
+  _FakeNotificationService({this.granted = true});
+
+  final bool granted;
+
   int scheduleWeeklyCalls = 0;
   int cancelWeeklyCalls = 0;
 
   @override
   Future<bool> scheduleWeeklyReportReminder() async {
     scheduleWeeklyCalls++;
-    return true;
+    return granted;
   }
 
   @override
@@ -46,9 +51,10 @@ class _ThrowingNotificationService extends NotificationService {
 
 Future<_FakeNotificationService> _pumpSettings(
   WidgetTester tester,
-  StorageService storage,
-) async {
-  final fake = _FakeNotificationService();
+  StorageService storage, {
+  bool granted = true,
+}) async {
+  final fake = _FakeNotificationService(granted: granted);
   await tester.pumpWidget(
     ProviderScope(
       overrides: [
@@ -152,5 +158,30 @@ void main() {
       isTrue,
     );
     expect(find.text('알림 설정을 변경하지 못했습니다. 잠시 후 다시 시도해주세요.'), findsOneWidget);
+  });
+
+  testWidgets('주간 리포트 알림 권한이 거부되어도(예외 없이 false) 설정은 저장되고 권한 경고가 표시된다', (
+    tester,
+  ) async {
+    final storage = await createTestStorage();
+    final fake = await _pumpSettings(tester, storage, granted: false);
+
+    expect(storage.getProfile().weeklyReportReminderEnabled, isFalse);
+
+    await tester.tap(find.text('주간 리포트 알림'));
+    await tester.pumpAndSettle();
+
+    expect(fake.scheduleWeeklyCalls, 1);
+    // false는 예외가 아니라 "등록은 됐지만 OS가 권한을 껐다"는 뜻이므로
+    // enabled=true는 그대로 저장돼야 한다.
+    expect(storage.getProfile().weeklyReportReminderEnabled, isTrue);
+    expect(
+      tester.widget<SwitchListTile>(find.byType(SwitchListTile)).value,
+      isTrue,
+    );
+    expect(
+      find.text('설정은 저장됐지만 알림 권한이 꺼져 있어요 — 기기 설정에서 허용해주세요.'),
+      findsOneWidget,
+    );
   });
 }

@@ -56,9 +56,14 @@ Future<String> _defaultTimezoneIdentifierResolver() async {
 /// Local (on-device) daily reminder notifications. No-op on web, where the
 /// underlying plugin has no native scheduling support.
 class NotificationService {
+  // Deliberately not `this._timezoneIdentifierResolver`: the field is
+  // private, but the constructor parameter needs a public external name so
+  // tests outside this library can inject a resolver.
   NotificationService({
-    this._timezoneIdentifierResolver = _defaultTimezoneIdentifierResolver,
-  });
+    TimezoneIdentifierResolver timezoneIdentifierResolver =
+        _defaultTimezoneIdentifierResolver,
+    // ignore: prefer_initializing_formals
+  }) : _timezoneIdentifierResolver = timezoneIdentifierResolver;
 
   static const _dailyReminderId = 1;
   static const _weeklyReportId = 2;
@@ -82,7 +87,17 @@ class NotificationService {
     if (kIsWeb || _initialized) return;
 
     tz_data.initializeTimeZones();
-    final identifier = await _timezoneIdentifierResolver();
+    final String identifier;
+    try {
+      identifier = await _timezoneIdentifierResolver();
+    } on Object catch (e) {
+      // The resolver (e.g. the flutter_timezone platform channel) failed
+      // outright rather than returning an unresolvable identifier — still
+      // surface it as a NotificationTimezoneException so callers never have
+      // to distinguish "bad identifier" from "resolver blew up", and never
+      // silently fall back to UTC.
+      throw NotificationTimezoneException('<resolver-failed>', e);
+    }
     tz.setLocalLocation(resolveTimezoneLocation(identifier));
 
     const androidSettings = AndroidInitializationSettings(

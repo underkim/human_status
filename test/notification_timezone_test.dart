@@ -55,4 +55,28 @@ void main() {
     // effect — the exception is the only thing that happens.
     expect(tz.local, same(before));
   });
+
+  test('resolver 자체가 실패해도(플랫폼 채널 오류 등) 플러그인 초기화 전에 '
+      'NotificationTimezoneException으로 변환되고 tz.local은 바뀌지 않는다', () async {
+    final before = tz.local;
+    final cause = Exception('platform channel unavailable');
+    final service = NotificationService(
+      timezoneIdentifierResolver: () async => throw cause,
+    );
+
+    await expectLater(
+      service.init(),
+      throwsA(
+        isA<NotificationTimezoneException>().having(
+          (e) => e.cause,
+          'cause',
+          same(cause),
+        ),
+      ),
+    );
+    // The resolver blew up before flutter_local_notifications' own
+    // platform-channel initialization ever ran, and before tz.local was
+    // ever touched.
+    expect(tz.local, same(before));
+  });
 }
