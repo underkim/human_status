@@ -42,7 +42,7 @@
 
 ## 개발
 
-Flutter 3.44+ / Dart 3.12+ 기준입니다.
+Flutter 3.44.6(stable) / Dart 3.12.2 기준입니다.
 
 ```sh
 flutter pub get
@@ -50,6 +50,42 @@ flutter test          # 단위 + 위젯 테스트
 flutter analyze
 flutter run           # 연결된 기기/에뮬레이터에서 실행
 ```
+
+로컬 검증 명령(현재 확인된 결과):
+
+```sh
+flutter analyze              # 클린 (이슈 없음)
+flutter test                 # 368개 테스트 통과
+flutter build windows --release
+flutter build web --release
+```
+
+Android는 로컬에 `ANDROID_HOME`/SDK가 없어 빌드를 확인하지 못했습니다. CI가
+`flutter build apk --debug`로 Android 빌드 가능 여부를 대신 검증합니다.
+
+### CI
+
+`.github/workflows/ci.yml`이 PR, `master` 푸시, 수동 실행(workflow_dispatch)에서
+동작합니다.
+
+- **quality (Ubuntu)** — checkout → Java 17(Temurin) → Flutter 설치 →
+  `flutter pub get` → `flutter analyze` → `flutter test` →
+  `flutter build web --release` → `flutter build apk --debug`.
+  APK는 저장소에 릴리즈 서명 자격 증명이 없어 의도적으로 debug 빌드입니다.
+- **windows-smoke (Windows)** — checkout → Flutter 설치 → `flutter pub get` →
+  `flutter build windows --release`. quality 잡과 독립적으로 실행됩니다.
+
+아티팩트 업로드나 배포 단계는 없으며 시크릿도 사용하지 않습니다. 별도의
+`dart format` 게이트는 두지 않았습니다(기존 코드베이스 전체가 `dart format`
+기준으로 정리되어 있지 않아, 82개 파일을 기계적으로 재포맷하는 작업은 이
+변경 범위 밖입니다).
+
+### Android 릴리즈에 대한 참고
+
+Android 릴리즈 빌드는 아직 debug 서명과 `com.example` 애플리케이션 ID를
+그대로 사용합니다. 배포하려면 실제 패키지/번들 ID를 정하고 안전한 서명
+구성(키스토어, CI 시크릿 등)을 별도로 마련해야 합니다. 이 변경에서는
+애플리케이션 ID나 서명 설정을 수정하지 않았습니다.
 
 로컬 데이터는 [hive](https://pub.dev/packages/hive)에 저장되며 서버가 없습니다.
 상태 관리는 Riverpod(`StateNotifierProvider`), 차트는 fl_chart를 사용합니다.
