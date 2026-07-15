@@ -1,10 +1,12 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:human_status/data/achievement_definitions.dart';
 import 'package:human_status/models/goal.dart';
 import 'package:human_status/models/quest.dart';
 import 'package:human_status/providers/goal_provider.dart';
 import 'package:human_status/providers/profile_provider.dart';
 import 'package:human_status/providers/quest_provider.dart';
+import 'package:human_status/services/achievement_service.dart';
 import 'package:human_status/services/goal_service.dart';
 import 'package:human_status/services/storage_service.dart';
 
@@ -42,6 +44,25 @@ class _ThrowsOnNthAddQuestNotifier extends QuestsNotifier {
       throw StateError('simulated quest save failure');
     }
     await super.addQuest(quest);
+  }
+}
+
+/// checkAndUnlock이 업적을 실제로 저장한 *뒤에* 던지는 가짜
+/// AchievementService — "goal/quest는 이미 저장됐고 업적 체크만 도중에
+/// 실패한" 상황을 재현한다. 진짜 checkAndUnlock처럼 storage에 직접 쓰기
+/// 때문에, createGoal의 catch 블록이 achievements 롤백을 unlockedBefore와의
+/// 차집합으로 정확히 계산하는지(그리고 이 호출 이전부터 있던 업적은 건드리지
+/// 않는지) 검증할 수 있다.
+class _UnlocksThenThrowsAchievementService extends AchievementService {
+  _UnlocksThenThrowsAchievementService(StorageService storage)
+    : super(storage: storage);
+
+  @override
+  Future<List<AchievementDefinition>> checkAndUnlock(
+    AchievementContext context,
+  ) async {
+    await storage.unlockAchievement('first_goal_set', DateTime(2026, 7, 15));
+    throw StateError('simulated achievement check failure');
   }
 }
 
@@ -136,6 +157,55 @@ void main() {
         storage.getUnlockedAchievements().keys,
         contains('some_prior_achievement'),
       );
+    });
+
+    test('업적 저장 도중(이미 새 업적을 기록한 뒤) 예외가 나면 goal·quest·새 업적이 모두 '
+        '롤백되고 이전부터 있던 업적은 남는다', () async {
+      final storage = await createTestStorage();
+      // 이 호출 이전에 이미 해금된 업적 — 롤백이 unlockedBefore/After의
+      // 차집합만 지우는지(새로 생긴 first_goal_set만 지우고 이건
+      // 건드리지 않는지) 검증한다.
+      await storage.unlockAchievement(
+        'some_prior_achievement',
+        DateTime(2026, 1, 1),
+      );
+
+      final container = ProviderContainer(
+        overrides: [
+          storageServiceProvider.overrideWithValue(storage),
+          // GoalService는 오버라이드하지 않는다 — 로컬 규칙 폴백이
+          // kickoff 퀘스트를 포함해 정상적으로 여러 개를 만들어내는
+          // "정상 decomposition" 경로를 그대로 쓴다. 실패는 그 다음
+          // 단계인 achievement 체크에서만 발생시킨다.
+          achievementServiceProvider.overrideWithValue(
+            _UnlocksThenThrowsAchievementService(storage),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      final goal = _goal('g1');
+      await expectLater(
+        container
+            .read(goalsProvider.notifier)
+            .createGoal(goal, requireQuests: true),
+        throwsA(isA<StateError>()),
+      );
+
+      // goal도, 정상 분해로 만들어졌던 quest들도 남아 있지 않다.
+      expect(storage.getGoals(), isEmpty);
+      expect(storage.getQuests(), isEmpty);
+      // 이 호출 도중 새로 쓰여진 업적은 롤백된다...
+      expect(
+        storage.getUnlockedAchievements().keys,
+        isNot(contains('first_goal_set')),
+      );
+      // ...하지만 이 호출 이전부터 있던 업적은 그대로 남는다.
+      expect(
+        storage.getUnlockedAchievements().keys,
+        contains('some_prior_achievement'),
+      );
+      expect(storage.getProfile().onboardingCompleted, isFalse);
     });
 
     test('퀘스트 저장 도중 예외가 나면 goal과 이미 추가된 quest, 새로 해금된 업적까지 모두 롤백된다', () async {
