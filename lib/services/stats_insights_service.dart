@@ -75,13 +75,16 @@ class StatsInsightsService {
   /// week that contains today, as full Monday→Sunday weeks (so a heatmap
   /// grid has no ragged edges). Ordered oldest day first; days with no
   /// completions are 0. The window always starts on a Monday and ends on the
-  /// Sunday of the current week.
+  /// Sunday of the current week. A completion timestamped later than [now]
+  /// (even if it falls inside the window) is excluded, matching every other
+  /// calculation in this service.
   static Map<DateTime, int> completionCountByDay(
     List<Quest> completedQuests, {
     DateTime? now,
     int weeks = 16,
   }) {
-    final today = cal.dateOnly(now ?? DateTime.now());
+    final effectiveNow = now ?? DateTime.now();
+    final today = cal.dateOnly(effectiveNow);
     // 이번 주 일요일(주의 끝)까지 채운 뒤 weeks*7일 전 월요일부터 시작.
     final endOfWeek = cal.addDays(today, 7 - today.weekday); // 일요일
     final start = cal.addDays(endOfWeek, -(weeks * 7 - 1)); // 월요일
@@ -91,7 +94,7 @@ class StatsInsightsService {
       result[d] = 0;
     }
     for (final q in completedQuests) {
-      if (q.completedAt == null) continue;
+      if (!_isValidCompletion(q, effectiveNow)) continue;
       final day = cal.dateOnly(q.completedAt!);
       if (result.containsKey(day)) result[day] = result[day]! + 1;
     }
@@ -100,10 +103,17 @@ class StatsInsightsService {
 
   /// Total XP ever earned per stat, summed across all completed quests.
   /// Uses effectiveRewards so goal-linked quests count their 1.5x bonus,
-  /// matching what applyXp actually credited.
-  static Map<String, double> totalXpByStat(List<Quest> completedQuests) {
+  /// matching what applyXp actually credited. [now] defaults to the wall
+  /// clock; a completion timestamped after it is excluded, matching every
+  /// other calculation in this service.
+  static Map<String, double> totalXpByStat(
+    List<Quest> completedQuests, {
+    DateTime? now,
+  }) {
+    final effectiveNow = now ?? DateTime.now();
     final result = <String, double>{};
     for (final q in completedQuests) {
+      if (!_isValidCompletion(q, effectiveNow)) continue;
       XpService.effectiveRewards(q).forEach((statId, xp) {
         result[statId] = (result[statId] ?? 0) + xp;
       });

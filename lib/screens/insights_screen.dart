@@ -24,11 +24,20 @@ class InsightsScreen extends ConsumerWidget {
 
     final snapshot = ref.watch(progressionSnapshotProvider);
     final nextAchievement = ref.watch(nextAchievementProgressProvider);
+    final now = ref.watch(nowProvider);
     final completionCounts = StatsInsightsService.completionCountByDay(
       completedQuests,
+      now: now,
     );
-    final xpByDay = StatsInsightsService.xpByDay(completedQuests, days: 7);
-    final totalXpByStat = StatsInsightsService.totalXpByStat(completedQuests);
+    final xpByDay = StatsInsightsService.xpByDay(
+      completedQuests,
+      days: 7,
+      now: now,
+    );
+    final totalXpByStat = StatsInsightsService.totalXpByStat(
+      completedQuests,
+      now: now,
+    );
     final unlockedAchievements = ref.watch(unlockedAchievementsProvider);
 
     final maxXp = xpByDay.values.fold<double>(0, (a, b) => b > a ? b : a);
@@ -155,8 +164,9 @@ class InsightsScreen extends ConsumerWidget {
                       showTitles: true,
                       getTitlesWidget: (value, meta) {
                         final index = value.toInt();
-                        if (index < 0 || index >= xpByDay.length)
+                        if (index < 0 || index >= xpByDay.length) {
                           return const SizedBox.shrink();
+                        }
                         final day = xpByDay.keys.elementAt(index);
                         return Padding(
                           padding: const EdgeInsets.only(top: 4),

@@ -153,7 +153,7 @@ void main() {
   group('completionCountByDay', () {
     test('covers full Monday→Sunday weeks and counts completions per day', () {
       // 2026-07-14는 화요일 → 이번 주 일요일은 7/19, 4주면 시작은 6/22(월).
-      final now = DateTime(2026, 7, 14, 10);
+      final now = DateTime(2026, 7, 14, 21);
       final quests = [
         _completedOn(DateTime(2026, 7, 14, 9)),
         _completedOn(DateTime(2026, 7, 14, 20)), // 같은 날 2건
@@ -175,6 +175,53 @@ void main() {
       expect(result[DateTime(2026, 6, 1)], isNull); // 창 밖은 포함 안 됨
       expect(result[DateTime(2026, 7, 13)], 0); // 완료 없는 날은 0
     });
+
+    test(
+      'ignores active/suggested quests even with a stale completedAt, called directly',
+      () {
+        final now = DateTime(2026, 7, 16, 10);
+        final quests = [
+          Quest(
+            id: const Uuid().v4(),
+            title: 'still active',
+            description: '',
+            statRewards: const {'health': 10},
+            status: QuestStatus.active,
+            createdAt: DateTime(2026, 7, 16),
+            completedAt: DateTime(2026, 7, 16, 8),
+          ),
+          Quest(
+            id: const Uuid().v4(),
+            title: 'suggested',
+            description: '',
+            statRewards: const {'health': 10},
+            status: QuestStatus.suggested,
+            createdAt: DateTime(2026, 7, 16),
+            completedAt: DateTime(2026, 7, 16, 9),
+          ),
+        ];
+        final result = StatsInsightsService.completionCountByDay(
+          quests,
+          now: now,
+          weeks: 1,
+        );
+        expect(result[DateTime(2026, 7, 16)], 0);
+      },
+    );
+
+    test(
+      'excludes a same-day completion timestamped later than now, called directly',
+      () {
+        final now = DateTime(2026, 7, 16, 8);
+        final laterToday = _completedOn(DateTime(2026, 7, 16, 20));
+        final result = StatsInsightsService.completionCountByDay(
+          [laterToday],
+          now: now,
+          weeks: 1,
+        );
+        expect(result[DateTime(2026, 7, 16)], 0);
+      },
+    );
   });
 
   group('totalXpByStat', () {
@@ -203,6 +250,47 @@ void main() {
       expect(result['health'], 30);
       expect(result['mental'], 5);
     });
+
+    test(
+      'ignores active/suggested quests even with a stale completedAt, called directly',
+      () {
+        final now = DateTime(2026, 7, 16, 10);
+        final quests = [
+          Quest(
+            id: const Uuid().v4(),
+            title: 'still active',
+            description: '',
+            statRewards: const {'health': 10},
+            status: QuestStatus.active,
+            createdAt: DateTime(2026, 7, 16),
+            completedAt: DateTime(2026, 7, 16, 8),
+          ),
+          Quest(
+            id: const Uuid().v4(),
+            title: 'suggested',
+            description: '',
+            statRewards: const {'health': 10},
+            status: QuestStatus.suggested,
+            createdAt: DateTime(2026, 7, 16),
+            completedAt: DateTime(2026, 7, 16, 9),
+          ),
+        ];
+        final result = StatsInsightsService.totalXpByStat(quests, now: now);
+        expect(result['health'], isNull);
+      },
+    );
+
+    test(
+      'excludes a same-day completion timestamped later than now, called directly',
+      () {
+        final now = DateTime(2026, 7, 16, 8);
+        final laterToday = _completedOn(DateTime(2026, 7, 16, 20), xp: 10);
+        final result = StatsInsightsService.totalXpByStat([
+          laterToday,
+        ], now: now);
+        expect(result['health'], isNull);
+      },
+    );
 
     test(
       'counts the 1.5x bonus of goal-linked quests, matching what was awarded',
