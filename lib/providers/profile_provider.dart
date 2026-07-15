@@ -13,7 +13,9 @@ final storageServiceProvider = Provider<StorageService>((ref) {
   );
 });
 
-final notificationServiceProvider = Provider<NotificationService>((ref) => NotificationService());
+final notificationServiceProvider = Provider<NotificationService>(
+  (ref) => NotificationService(),
+);
 
 final statsProvider = StateNotifierProvider<StatsNotifier, List<Stat>>((ref) {
   return StatsNotifier(ref.watch(storageServiceProvider));
@@ -21,7 +23,9 @@ final statsProvider = StateNotifierProvider<StatsNotifier, List<Stat>>((ref) {
 
 /// Reactive access to the (single) UserProfile record, so screens rebuild on
 /// change instead of relying on a manual read + setState.
-final profileProvider = StateNotifierProvider<ProfileNotifier, UserProfile>((ref) {
+final profileProvider = StateNotifierProvider<ProfileNotifier, UserProfile>((
+  ref,
+) {
   return ProfileNotifier(ref.watch(storageServiceProvider));
 });
 
@@ -30,8 +34,8 @@ final profileProvider = StateNotifierProvider<ProfileNotifier, UserProfile>((ref
 /// from an unrelated provider.
 final unlockedAchievementsProvider =
     StateNotifierProvider<AchievementsNotifier, Map<String, DateTime>>((ref) {
-  return AchievementsNotifier(ref.watch(storageServiceProvider));
-});
+      return AchievementsNotifier(ref.watch(storageServiceProvider));
+    });
 
 class ProfileNotifier extends StateNotifier<UserProfile> {
   final StorageService storage;
@@ -85,5 +89,24 @@ class StatsNotifier extends StateNotifier<List<Stat>> {
     await storage.saveStat(stat);
     reload();
     return result;
+  }
+
+  /// Restores the stat identified by [statId] to an exact prior
+  /// (level, currentXp) snapshot. Used to undo [applyXp] when a later step
+  /// in the same reward transaction fails, so a rolled-back completion
+  /// leaves no residual XP behind.
+  Future<void> restore(String statId, int level, double currentXp) async {
+    Stat? stat;
+    for (final s in state) {
+      if (s.id == statId) {
+        stat = s;
+        break;
+      }
+    }
+    if (stat == null) return;
+    stat.level = level;
+    stat.currentXp = currentXp;
+    await storage.saveStat(stat);
+    reload();
   }
 }

@@ -4,6 +4,7 @@ import '../data/achievement_definitions.dart';
 import '../models/goal.dart';
 import '../models/quest.dart';
 import '../services/goal_service.dart';
+import '../services/reward_transaction.dart';
 import '../services/storage_service.dart';
 import '../services/xp_service.dart';
 import 'profile_provider.dart';
@@ -183,7 +184,38 @@ class GoalsNotifier extends StateNotifier<List<Goal>> {
 
   /// Marks [goalId] completed, awards a lump-sum XP bonus to its linked
   /// stat, and checks for newly-unlocked achievements.
-  Future<GoalCompletionResult> completeGoal(String goalId) async {
+  ///
+  /// Runs inside the shared [rewardLockProvider] critical section so a
+  /// concurrent [completeGoal] or [QuestsNotifier.completeQuest] call (e.g.
+  /// this goal auto-completing via its last linked quest, racing a manual
+  /// tap) can never interleave with this one — whichever acquires the lock
+  /// first completes the goal; the other observes it already completed and
+  /// no-ops. If any step fails, everything this call changed (goal
+  /// status/completedAt, stat level/XP, any achievement newly unlocked
+  /// during this call) is rolled back before the error is rethrown, so a
+  /// retry after a genuine failure can never double-award.
+  Future<GoalCompletionResult> completeGoal(String goalId) {
+    return ref.read(rewardLockProvider).synchronized(() async {
+      final rollback = RollbackScope();
+      try {
+        return await completeGoalLocked(goalId, rollback);
+      } catch (_) {
+        await rollback.rollback();
+        rethrow;
+      }
+    });
+  }
+
+  /// The actual goal-completion transaction, assuming the caller already
+  /// holds [rewardLockProvider]. Exposed (not private) so
+  /// [QuestsNotifier.completeQuest] can fold a linked goal's auto-completion
+  /// into its own [RollbackScope] instead of nesting a second lock
+  /// acquisition/rollback boundary — do not call this directly unless you
+  /// are already inside a `rewardLockProvider.synchronized(...)` block.
+  Future<GoalCompletionResult> completeGoalLocked(
+    String goalId,
+    RollbackScope rollback,
+  ) async {
     final goal = storage.getGoal(goalId);
     if (goal == null || goal.status != GoalStatus.active) {
       return const GoalCompletionResult(
@@ -192,15 +224,45 @@ class GoalsNotifier extends StateNotifier<List<Goal>> {
       );
     }
 
+    final prevStatus = goal.status;
+    final prevCompletedAt = goal.completedAt;
+    rollback.addUndo(() async {
+      goal.status = prevStatus;
+      goal.completedAt = prevCompletedAt;
+      await storage.saveGoal(goal);
+      reload();
+    });
     goal.status = GoalStatus.completed;
     goal.completedAt = DateTime.now();
     await storage.saveGoal(goal);
     reload();
 
-    final levelUp = await ref
-        .read(statsProvider.notifier)
-        .applyXp(goal.statId, XpService.goalCompletionBonusXp);
+    final statsNotifier = ref.read(statsProvider.notifier);
+    final statBefore = storage.getStat(goal.statId);
+    if (statBefore != null) {
+      final snapLevel = statBefore.level;
+      final snapXp = statBefore.currentXp;
+      rollback.addUndo(
+        () => statsNotifier.restore(goal.statId, snapLevel, snapXp),
+      );
+    }
+    final levelUp = await statsNotifier.applyXp(
+      goal.statId,
+      XpService.goalCompletionBonusXp,
+    );
 
+    final unlockedBefore = storage.getUnlockedAchievements().keys.toSet();
+    rollback.addUndo(() async {
+      final addedIds = storage
+          .getUnlockedAchievements()
+          .keys
+          .toSet()
+          .difference(unlockedBefore);
+      for (final id in addedIds) {
+        await storage.deleteUnlockedAchievement(id);
+      }
+      ref.read(unlockedAchievementsProvider.notifier).reload();
+    });
     final achievementService = ref.read(achievementServiceProvider);
     final newAchievements = await achievementService.checkAndUnlock(
       achievementService.currentContext(),
