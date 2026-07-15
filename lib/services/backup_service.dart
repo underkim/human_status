@@ -6,7 +6,71 @@ import '../models/goal.dart';
 import '../models/quest.dart';
 import '../models/stat.dart';
 import '../models/transaction.dart';
+import '../models/user_profile.dart';
 import 'storage_service.dart';
+
+/// Thrown when [BackupService.restore] fails after mutation has begun. The
+/// pre-import snapshot has already been restored by the time this is
+/// thrown; [cause] carries the original error that triggered the rollback.
+class BackupRestoreException implements Exception {
+  final Object cause;
+  final StackTrace causeStackTrace;
+
+  BackupRestoreException(this.cause, this.causeStackTrace);
+
+  @override
+  String toString() =>
+      'BackupRestoreException: restore failed and was rolled back to the '
+      'pre-import state. Cause: $cause';
+}
+
+/// Thrown when a restore fails AND the subsequent rollback also fails.
+/// Storage may be left partially replaced — both failures are surfaced so
+/// neither is silently swallowed.
+class BackupRestoreRollbackFailedException implements Exception {
+  final Object applyError;
+  final StackTrace applyStackTrace;
+  final Object rollbackError;
+  final StackTrace rollbackStackTrace;
+
+  BackupRestoreRollbackFailedException(
+    this.applyError,
+    this.applyStackTrace,
+    this.rollbackError,
+    this.rollbackStackTrace,
+  );
+
+  @override
+  String toString() =>
+      'BackupRestoreRollbackFailedException: restore failed (cause: '
+      '$applyError) AND rollback also failed (cause: $rollbackError). '
+      'Storage may be left partially replaced.';
+}
+
+/// In-memory copy of every domain the restore replaces, captured
+/// immediately before mutation so it can be written back verbatim if
+/// anything fails partway through.
+class _RestoreSnapshot {
+  final List<Stat> stats;
+  final List<Quest> quests;
+  final List<Goal> goals;
+  final List<Transaction> transactions;
+  final List<AssetSnapshot> assetSnapshots;
+  final FinancialPlan? financialPlan;
+  final Map<String, DateTime> achievements;
+  final UserProfile profile;
+
+  _RestoreSnapshot({
+    required this.stats,
+    required this.quests,
+    required this.goals,
+    required this.transactions,
+    required this.assetSnapshots,
+    required this.financialPlan,
+    required this.achievements,
+    required this.profile,
+  });
+}
 
 /// Serializes user data to a JSON backup and restores it back. Most of
 /// UserProfile is intentionally excluded: the API key and reminder settings
@@ -15,13 +79,25 @@ import 'storage_service.dart';
 /// exception — those are safe to round-trip and live under a dedicated
 /// `preferences` key so they never get confused with device settings.
 class BackupService {
+  /// Bump when the on-disk backup shape changes in a way older app
+  /// versions can't parse. Backups without a `schemaVersion` key predate
+  /// this field and are treated as version 1 for compatibility.
+  static const currentSchemaVersion = 1;
+
   final StorageService storage;
+
+  /// Test-only fault injection point. When set, it fires exactly once,
+  /// immediately after the first domain has been cleared/written during
+  /// [restore], then clears itself so the rollback that follows (which
+  /// reuses the same storage writes) isn't sabotaged by firing again.
+  void Function()? debugApplyFaultInjector;
 
   BackupService({required this.storage});
 
   String encode() {
     final profile = storage.getProfile();
     final data = {
+      'schemaVersion': currentSchemaVersion,
       'stats': storage.getStats().map((s) => s.toJson()).toList(),
       'quests': storage.getQuests().map((q) => q.toJson()).toList(),
       'goals': storage.getGoals().map((g) => g.toJson()).toList(),
@@ -43,12 +119,34 @@ class BackupService {
   }
 
   /// Replaces all stored data with the contents of [jsonStr]. Parsing (and
-  /// validation — including the `preferences` block below) happens before
-  /// anything is cleared, so a malformed backup throws without touching
-  /// existing data. Keys beyond stats/quests are optional to stay compatible
-  /// with backups from older app versions.
+  /// validation — including `schemaVersion` and the `preferences` block
+  /// below) happens before anything is cleared, so a malformed backup
+  /// throws without touching existing data. Keys beyond stats/quests are
+  /// optional to stay compatible with backups from older app versions.
+  ///
+  /// If any storage operation fails once mutation has begun, the exact
+  /// pre-import state of every affected domain (and the product-preference
+  /// fields on the profile) is restored before a [BackupRestoreException]
+  /// is thrown; device-specific profile fields (API key, reminder
+  /// settings) are never touched, on success or failure.
   Future<void> restore(String jsonStr) async {
     final data = jsonDecode(jsonStr) as Map<String, dynamic>;
+
+    final schemaVersionRaw = data['schemaVersion'];
+    if (schemaVersionRaw != null) {
+      if (schemaVersionRaw is! int) {
+        throw FormatException(
+          'schemaVersion must be an integer, got: $schemaVersionRaw',
+        );
+      }
+      if (schemaVersionRaw != currentSchemaVersion) {
+        throw FormatException(
+          'Unsupported backup schemaVersion: $schemaVersionRaw '
+          '(this app supports version $currentSchemaVersion)',
+        );
+      }
+    }
+
     final stats = (data['stats'] as List)
         .map((e) => Stat.fromJson(e as Map<String, dynamic>))
         .toList();
@@ -106,6 +204,101 @@ class BackupService {
       restoredPreferredStatId = preferredStatIdRaw as String?;
     }
 
+    // 파싱·검증이 전부 끝난 지금이 마지막으로 안전한 지점이다 — 이제부터는
+    // 실제 박스를 건드리므로, 실패 시 되돌릴 수 있도록 현재 상태를 깊은
+    // 복사로 떠 둔다(참조를 그대로 들고 있으면 아래에서 같은 객체를 다시
+    // 저장할 때 스냅샷도 같이 바뀌어버린다).
+    final snapshot = _captureSnapshot();
+
+    try {
+      await _apply(
+        stats: stats,
+        quests: quests,
+        goals: goals,
+        transactions: transactions,
+        assetSnapshots: assetSnapshots,
+        financialPlan: financialPlan,
+        achievements: achievements,
+        preferences: preferences,
+        restoredOnboardingCompleted: restoredOnboardingCompleted,
+        hasPreferredStatId: hasPreferredStatId,
+        restoredPreferredStatId: restoredPreferredStatId,
+      );
+    } catch (applyError, applyStackTrace) {
+      try {
+        await _rollback(snapshot);
+      } catch (rollbackError, rollbackStackTrace) {
+        throw BackupRestoreRollbackFailedException(
+          applyError,
+          applyStackTrace,
+          rollbackError,
+          rollbackStackTrace,
+        );
+      }
+      throw BackupRestoreException(applyError, applyStackTrace);
+    }
+  }
+
+  _RestoreSnapshot _captureSnapshot() {
+    final financialPlanRaw = storage.financialPlanBox.get('plan');
+    return _RestoreSnapshot(
+      stats: storage.getStats().map((s) => Stat.fromJson(s.toJson())).toList(),
+      quests: storage
+          .getQuests()
+          .map((q) => Quest.fromJson(q.toJson()))
+          .toList(),
+      goals: storage.getGoals().map((g) => Goal.fromJson(g.toJson())).toList(),
+      transactions: storage
+          .getTransactions()
+          .map((t) => Transaction.fromJson(t.toJson()))
+          .toList(),
+      assetSnapshots: storage
+          .getAssetSnapshots()
+          .map((a) => AssetSnapshot.fromJson(a.toJson()))
+          .toList(),
+      financialPlan: financialPlanRaw == null
+          ? null
+          : FinancialPlan.fromJson(financialPlanRaw.toJson()),
+      achievements: Map.of(storage.getUnlockedAchievements()),
+      profile: _copyProfile(storage.getProfile()),
+    );
+  }
+
+  UserProfile _copyProfile(UserProfile p) => UserProfile(
+    lastQuestRefresh: p.lastQuestRefresh,
+    claudeApiKey: p.claudeApiKey,
+    reminderMinutesSinceMidnight: p.reminderMinutesSinceMidnight,
+    lastAdviceRefresh: p.lastAdviceRefresh,
+    cachedAdvice: p.cachedAdvice
+        .map((m) => Map<String, dynamic>.from(m))
+        .toList(),
+    weeklyReportReminderEnabled: p.weeklyReportReminderEnabled,
+    onboardingCompleted: p.onboardingCompleted,
+    preferredStatId: p.preferredStatId,
+  );
+
+  void _maybeInjectFault() {
+    final injector = debugApplyFaultInjector;
+    if (injector == null) return;
+    // 한 번만 발동시키고 스스로를 해제한다 — 그래야 실패 후 rollback이
+    // 같은 박스들에 다시 쓸 때 또 걸려 넘어지지 않는다.
+    debugApplyFaultInjector = null;
+    injector();
+  }
+
+  Future<void> _apply({
+    required List<Stat> stats,
+    required List<Quest> quests,
+    required List<Goal> goals,
+    required List<Transaction> transactions,
+    required List<AssetSnapshot> assetSnapshots,
+    required FinancialPlan? financialPlan,
+    required Map<String, DateTime> achievements,
+    required Map<String, dynamic>? preferences,
+    required bool? restoredOnboardingCompleted,
+    required bool hasPreferredStatId,
+    required String? restoredPreferredStatId,
+  }) async {
     await storage.statsBox.clear();
     await storage.questsBox.clear();
     await storage.goalsBox.clear();
@@ -115,6 +308,7 @@ class BackupService {
     for (final s in stats) {
       await storage.saveStat(s);
     }
+    _maybeInjectFault();
     for (final q in quests) {
       await storage.saveQuest(q);
     }
@@ -152,5 +346,35 @@ class BackupService {
       profile.onboardingCompleted = true;
     }
     await storage.saveProfile(profile);
+  }
+
+  Future<void> _rollback(_RestoreSnapshot snapshot) async {
+    await storage.statsBox.clear();
+    for (final s in snapshot.stats) {
+      await storage.saveStat(s);
+    }
+    await storage.questsBox.clear();
+    for (final q in snapshot.quests) {
+      await storage.saveQuest(q);
+    }
+    await storage.goalsBox.clear();
+    for (final g in snapshot.goals) {
+      await storage.saveGoal(g);
+    }
+    await storage.transactionsBox.clear();
+    await storage.saveTransactions(snapshot.transactions);
+    await storage.assetSnapshotsBox.clear();
+    for (final a in snapshot.assetSnapshots) {
+      await storage.saveAssetSnapshot(a);
+    }
+    await storage.financialPlanBox.clear();
+    if (snapshot.financialPlan != null) {
+      await storage.saveFinancialPlan(snapshot.financialPlan!);
+    }
+    await storage.achievementsBox.clear();
+    for (final e in snapshot.achievements.entries) {
+      await storage.unlockAchievement(e.key, e.value);
+    }
+    await storage.saveProfile(snapshot.profile);
   }
 }
