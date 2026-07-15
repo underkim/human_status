@@ -25,46 +25,49 @@ class QuestRecommendationService {
 
   /// Regenerates the "suggested" quest set if the refresh interval has
   /// elapsed since the last refresh. Un-adopted suggestions from the
-  /// previous cycle are discarded. If a Claude API key is configured, quest
-  /// generation is delegated to Claude and falls back to the local rule
-  /// engine on any failure (network error, bad response, missing key).
+  /// previous cycle are discarded, but only once a replacement batch has
+  /// been generated successfully — a Claude timeout or other failure (with
+  /// the local fallback also failing) leaves the prior suggestions intact
+  /// rather than deleting them and coming back empty. If a Claude API key is
+  /// configured, quest generation is delegated to Claude and falls back to
+  /// the local rule engine on any failure (network error, timeout, bad
+  /// response, missing key).
   Future<void> refreshIfNeeded() async {
     final profile = storage.getProfile();
     if (!shouldRefresh(profile)) return;
 
-    final staleSuggestions = storage
-        .getQuests()
+    final allQuests = storage.getQuests();
+    final staleSuggestions = allQuests
         .where((q) => q.status == QuestStatus.suggested)
         .toList();
-    for (final q in staleSuggestions) {
-      await storage.deleteQuest(q.id);
-    }
+    final remainingQuests = allQuests
+        .where((q) => q.status != QuestStatus.suggested)
+        .toList();
 
     final stats = storage.getStats();
-    final remainingQuests = storage.getQuests();
 
     List<Quest> suggestions;
     try {
-      suggestions = await _activeSource(profile).generateSuggestions(
-        stats: stats,
-        existingQuests: remainingQuests,
-      );
+      suggestions = await _activeSource(
+        profile,
+      ).generateSuggestions(stats: stats, existingQuests: remainingQuests);
     } catch (_) {
       try {
-        suggestions = await LocalRuleQuestSuggestionSource().generateSuggestions(
-          stats: stats,
-          existingQuests: remainingQuests,
-        );
+        suggestions = await LocalRuleQuestSuggestionSource()
+            .generateSuggestions(stats: stats, existingQuests: remainingQuests);
       } catch (_) {
         // Both the configured source and the local fallback failed (e.g. the
         // fallback was already the source that threw). Skip this refresh
         // cycle silently rather than let the exception reach main() and
         // block app startup; lastQuestRefresh is left untouched so the next
-        // launch retries.
+        // launch retries. The previous suggestion batch is left untouched.
         return;
       }
     }
 
+    for (final q in staleSuggestions) {
+      await storage.deleteQuest(q.id);
+    }
     for (final q in suggestions) {
       await storage.saveQuest(q);
     }

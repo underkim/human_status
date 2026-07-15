@@ -2,42 +2,60 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
+import 'claude_request_defaults.dart';
 import 'financial_advice_source.dart';
 
 /// Asks the Claude API to turn a FinancialAdviceContext's summarized numbers
 /// into short, natural-language coaching comments. Only ever sees aggregated
 /// figures (category totals, progress ratios) — never raw transactions.
-/// Throws on any network/parse failure so the caller can fall back to
-/// LocalRuleFinancialAdviceSource. Modeled directly on
-/// ClaudeGoalDecompositionSource.
+/// Throws on any network/parse failure (including a request that exceeds
+/// [timeout]) so the caller can fall back to LocalRuleFinancialAdviceSource.
+/// Modeled directly on ClaudeGoalDecompositionSource.
 class ClaudeFinancialAdviceSource implements FinancialAdviceSource {
   final String apiKey;
   final String model;
+  final Duration timeout;
+
+  /// Caller-supplied HTTP client, e.g. for tests. When null, a fresh
+  /// [http.Client] is created per request and closed afterwards; a supplied
+  /// client is never closed by this source, since the caller owns it.
+  final http.Client? _httpClient;
 
   ClaudeFinancialAdviceSource({
     required this.apiKey,
     this.model = 'claude-sonnet-5',
-  });
+    this.timeout = kClaudeRequestTimeout,
+    http.Client? httpClient,
+  }) : _httpClient = httpClient;
 
   static const _endpoint = 'https://api.anthropic.com/v1/messages';
 
   @override
-  Future<List<AdviceItem>> generateAdvice(FinancialAdviceContext context) async {
-    final spendingLines = context.currentMonthExpenseByCategory.entries.map((e) {
-      final previous = context.previousMonthExpenseByCategory[e.key] ?? 0;
-      return '- ${e.key}: 이번달 ${e.value.toInt()}, 지난달 ${previous.toInt()}';
-    }).join('\n');
+  Future<List<AdviceItem>> generateAdvice(
+    FinancialAdviceContext context,
+  ) async {
+    final spendingLines = context.currentMonthExpenseByCategory.entries
+        .map((e) {
+          final previous = context.previousMonthExpenseByCategory[e.key] ?? 0;
+          return '- ${e.key}: 이번달 ${e.value.toInt()}, 지난달 ${previous.toInt()}';
+        })
+        .join('\n');
 
-    final goalLines = context.goalProgress.map((g) {
-      final expected = g.expectedProgress != null ? '${(g.expectedProgress! * 100).round()}%' : '알수없음';
-      return '- ${g.title}: 실제 진행률 ${(g.actualProgress * 100).round()}%, 기대 진행률 $expected';
-    }).join('\n');
+    final goalLines = context.goalProgress
+        .map((g) {
+          final expected = g.expectedProgress != null
+              ? '${(g.expectedProgress! * 100).round()}%'
+              : '알수없음';
+          return '- ${g.title}: 실제 진행률 ${(g.actualProgress * 100).round()}%, 기대 진행률 $expected';
+        })
+        .join('\n');
 
     final netWorthLine = context.netWorthChangePercent != null
         ? '순자산 변화: 이전 스냅샷 대비 ${context.netWorthChangePercent!.round()}%'
         : '순자산 변화: 비교할 스냅샷이 부족함';
 
-    final prompt = '''
+    final prompt =
+        '''
 You are a personal budgeting coach. Based on the summarized numbers below, write short, encouraging coaching comments in Korean.
 
 카테고리별 지출 (이번달 vs 지난달):
@@ -54,24 +72,34 @@ $netWorthLine
 [{"category": "spending" | "goal" | "networth" | "general", "message": string}]
 ''';
 
-    final response = await http.post(
-      Uri.parse(_endpoint),
-      headers: {
-        'content-type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-      },
-      body: jsonEncode({
-        'model': model,
-        'max_tokens': 1024,
-        'messages': [
-          {'role': 'user', 'content': prompt},
-        ],
-      }),
-    );
+    final client = _httpClient ?? http.Client();
+    http.Response response;
+    try {
+      response = await client
+          .post(
+            Uri.parse(_endpoint),
+            headers: {
+              'content-type': 'application/json',
+              'x-api-key': apiKey,
+              'anthropic-version': '2023-06-01',
+            },
+            body: jsonEncode({
+              'model': model,
+              'max_tokens': 1024,
+              'messages': [
+                {'role': 'user', 'content': prompt},
+              ],
+            }),
+          )
+          .timeout(timeout);
+    } finally {
+      if (_httpClient == null) client.close();
+    }
 
     if (response.statusCode != 200) {
-      throw Exception('Claude API error ${response.statusCode}: ${response.body}');
+      throw Exception(
+        'Claude API error ${response.statusCode}: ${response.body}',
+      );
     }
 
     final body = jsonDecode(response.body) as Map<String, dynamic>;
@@ -89,11 +117,15 @@ $netWorthLine
     }
     final parsed = jsonDecode(text.substring(jsonStart, jsonEnd + 1)) as List;
 
-    return parsed.whereType<Map>().map((raw) {
-      return AdviceItem(
-        category: raw['category'] as String? ?? 'general',
-        message: raw['message'] as String? ?? '',
-      );
-    }).where((a) => a.message.isNotEmpty).toList();
+    return parsed
+        .whereType<Map>()
+        .map((raw) {
+          return AdviceItem(
+            category: raw['category'] as String? ?? 'general',
+            message: raw['message'] as String? ?? '',
+          );
+        })
+        .where((a) => a.message.isNotEmpty)
+        .toList();
   }
 }

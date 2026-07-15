@@ -5,22 +5,33 @@ import 'package:uuid/uuid.dart';
 
 import '../models/quest.dart';
 import '../models/stat.dart';
+import 'claude_request_defaults.dart';
 import 'quest_suggestion_source.dart';
 
 /// Generates quest suggestions by asking the Claude API to reason about the
 /// user's current stat levels and recent quest history. Throws on any
-/// network/parse failure so the caller can fall back to the local rule
-/// engine — this source never mutates local state itself.
+/// network/parse failure (including a request that exceeds [timeout]) so the
+/// caller can fall back to the local rule engine — this source never mutates
+/// local state itself.
 class ClaudeQuestSuggestionSource implements QuestSuggestionSource {
   final String apiKey;
   final String model;
+  final Duration timeout;
   final Uuid _uuid;
+
+  /// Caller-supplied HTTP client, e.g. for tests. When null, a fresh
+  /// [http.Client] is created per request and closed afterwards; a supplied
+  /// client is never closed by this source, since the caller owns it.
+  final http.Client? _httpClient;
 
   ClaudeQuestSuggestionSource({
     required this.apiKey,
     this.model = 'claude-sonnet-5',
+    this.timeout = kClaudeRequestTimeout,
+    http.Client? httpClient,
     Uuid? uuid,
-  }) : _uuid = uuid ?? const Uuid();
+  }) : _httpClient = httpClient,
+       _uuid = uuid ?? const Uuid();
 
   static const _endpoint = 'https://api.anthropic.com/v1/messages';
 
@@ -31,19 +42,25 @@ class ClaudeQuestSuggestionSource implements QuestSuggestionSource {
     int count = 4,
   }) async {
     final recentTitles = existingQuests
-        .where((q) =>
-            q.source == QuestSource.suggested ||
-            q.status == QuestStatus.completed)
+        .where(
+          (q) =>
+              q.source == QuestSource.suggested ||
+              q.status == QuestStatus.completed,
+        )
         .map((q) => q.title)
         .toSet()
         .take(30)
         .toList();
 
     final statSummary = stats
-        .map((s) => '- ${s.id} (${s.name}): Lv.${s.level}, ${s.currentXp.toInt()} XP')
+        .map(
+          (s) =>
+              '- ${s.id} (${s.name}): Lv.${s.level}, ${s.currentXp.toInt()} XP',
+        )
         .join('\n');
 
-    final prompt = '''
+    final prompt =
+        '''
 You are a life-gamification coach. The user tracks 5 life stats and completes small real-world "quests" to earn XP.
 
 Current stats:
@@ -58,24 +75,34 @@ Suggest $count new quests, prioritizing the user's weakest stats. Respond with O
 {"title": string, "description": string, "statId": one of the stat ids above, "difficulty": "easy" | "medium" | "hard", "xp": number}
 ''';
 
-    final response = await http.post(
-      Uri.parse(_endpoint),
-      headers: {
-        'content-type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-      },
-      body: jsonEncode({
-        'model': model,
-        'max_tokens': 1024,
-        'messages': [
-          {'role': 'user', 'content': prompt},
-        ],
-      }),
-    );
+    final client = _httpClient ?? http.Client();
+    http.Response response;
+    try {
+      response = await client
+          .post(
+            Uri.parse(_endpoint),
+            headers: {
+              'content-type': 'application/json',
+              'x-api-key': apiKey,
+              'anthropic-version': '2023-06-01',
+            },
+            body: jsonEncode({
+              'model': model,
+              'max_tokens': 1024,
+              'messages': [
+                {'role': 'user', 'content': prompt},
+              ],
+            }),
+          )
+          .timeout(timeout);
+    } finally {
+      if (_httpClient == null) client.close();
+    }
 
     if (response.statusCode != 200) {
-      throw Exception('Claude API error ${response.statusCode}: ${response.body}');
+      throw Exception(
+        'Claude API error ${response.statusCode}: ${response.body}',
+      );
     }
 
     final body = jsonDecode(response.body) as Map<String, dynamic>;

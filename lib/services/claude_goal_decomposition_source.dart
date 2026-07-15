@@ -6,22 +6,33 @@ import 'package:uuid/uuid.dart';
 import '../models/goal.dart';
 import '../models/quest.dart';
 import '../models/stat.dart';
+import 'claude_request_defaults.dart';
 import 'goal_decomposition_source.dart';
 
 /// Asks the Claude API to break a single Goal down into concrete, actionable
-/// quests. Throws on any network/parse failure so the caller can fall back
-/// to LocalRuleGoalDecompositionSource — this source never mutates local
-/// state itself. Modeled directly on ClaudeQuestSuggestionSource.
+/// quests. Throws on any network/parse failure (including a request that
+/// exceeds [timeout]) so the caller can fall back to
+/// LocalRuleGoalDecompositionSource — this source never mutates local state
+/// itself. Modeled directly on ClaudeQuestSuggestionSource.
 class ClaudeGoalDecompositionSource implements GoalDecompositionSource {
   final String apiKey;
   final String model;
+  final Duration timeout;
   final Uuid _uuid;
+
+  /// Caller-supplied HTTP client, e.g. for tests. When null, a fresh
+  /// [http.Client] is created per request and closed afterwards; a supplied
+  /// client is never closed by this source, since the caller owns it.
+  final http.Client? _httpClient;
 
   ClaudeGoalDecompositionSource({
     required this.apiKey,
     this.model = 'claude-sonnet-5',
+    this.timeout = kClaudeRequestTimeout,
+    http.Client? httpClient,
     Uuid? uuid,
-  }) : _uuid = uuid ?? const Uuid();
+  }) : _httpClient = httpClient,
+       _uuid = uuid ?? const Uuid();
 
   static const _endpoint = 'https://api.anthropic.com/v1/messages';
 
@@ -43,7 +54,8 @@ class ClaudeGoalDecompositionSource implements GoalDecompositionSource {
         ? '목표 기한: ${goal.targetDate!.toIso8601String().split('T').first}'
         : '';
 
-    final prompt = '''
+    final prompt =
+        '''
 You are a life-coach helping someone break a long-term goal down into small, concrete real-world action steps ("quests").
 
 Goal title: ${goal.title}
@@ -56,24 +68,34 @@ Suggest $count concrete quests that make tangible progress toward this goal. Res
 {"title": string, "description": string, "difficulty": "easy" | "medium" | "hard", "xp": number}
 ''';
 
-    final response = await http.post(
-      Uri.parse(_endpoint),
-      headers: {
-        'content-type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-      },
-      body: jsonEncode({
-        'model': model,
-        'max_tokens': 1024,
-        'messages': [
-          {'role': 'user', 'content': prompt},
-        ],
-      }),
-    );
+    final client = _httpClient ?? http.Client();
+    http.Response response;
+    try {
+      response = await client
+          .post(
+            Uri.parse(_endpoint),
+            headers: {
+              'content-type': 'application/json',
+              'x-api-key': apiKey,
+              'anthropic-version': '2023-06-01',
+            },
+            body: jsonEncode({
+              'model': model,
+              'max_tokens': 1024,
+              'messages': [
+                {'role': 'user', 'content': prompt},
+              ],
+            }),
+          )
+          .timeout(timeout);
+    } finally {
+      if (_httpClient == null) client.close();
+    }
 
     if (response.statusCode != 200) {
-      throw Exception('Claude API error ${response.statusCode}: ${response.body}');
+      throw Exception(
+        'Claude API error ${response.statusCode}: ${response.body}',
+      );
     }
 
     final body = jsonDecode(response.body) as Map<String, dynamic>;
