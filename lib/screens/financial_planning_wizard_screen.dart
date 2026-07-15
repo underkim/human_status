@@ -73,6 +73,10 @@ class _FinancialPlanningWizardScreenState extends ConsumerState<FinancialPlannin
   int? _parseInt(String text) => int.tryParse(text.trim());
 
   Future<void> _calculate() async {
+    // 마법사는 은퇴·주택 필드만 다루므로, 같은 FinancialPlan 레코드에 사는
+    // 예산(monthlyBudget/categoryBudgets)은 기존 값을 그대로 이어받아야
+    // 저장 시 사용자가 재무 탭에서 설정한 예산이 지워지지 않는다.
+    final existing = ref.read(financialPlanProvider);
     final plan = FinancialPlan(
       updatedAt: DateTime.now(),
       expectedAnnualReturnPercent: _parseDouble(_returnRateController.text) ?? 0,
@@ -85,6 +89,8 @@ class _FinancialPlanningWizardScreenState extends ConsumerState<FinancialPlannin
       homePurchaseTargetDate: _homePurchaseEnabled ? _homeTargetDate : null,
       homePurchaseTargetAmount: _homePurchaseEnabled ? _parseDouble(_homeTargetAmountController.text) : null,
       homePurchaseCurrentSaved: _parseDouble(_homeSavedController.text) ?? 0,
+      monthlyBudget: existing.monthlyBudget,
+      categoryBudgets: Map.of(existing.categoryBudgets),
     );
     await ref.read(financialPlanProvider.notifier).savePlan(plan);
     setState(() => _calculated = true);
