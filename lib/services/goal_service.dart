@@ -1,6 +1,5 @@
 import '../models/goal.dart';
 import '../models/quest.dart';
-import '../models/user_profile.dart';
 import 'claude_goal_decomposition_source.dart';
 import 'goal_decomposition_source.dart';
 import 'storage_service.dart';
@@ -23,12 +22,11 @@ class GoalService {
   /// (rather than throwing) if both sources fail, so the goal itself is
   /// still created even without generated quests.
   Future<List<Quest>> decompose(Goal goal, {int count = 4}) async {
-    final profile = storage.getProfile();
     final stats = storage.getStats();
     final existingQuests = storage.getQuests();
 
     try {
-      return await _activeSource(profile).decompose(
+      return await _activeSource().decompose(
         goal: goal,
         stats: stats,
         existingQuests: existingQuests,
@@ -48,9 +46,9 @@ class GoalService {
     }
   }
 
-  GoalDecompositionSource _activeSource(UserProfile profile) {
+  GoalDecompositionSource _activeSource() {
     if (source is! LocalRuleGoalDecompositionSource) return source;
-    final apiKey = profile.claudeApiKey;
+    final apiKey = storage.claudeApiKey;
     if (apiKey == null || apiKey.trim().isEmpty) return source;
     return ClaudeGoalDecompositionSource(apiKey: apiKey);
   }

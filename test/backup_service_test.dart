@@ -76,9 +76,10 @@ Future<StorageService> _seededStorage() async {
     ),
   );
   // 기기 설정(API 키·알림)은 restore가 절대 건드리면 안 되는 값이라, 성공·
-  // 실패 양쪽에서 그대로인지 검증할 수 있도록 값을 채워둔다.
+  // 실패 양쪽에서 그대로인지 검증할 수 있도록 값을 채워둔다. API 키는 이제
+  // profileBox가 아니라 보안 저장소를 통해 관리된다.
+  await storage.saveClaudeApiKey('device-secret-key');
   final profile = storage.getProfile();
-  profile.claudeApiKey = 'device-secret-key';
   profile.reminderMinutesSinceMidnight = 480;
   await storage.saveProfile(profile);
   return storage;
@@ -92,6 +93,9 @@ void main() {
 
     final decoded = jsonDecode(backup) as Map<String, dynamic>;
     expect(decoded['schemaVersion'], BackupService.currentSchemaVersion);
+    // 백업 JSON에는 API 키가 어떤 형태로도 담기면 안 된다.
+    expect(backup, isNot(contains('device-secret-key')));
+    expect(backup, isNot(contains('claudeApiKey')));
 
     // 백업 후 데이터를 전부 바꿔놓고 복원이 원상태로 되돌리는지 본다.
     await storage.questsBox.clear();
@@ -106,8 +110,8 @@ void main() {
     await storage.saveStat(health);
     // 기기 설정도 백업 이후 바뀔 수 있다 — restore가 이 값을 건드리지 않고
     // 그대로 둬야 하므로 미리 다른 값으로 바꿔둔다.
+    await storage.saveClaudeApiKey('changed-after-backup');
     final deviceProfile = storage.getProfile();
-    deviceProfile.claudeApiKey = 'changed-after-backup';
     deviceProfile.reminderMinutesSinceMidnight = 600;
     await storage.saveProfile(deviceProfile);
 
@@ -147,8 +151,8 @@ void main() {
 
     // 기기 설정은 백업/복원 대상이 아니므로 복원 이후 값이 바뀌면 안 된다
     // — restore 시점에 있던 값(변경 후 값)이 그대로 남아 있어야 한다.
+    expect(storage.claudeApiKey, 'changed-after-backup');
     final restoredProfile = storage.getProfile();
-    expect(restoredProfile.claudeApiKey, 'changed-after-backup');
     expect(restoredProfile.reminderMinutesSinceMidnight, 600);
   });
 
@@ -334,8 +338,8 @@ void main() {
   test('mutation 도중 실패하면 모든 도메인과 preferences가 정확히 원상복구되고 '
       '기기 설정은 그대로다', () async {
     final storage = await _seededStorage();
+    final originalApiKey = storage.claudeApiKey;
     final originalProfile = storage.getProfile();
-    final originalApiKey = originalProfile.claudeApiKey;
     final originalReminder = originalProfile.reminderMinutesSinceMidnight;
     final originalOnboarding = originalProfile.onboardingCompleted;
     final originalPreferredStatId = originalProfile.preferredStatId;
@@ -402,7 +406,7 @@ void main() {
     expect(restoredProfile.preferredStatId, originalPreferredStatId);
     // 기기 설정은 애초에 이번 restore 시도가 실패했으니 손도 대지 않은
     // 상태여야 한다.
-    expect(restoredProfile.claudeApiKey, originalApiKey);
+    expect(storage.claudeApiKey, originalApiKey);
     expect(restoredProfile.reminderMinutesSinceMidnight, originalReminder);
 
     // 주입한 실패는 한 번만 발동해야 한다 — rollback 자체가 다시 같은

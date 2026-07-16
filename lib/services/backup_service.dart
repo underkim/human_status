@@ -283,7 +283,10 @@ class BackupService {
 
   UserProfile _copyProfile(UserProfile p) => UserProfile(
     lastQuestRefresh: p.lastQuestRefresh,
-    claudeApiKey: p.claudeApiKey,
+    // claudeApiKey는 마이그레이션 후 사실상 항상 null인 레거시 필드이고,
+    // 실제 키는 보안 저장소에 있어 이 스냅샷/롤백의 영향을 받지 않는다 —
+    // 여기서 값을 복사해도 최종 진실은 secure storage이므로 오해를 막기
+    // 위해 그대로 옮기지 않는다.
     reminderMinutesSinceMidnight: p.reminderMinutesSinceMidnight,
     lastAdviceRefresh: p.lastAdviceRefresh,
     cachedAdvice: p.cachedAdvice

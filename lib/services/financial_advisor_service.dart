@@ -95,7 +95,7 @@ class FinancialAdvisorService {
     final context = buildContext();
     List<AdviceItem> advice;
     try {
-      advice = await _activeSource(profile).generateAdvice(context);
+      advice = await _activeSource().generateAdvice(context);
     } catch (_) {
       try {
         advice = await LocalRuleFinancialAdviceSource().generateAdvice(context);
@@ -110,9 +110,9 @@ class FinancialAdvisorService {
     return advice;
   }
 
-  FinancialAdviceSource _activeSource(UserProfile profile) {
+  FinancialAdviceSource _activeSource() {
     if (source is! LocalRuleFinancialAdviceSource) return source;
-    final apiKey = profile.claudeApiKey;
+    final apiKey = storage.claudeApiKey;
     if (apiKey == null || apiKey.trim().isEmpty) return source;
     return ClaudeFinancialAdviceSource(apiKey: apiKey);
   }

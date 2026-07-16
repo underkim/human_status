@@ -112,4 +112,17 @@ lib/
 ## Claude API 키 (선택)
 
 설정 → Claude API 키에 키를 넣으면 추천 퀘스트, 목표 분해, 재무 코칭이 Claude
-로 생성됩니다. 키는 기기에만 저장되고 백업 파일에는 포함되지 않습니다.
+로 생성됩니다. 키는 [flutter_secure_storage](https://pub.dev/packages/flutter_secure_storage)를
+통해 플랫폼 보안 저장소(Android Keystore, iOS/macOS Keychain, Windows DPAPI,
+Linux libsecret)에만 저장되고 백업 파일에는 포함되지 않습니다.
+
+플랫폼별 준비물:
+
+- **Android** — minSdk 23 이상 필요(이미 기본 설정보다 낮지 않습니다).
+- **Windows** — 빌드에 ATL(Visual Studio "C++를 사용한 Windows 데스크톱 개발"
+  워크로드의 ATL 구성 요소)이 필요합니다.
+- **Linux** — 빌드/런타임에 `libsecret`과 동작 중인 키링(gnome-keyring 등)이
+  필요합니다.
+- **Web** — 브라우저에 저장되는 값은 보호 수준이 낮습니다. HTTPS/로컬호스트
+  환경, 신뢰할 수 있는 기기에서만 키를 입력하세요. 설정 화면에 이 경고가
+  표시됩니다.

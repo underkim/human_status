@@ -48,9 +48,10 @@ class QuestRecommendationService {
 
     List<Quest> suggestions;
     try {
-      suggestions = await _activeSource(
-        profile,
-      ).generateSuggestions(stats: stats, existingQuests: remainingQuests);
+      suggestions = await _activeSource().generateSuggestions(
+        stats: stats,
+        existingQuests: remainingQuests,
+      );
     } catch (_) {
       try {
         suggestions = await LocalRuleQuestSuggestionSource()
@@ -79,9 +80,9 @@ class QuestRecommendationService {
   /// Uses the caller-supplied [source] as-is when overridden (e.g. in
   /// tests). Otherwise picks Claude when an API key is configured, falling
   /// back to the local rule engine.
-  QuestSuggestionSource _activeSource(UserProfile profile) {
+  QuestSuggestionSource _activeSource() {
     if (source is! LocalRuleQuestSuggestionSource) return source;
-    final apiKey = profile.claudeApiKey;
+    final apiKey = storage.claudeApiKey;
     if (apiKey == null || apiKey.trim().isEmpty) return source;
     return ClaudeQuestSuggestionSource(apiKey: apiKey);
   }

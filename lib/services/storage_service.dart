@@ -9,8 +9,11 @@ import '../models/quest.dart';
 import '../models/stat.dart';
 import '../models/transaction.dart';
 import '../models/user_profile.dart';
+import 'secret_store.dart';
 
 class StorageService {
+  static const _claudeApiKeySecretKey = 'claude_api_key';
+
   static const statsBoxName = 'stats';
   static const questsBoxName = 'quests';
   static const profileBoxName = 'profile';
@@ -46,7 +49,21 @@ class StorageService {
   /// deadlocks under the widget-test FakeAsync zone.
   final bool inMemory;
 
-  StorageService({this.inMemory = false});
+  final SecretStore secretStore;
+
+  /// Cached Claude API key, kept in sync with [secretStore] and readable
+  /// synchronously once [init] has completed.
+  String? _claudeApiKey;
+
+  /// Effective Claude API key. `null` when none is configured.
+  String? get claudeApiKey => _claudeApiKey;
+
+  StorageService({this.inMemory = false, SecretStore? secretStore})
+    : secretStore =
+          secretStore ??
+          (inMemory
+              ? InMemorySecretStore()
+              : FlutterSecureStorageSecretStore());
 
   Future<void> init() async {
     if (!inMemory) {
@@ -85,6 +102,84 @@ class StorageService {
     if (profileBox.get('profile') == null) {
       await profileBox.put('profile', UserProfile());
     }
+
+    await _loadOrMigrateClaudeApiKey();
+  }
+
+  /// Loads the Claude API key from secure storage, migrating a legacy
+  /// plaintext key out of [UserProfile] the first time it succeeds.
+  ///
+  /// Never throws — secure storage being unavailable must not fail app
+  /// bootstrap. If secure storage can't be read this run, the legacy value
+  /// (if any) is used as a temporary fallback so the app stays usable, and
+  /// migration is retried on the next [init]. If migration's write fails,
+  /// the legacy value is left in place (never erased) so it isn't lost.
+  Future<void> _loadOrMigrateClaudeApiKey() async {
+    String? secureValue;
+    var secureReadOk = true;
+    try {
+      secureValue = await secretStore.read(_claudeApiKeySecretKey);
+    } catch (_) {
+      secureReadOk = false;
+    }
+
+    final profile = getProfile();
+    final legacyValue = profile.claudeApiKey;
+    final hasLegacyValue = legacyValue != null && legacyValue.isNotEmpty;
+
+    if (!secureReadOk) {
+      // Secure storage unavailable this run: fall back to the legacy value
+      // (if any) without touching the profile, so a later init can retry.
+      _claudeApiKey = hasLegacyValue ? legacyValue : null;
+      return;
+    }
+
+    if (secureValue != null && secureValue.isNotEmpty) {
+      // Secure storage already holds the current key; it wins over any
+      // stale legacy duplicate, which is scrubbed now that it's redundant.
+      _claudeApiKey = secureValue;
+      if (hasLegacyValue) {
+        profile.claudeApiKey = null;
+        try {
+          await saveProfile(profile);
+        } catch (_) {
+          // Best-effort scrub; the secure value already governs behavior.
+        }
+      }
+      return;
+    }
+
+    if (!hasLegacyValue) {
+      _claudeApiKey = null;
+      return;
+    }
+
+    // No secure key yet, but a legacy plaintext key exists: migrate it.
+    try {
+      await secretStore.write(_claudeApiKeySecretKey, legacyValue);
+      profile.claudeApiKey = null;
+      await saveProfile(profile);
+      _claudeApiKey = legacyValue;
+    } catch (_) {
+      // Migration failed — keep the only copy (the legacy field) intact and
+      // usable; the next init() will retry the migration.
+      _claudeApiKey = legacyValue;
+    }
+  }
+
+  /// Persists [key] to secure storage and updates the cached value. Throws
+  /// on failure without changing the cached value, so callers can show an
+  /// error while leaving the previously effective key in place.
+  Future<void> saveClaudeApiKey(String key) async {
+    await secretStore.write(_claudeApiKeySecretKey, key);
+    _claudeApiKey = key;
+  }
+
+  /// Removes the Claude API key from secure storage and clears the cached
+  /// value. Throws on failure without changing the cached value.
+  Future<void> deleteClaudeApiKey() async {
+    await secretStore.delete(_claudeApiKeySecretKey);
+    _claudeApiKey = null;
   }
 
   List<Stat> getStats() => statsBox.values.toList();

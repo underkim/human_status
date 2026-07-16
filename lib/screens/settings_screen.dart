@@ -28,8 +28,7 @@ class SettingsScreen extends ConsumerStatefulWidget {
 class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   Future<void> _editApiKey(BuildContext context, WidgetRef ref) async {
     final storage = ref.read(storageServiceProvider);
-    final profile = ref.read(profileProvider);
-    final controller = TextEditingController(text: profile.claudeApiKey ?? '');
+    final controller = TextEditingController(text: storage.claudeApiKey ?? '');
 
     final result = await showDialog<String>(
       context: context,
@@ -40,6 +39,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text('설정하면 추천 퀘스트가 Claude AI로 생성돼요. 비워두면 로컬 규칙 기반으로 동작합니다.'),
+            if (kIsWeb) ...[
+              const SizedBox(height: 8),
+              Text(
+                '웹에서는 브라우저에 저장된 API 키의 보호 수준이 낮아요. 신뢰할 수 있는 기기의 HTTPS 환경에서만 입력해주세요.',
+                style: TextStyle(color: context.appColors.warning),
+              ),
+            ],
             const SizedBox(height: 12),
             TextField(
               controller: controller,
@@ -67,8 +73,20 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     );
     if (result == null) return;
 
-    profile.claudeApiKey = result.isEmpty ? null : result;
-    await storage.saveProfile(profile);
+    try {
+      if (result.isEmpty) {
+        await storage.deleteClaudeApiKey();
+      } else {
+        await storage.saveClaudeApiKey(result);
+      }
+    } catch (_) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('API 키를 저장하지 못했습니다. 잠시 후 다시 시도해주세요.')),
+        );
+      }
+      return;
+    }
     ref.read(profileProvider.notifier).reload();
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -253,9 +271,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     }
     // lastQuestRefresh는 보존하지 않는다 — 초기화로 추천 퀘스트도 사라졌으니
     // 다음 실행에서 24시간 간격을 기다리지 않고 바로 새 추천이 생성돼야 한다.
+    // Claude API 키는 profileBox가 아니라 보안 저장소에 있으므로 이 초기화의
+    // 영향을 받지 않고 그대로 유지된다 — 여기서 복사할 필요가 없다.
     await storage.saveProfile(
       UserProfile(
-        claudeApiKey: preservedProfile.claudeApiKey,
         reminderMinutesSinceMidnight:
             preservedProfile.reminderMinutesSinceMidnight,
         weeklyReportReminderEnabled:
@@ -435,7 +454,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   @override
   Widget build(BuildContext context) {
     final profile = ref.watch(profileProvider);
-    final apiKeySet = (profile.claudeApiKey ?? '').isNotEmpty;
+    final apiKeySet =
+        (ref.read(storageServiceProvider).claudeApiKey ?? '').isNotEmpty;
     final reminderMinutes = profile.reminderMinutesSinceMidnight;
     final reminderSubtitle = kIsWeb
         ? '이 플랫폼(웹)에서는 지원되지 않아요'
