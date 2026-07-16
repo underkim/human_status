@@ -49,6 +49,62 @@ class BackupRestoreRollbackFailedException implements Exception {
       'Storage may be left partially replaced.';
 }
 
+/// Immutable, storage-independent summary of a backup's contents, safe to
+/// show to the user before committing to a destructive restore. Counts
+/// reflect exactly what [BackupService.restore] would apply, because both
+/// are derived from the same parse/validate step ([BackupService._parse]).
+class BackupPreview {
+  final int statsCount;
+  final int questsCount;
+  final int goalsCount;
+  final int transactionsCount;
+  final int assetSnapshotsCount;
+  final int achievementsCount;
+  final bool hasFinancialPlan;
+
+  const BackupPreview({
+    required this.statsCount,
+    required this.questsCount,
+    required this.goalsCount,
+    required this.transactionsCount,
+    required this.assetSnapshotsCount,
+    required this.achievementsCount,
+    required this.hasFinancialPlan,
+  });
+}
+
+/// Everything [BackupService._parse] extracts from a backup JSON string
+/// before any storage mutation happens. Shared by [BackupService.inspect]
+/// (read-only) and [BackupService.restore] (applies it) so the two can never
+/// disagree about what a given backup file contains.
+class _ParsedBackup {
+  final List<Stat> stats;
+  final List<Quest> quests;
+  final List<Goal> goals;
+  final List<Transaction> transactions;
+  final List<AssetSnapshot> assetSnapshots;
+  final FinancialPlan? financialPlan;
+  final Map<String, DateTime> achievements;
+  final Map<String, dynamic>? preferences;
+  final bool? restoredOnboardingCompleted;
+  final bool hasPreferredStatId;
+  final String? restoredPreferredStatId;
+
+  _ParsedBackup({
+    required this.stats,
+    required this.quests,
+    required this.goals,
+    required this.transactions,
+    required this.assetSnapshots,
+    required this.financialPlan,
+    required this.achievements,
+    required this.preferences,
+    required this.restoredOnboardingCompleted,
+    required this.hasPreferredStatId,
+    required this.restoredPreferredStatId,
+  });
+}
+
 /// In-memory copy of every domain the restore replaces, captured
 /// immediately before mutation so it can be written back verbatim if
 /// anything fails partway through.
@@ -132,18 +188,30 @@ class BackupService {
     return const JsonEncoder.withIndent('  ').convert(data);
   }
 
-  /// Replaces all stored data with the contents of [jsonStr]. Parsing (and
-  /// validation — including `schemaVersion` and the `preferences` block
-  /// below) happens before anything is cleared, so a malformed backup
-  /// throws without touching existing data. Keys beyond stats/quests are
-  /// optional to stay compatible with backups from older app versions.
-  ///
-  /// If any storage operation fails once mutation has begun, the exact
-  /// pre-import state of every affected domain (and the product-preference
-  /// fields on the profile) is restored before a [BackupRestoreException]
-  /// is thrown; device-specific profile fields (API key, reminder
-  /// settings) are never touched, on success or failure.
-  Future<void> restore(String jsonStr) async {
+  /// Parses and fully validates a backup JSON string — the exact same
+  /// checks [restore] performs before it clears anything — without ever
+  /// touching storage. Throws [FormatException] (or a [TypeError] from a
+  /// malformed shape) on anything invalid, safe to call as many times as
+  /// needed for a preview.
+  BackupPreview inspect(String jsonStr) {
+    final parsed = _parse(jsonStr);
+    return BackupPreview(
+      statsCount: parsed.stats.length,
+      questsCount: parsed.quests.length,
+      goalsCount: parsed.goals.length,
+      transactionsCount: parsed.transactions.length,
+      assetSnapshotsCount: parsed.assetSnapshots.length,
+      achievementsCount: parsed.achievements.length,
+      hasFinancialPlan: parsed.financialPlan != null,
+    );
+  }
+
+  /// Parses and validates [jsonStr] — schemaVersion, every domain restore
+  /// touches, and the `preferences` block — without mutating storage.
+  /// Shared by [inspect] and [restore] so the two can never apply different
+  /// rules to the same backup. Keys beyond stats/quests are optional to
+  /// stay compatible with backups from older app versions.
+  _ParsedBackup _parse(String jsonStr) {
     final data = jsonDecode(jsonStr) as Map<String, dynamic>;
 
     // 키가 아예 없는(구버전) 백업만 레거시로 취급한다 — 키는 있는데 값이
@@ -221,6 +289,35 @@ class BackupService {
       restoredPreferredStatId = preferredStatIdRaw as String?;
     }
 
+    return _ParsedBackup(
+      stats: stats,
+      quests: quests,
+      goals: goals,
+      transactions: transactions,
+      assetSnapshots: assetSnapshots,
+      financialPlan: financialPlan,
+      achievements: achievements,
+      preferences: preferences,
+      restoredOnboardingCompleted: restoredOnboardingCompleted,
+      hasPreferredStatId: hasPreferredStatId,
+      restoredPreferredStatId: restoredPreferredStatId,
+    );
+  }
+
+  /// Replaces all stored data with the contents of [jsonStr]. Parsing (and
+  /// validation — including `schemaVersion` and the `preferences` block
+  /// below) happens before anything is cleared, so a malformed backup
+  /// throws without touching existing data. Keys beyond stats/quests are
+  /// optional to stay compatible with backups from older app versions.
+  ///
+  /// If any storage operation fails once mutation has begun, the exact
+  /// pre-import state of every affected domain (and the product-preference
+  /// fields on the profile) is restored before a [BackupRestoreException]
+  /// is thrown; device-specific profile fields (API key, reminder
+  /// settings) are never touched, on success or failure.
+  Future<void> restore(String jsonStr) async {
+    final parsed = _parse(jsonStr);
+
     // 파싱·검증이 전부 끝난 지금이 마지막으로 안전한 지점이다 — 이제부터는
     // 실제 박스를 건드리므로, 실패 시 되돌릴 수 있도록 현재 상태를 깊은
     // 복사로 떠 둔다(참조를 그대로 들고 있으면 아래에서 같은 객체를 다시
@@ -228,19 +325,7 @@ class BackupService {
     final snapshot = _captureSnapshot();
 
     try {
-      await _apply(
-        stats: stats,
-        quests: quests,
-        goals: goals,
-        transactions: transactions,
-        assetSnapshots: assetSnapshots,
-        financialPlan: financialPlan,
-        achievements: achievements,
-        preferences: preferences,
-        restoredOnboardingCompleted: restoredOnboardingCompleted,
-        hasPreferredStatId: hasPreferredStatId,
-        restoredPreferredStatId: restoredPreferredStatId,
-      );
+      await _apply(parsed);
     } catch (applyError, applyStackTrace) {
       try {
         await _rollback(snapshot);
@@ -315,19 +400,19 @@ class BackupService {
     injector();
   }
 
-  Future<void> _apply({
-    required List<Stat> stats,
-    required List<Quest> quests,
-    required List<Goal> goals,
-    required List<Transaction> transactions,
-    required List<AssetSnapshot> assetSnapshots,
-    required FinancialPlan? financialPlan,
-    required Map<String, DateTime> achievements,
-    required Map<String, dynamic>? preferences,
-    required bool? restoredOnboardingCompleted,
-    required bool hasPreferredStatId,
-    required String? restoredPreferredStatId,
-  }) async {
+  Future<void> _apply(_ParsedBackup parsed) async {
+    final stats = parsed.stats;
+    final quests = parsed.quests;
+    final goals = parsed.goals;
+    final transactions = parsed.transactions;
+    final assetSnapshots = parsed.assetSnapshots;
+    final financialPlan = parsed.financialPlan;
+    final achievements = parsed.achievements;
+    final preferences = parsed.preferences;
+    final restoredOnboardingCompleted = parsed.restoredOnboardingCompleted;
+    final hasPreferredStatId = parsed.hasPreferredStatId;
+    final restoredPreferredStatId = parsed.restoredPreferredStatId;
+
     await storage.statsBox.clear();
     await storage.questsBox.clear();
     await storage.goalsBox.clear();

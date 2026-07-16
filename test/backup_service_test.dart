@@ -544,4 +544,109 @@ void main() {
     expect(storage.claudeApiKey, 'sk-legacy-only-copy');
     expect(storage.getProfile().claudeApiKey, 'sk-legacy-only-copy');
   });
+
+  group('inspect (미리보기, mutation 없음)', () {
+    test('유효한 백업의 정확한 개수와 financialPlan 여부를 반환하고 storage를 바꾸지 않는다', () async {
+      final storage = await _seededStorage();
+      final service = BackupService(storage: storage);
+      final backup = service.encode();
+
+      final originalStats = storage.getStats().map((s) => s.toJson()).toList();
+      final originalQuests = storage
+          .getQuests()
+          .map((q) => q.toJson())
+          .toList();
+
+      final preview = service.inspect(backup);
+
+      expect(preview.statsCount, storage.getStats().length);
+      expect(preview.questsCount, 1);
+      expect(preview.goalsCount, 1);
+      expect(preview.transactionsCount, 1);
+      expect(preview.assetSnapshotsCount, 1);
+      expect(preview.achievementsCount, 1);
+      expect(preview.hasFinancialPlan, isTrue);
+
+      // 검사만으로는 아무것도 바뀌지 않는다.
+      expect(storage.getStats().map((s) => s.toJson()).toList(), originalStats);
+      expect(
+        storage.getQuests().map((q) => q.toJson()).toList(),
+        originalQuests,
+      );
+    });
+
+    test('financialPlan이 없는 백업은 hasFinancialPlan이 false다', () async {
+      final storage = await _seededStorage();
+      final legacy = jsonEncode({
+        'stats': storage.getStats().map((s) => s.toJson()).toList(),
+        'quests': storage.getQuests().map((q) => q.toJson()).toList(),
+      });
+
+      final preview = BackupService(storage: storage).inspect(legacy);
+
+      expect(preview.hasFinancialPlan, isFalse);
+      expect(preview.goalsCount, 0);
+      expect(preview.transactionsCount, 0);
+      expect(preview.achievementsCount, 0);
+    });
+
+    test('malformed 백업은 storage를 건드리기 전에 예외를 던진다', () async {
+      final storage = await _seededStorage();
+      final service = BackupService(storage: storage);
+
+      expect(
+        () => service.inspect('{"stats": "oops"}'),
+        throwsA(isA<TypeError>()),
+      );
+      expect(storage.getQuests(), isNotEmpty);
+    });
+
+    test('지원하지 않는 schemaVersion은 storage를 건드리기 전에 예외를 던진다', () async {
+      final storage = await _seededStorage();
+      final service = BackupService(storage: storage);
+      final future = jsonEncode({
+        'schemaVersion': 2,
+        'stats': storage.getStats().map((s) => s.toJson()).toList(),
+        'quests': storage.getQuests().map((q) => q.toJson()).toList(),
+      });
+
+      expect(() => service.inspect(future), throwsA(isA<FormatException>()));
+      expect(storage.getQuests(), isNotEmpty);
+    });
+
+    test('preferences 타입이 잘못된 백업은 storage를 건드리기 전에 예외를 던진다', () async {
+      final storage = await _seededStorage();
+      final service = BackupService(storage: storage);
+      final malformed = jsonEncode({
+        'stats': storage.getStats().map((s) => s.toJson()).toList(),
+        'quests': storage.getQuests().map((q) => q.toJson()).toList(),
+        'preferences': 'not-an-object',
+      });
+
+      expect(() => service.inspect(malformed), throwsA(isA<FormatException>()));
+      expect(storage.getQuests(), isNotEmpty);
+    });
+
+    test('inspect와 restore는 같은 백업에 대해 동일한 판정을 내린다', () async {
+      final storage = await _seededStorage();
+      final service = BackupService(storage: storage);
+      final backup = service.encode();
+
+      // inspect가 통과시킨 백업은 restore도 성공해야 한다.
+      final preview = service.inspect(backup);
+      await service.restore(backup);
+      expect(storage.getQuests().length, preview.questsCount);
+
+      const badVersion = '{"schemaVersion": 99, "stats": [], "quests": []}';
+      // inspect가 거부한 백업은 restore도 거부해야 한다(같은 파서 사용).
+      expect(
+        () => service.inspect(badVersion),
+        throwsA(isA<FormatException>()),
+      );
+      await expectLater(
+        service.restore(badVersion),
+        throwsA(isA<FormatException>()),
+      );
+    });
+  });
 }

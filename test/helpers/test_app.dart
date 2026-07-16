@@ -19,10 +19,20 @@ Future<StorageService> createTestStorage() async {
 
 /// Pumps [home] inside a MaterialApp with the app theme and the given
 /// storage wired into Riverpod — the same setup main() performs.
-Future<void> pumpApp(WidgetTester tester, StorageService storage, Widget home) {
+/// [overrides] adds further provider overrides (e.g. a BackupService with
+/// fault injectors pre-wired) alongside the storage override.
+Future<void> pumpApp(
+  WidgetTester tester,
+  StorageService storage,
+  Widget home, {
+  List<Override> overrides = const [],
+}) {
   return tester.pumpWidget(
     ProviderScope(
-      overrides: [storageServiceProvider.overrideWithValue(storage)],
+      overrides: [
+        storageServiceProvider.overrideWithValue(storage),
+        ...overrides,
+      ],
       child: MaterialApp(theme: AppTheme.light, home: home),
     ),
   );

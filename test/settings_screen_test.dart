@@ -1,14 +1,22 @@
+import 'dart:async';
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hive/hive.dart';
 import 'package:human_status/main.dart';
 import 'package:human_status/models/quest.dart';
+import 'package:human_status/models/stat.dart';
+import 'package:human_status/providers/backup_provider.dart';
 import 'package:human_status/providers/profile_provider.dart';
+import 'package:human_status/providers/quest_provider.dart';
 import 'package:human_status/screens/home_shell.dart';
 import 'package:human_status/screens/onboarding_screen.dart';
 import 'package:human_status/screens/settings_screen.dart';
+import 'package:human_status/services/backup_service.dart';
 import 'package:human_status/services/storage_service.dart';
+import 'package:human_status/theme/app_theme.dart';
 
 import 'helpers/fake_secret_store.dart';
 import 'helpers/test_app.dart';
@@ -251,5 +259,315 @@ void main() {
       await storage.init();
       expect(storage.claudeApiKey, 'sk-legacy-only-survives-reset');
     });
+  });
+
+  group('안전한 백업 가져오기 (미리보기·확인·중복 탭 방지)', () {
+    testWidgets('유효한 백업은 미리보기를 보여준 뒤 확인해야만 실제로 교체된다', (tester) async {
+      final storage = await createTestStorage();
+      await storage.saveQuest(
+        Quest(
+          id: 'q0',
+          title: '원래 퀘스트',
+          description: '',
+          statRewards: {'health': 10},
+          createdAt: DateTime(2026, 7, 1),
+        ),
+      );
+      final incoming = _sampleBackupJson(questTitles: ['가져온 퀘스트']);
+
+      await pumpApp(
+        tester,
+        storage,
+        SettingsScreen(debugPickBackupSource: (_) async => incoming),
+      );
+
+      await tester.tap(find.text('백업 가져오기'));
+      await tester.pumpAndSettle();
+
+      // 미리보기 요약이 뜨고, 이 시점에는 아직 교체되지 않았다.
+      expect(find.textContaining('퀘스트 1개'), findsOneWidget);
+      expect(find.textContaining('스텟 1개'), findsOneWidget);
+      expect(storage.getQuests().single.title, '원래 퀘스트');
+
+      await tester.tap(find.text('취소'));
+      await tester.pumpAndSettle();
+      expect(storage.getQuests().single.title, '원래 퀘스트');
+
+      // 다시 열어 이번엔 확인까지 진행한다.
+      await tester.tap(find.text('백업 가져오기'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('교체'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('가져오기가 완료되었습니다.'), findsOneWidget);
+      expect(storage.getQuests().single.title, '가져온 퀘스트');
+    });
+
+    testWidgets('유효하지 않은(malformed) 백업은 확인 없이 일반화된 오류만 보여준다', (tester) async {
+      final storage = await createTestStorage();
+      await storage.saveQuest(
+        Quest(
+          id: 'q0',
+          title: '원래 퀘스트',
+          description: '',
+          statRewards: {'health': 10},
+          createdAt: DateTime(2026, 7, 1),
+        ),
+      );
+
+      await pumpApp(
+        tester,
+        storage,
+        SettingsScreen(debugPickBackupSource: (_) async => '{"stats": "oops"}'),
+      );
+
+      await tester.tap(find.text('백업 가져오기'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('백업 파일 형식을 확인할 수 없습니다. 다른 파일을 선택해주세요.'), findsOneWidget);
+      expect(find.text('교체'), findsNothing);
+      expect(storage.getQuests().single.title, '원래 퀘스트');
+    });
+
+    testWidgets('지원하지 않는 schemaVersion 백업도 확인 없이 오류만 보여준다', (tester) async {
+      final storage = await createTestStorage();
+      final future = jsonEncode({
+        'schemaVersion': 99,
+        'stats': <Map<String, dynamic>>[],
+        'quests': <Map<String, dynamic>>[],
+      });
+
+      await pumpApp(
+        tester,
+        storage,
+        SettingsScreen(debugPickBackupSource: (_) async => future),
+      );
+
+      await tester.tap(find.text('백업 가져오기'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('백업 파일 형식을 확인할 수 없습니다. 다른 파일을 선택해주세요.'), findsOneWidget);
+      expect(find.text('교체'), findsNothing);
+    });
+
+    testWidgets('빈 백업 내용은 확인 없이 오류만 보여준다', (tester) async {
+      final storage = await createTestStorage();
+
+      await pumpApp(
+        tester,
+        storage,
+        SettingsScreen(debugPickBackupSource: (_) async => '   '),
+      );
+
+      await tester.tap(find.text('백업 가져오기'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('백업 파일 형식을 확인할 수 없습니다. 다른 파일을 선택해주세요.'), findsOneWidget);
+      expect(find.text('교체'), findsNothing);
+    });
+
+    testWidgets('가져오기 버튼을 빠르게 두 번 눌러도 소스 선택이 한 번만 실행된다', (tester) async {
+      final storage = await createTestStorage();
+      var pickCalls = 0;
+      final completer = Completer<String?>();
+
+      await pumpApp(
+        tester,
+        storage,
+        SettingsScreen(
+          debugPickBackupSource: (_) {
+            pickCalls++;
+            return completer.future;
+          },
+        ),
+      );
+
+      await tester.tap(find.text('백업 가져오기'));
+      await tester.pump();
+      // 첫 번째 호출이 아직 완료되지 않은 상태에서 빠르게 다시 탭한다.
+      await tester.tap(find.text('백업 가져오기'));
+      await tester.pump();
+
+      expect(pickCalls, 1);
+
+      completer.complete(null);
+      await tester.pumpAndSettle();
+    });
+
+    testWidgets('내보내기 버튼을 빠르게 두 번 눌러도 저장이 한 번만 실행된다', (tester) async {
+      final storage = await createTestStorage();
+      var saveCalls = 0;
+      final completer = Completer<void>();
+
+      await pumpApp(
+        tester,
+        storage,
+        SettingsScreen(
+          debugSaveBackupFile: (fileName, jsonStr) {
+            saveCalls++;
+            return completer.future;
+          },
+        ),
+      );
+
+      await tester.tap(find.text('백업 내보내기'));
+      await tester.pump();
+      await tester.tap(find.text('백업 내보내기'));
+      await tester.pump();
+
+      expect(saveCalls, 1);
+
+      completer.complete();
+      await tester.pumpAndSettle();
+      expect(find.text('백업 파일을 저장했습니다.'), findsOneWidget);
+    });
+
+    testWidgets(
+      'apply 실패 후 rollback이 성공하면 되돌림 메시지를 보여주고 provider가 storage와 동기화된다',
+      (tester) async {
+        final storage = await createTestStorage();
+        await storage.saveQuest(
+          Quest(
+            id: 'q0',
+            title: '원래 퀘스트',
+            description: '',
+            statRewards: {'health': 10},
+            createdAt: DateTime(2026, 7, 1),
+          ),
+        );
+
+        final backupService = BackupService(storage: storage);
+        backupService.debugApplyFaultInjector = () =>
+            throw StateError('SENTINEL_APPLY_FAILURE');
+        final incoming = _sampleBackupJson(questTitles: ['가져올 퀘스트']);
+
+        final container = ProviderContainer(
+          overrides: [
+            storageServiceProvider.overrideWithValue(storage),
+            backupServiceProvider.overrideWithValue(backupService),
+          ],
+        );
+        addTearDown(container.dispose);
+
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: MaterialApp(
+              theme: AppTheme.light,
+              home: SettingsScreen(
+                debugPickBackupSource: (_) async => incoming,
+              ),
+            ),
+          ),
+        );
+
+        await tester.tap(find.text('백업 가져오기'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('교체'));
+        await tester.pumpAndSettle();
+
+        expect(
+          find.text('가져오기에 실패해 기존 데이터로 되돌렸습니다. 다시 시도할 수 있어요.'),
+          findsOneWidget,
+        );
+        // 원인 예외 문자열이 그대로 노출되지 않는다.
+        expect(find.textContaining('SENTINEL_APPLY_FAILURE'), findsNothing);
+
+        // provider 상태가 실제 storage(롤백으로 원상복구된 상태)와 일치한다.
+        expect(
+          container.read(questsProvider).map((q) => q.toJson()).toList(),
+          storage.getQuests().map((q) => q.toJson()).toList(),
+        );
+        expect(storage.getQuests().single.title, '원래 퀘스트');
+      },
+    );
+
+    testWidgets(
+      'apply와 rollback이 모두 실패하면 강한 경고를 보여주고 provider가 storage와 동기화된다',
+      (tester) async {
+        final storage = await createTestStorage();
+        await storage.saveQuest(
+          Quest(
+            id: 'q0',
+            title: '원래 퀘스트',
+            description: '',
+            statRewards: {'health': 10},
+            createdAt: DateTime(2026, 7, 1),
+          ),
+        );
+
+        final backupService = BackupService(storage: storage);
+        backupService.debugApplyFaultInjector = () =>
+            throw StateError('SENTINEL_APPLY_FAILURE');
+        backupService.debugRollbackFaultInjector = () =>
+            throw StateError('SENTINEL_ROLLBACK_FAILURE');
+        final incoming = _sampleBackupJson(questTitles: ['가져올 퀘스트']);
+
+        final container = ProviderContainer(
+          overrides: [
+            storageServiceProvider.overrideWithValue(storage),
+            backupServiceProvider.overrideWithValue(backupService),
+          ],
+        );
+        addTearDown(container.dispose);
+
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: MaterialApp(
+              theme: AppTheme.light,
+              home: SettingsScreen(
+                debugPickBackupSource: (_) async => incoming,
+              ),
+            ),
+          ),
+        );
+
+        await tester.tap(find.text('백업 가져오기'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('교체'));
+        await tester.pumpAndSettle();
+
+        // 강한 경고: 되돌리는 것도 실패해 상태가 불완전할 수 있음을 알린다.
+        expect(find.textContaining('불완전할 수 있어요'), findsOneWidget);
+        expect(find.textContaining('SENTINEL_APPLY_FAILURE'), findsNothing);
+        expect(find.textContaining('SENTINEL_ROLLBACK_FAILURE'), findsNothing);
+
+        // provider 상태가 (부분 상태일 수 있는) 실제 storage와 그대로 일치한다.
+        expect(
+          container.read(statsProvider).map((s) => s.toJson()).toList(),
+          storage.getStats().map((s) => s.toJson()).toList(),
+        );
+        expect(
+          container.read(questsProvider).map((q) => q.toJson()).toList(),
+          storage.getQuests().map((q) => q.toJson()).toList(),
+        );
+      },
+    );
+  });
+}
+
+/// Minimal, schema-valid backup JSON with a single stat and the given quest
+/// titles — enough to drive the preview/confirm widget flow without needing
+/// a full [BackupService.encode] round trip.
+String _sampleBackupJson({required List<String> questTitles}) {
+  return jsonEncode({
+    'schemaVersion': BackupService.currentSchemaVersion,
+    'stats': [Stat(id: 'health', name: '건강', icon: '💪', level: 5).toJson()],
+    'quests': questTitles
+        .map(
+          (t) => Quest(
+            id: 'q_$t',
+            title: t,
+            description: '',
+            statRewards: {'health': 10},
+            createdAt: DateTime(2026, 7, 1),
+          ).toJson(),
+        )
+        .toList(),
+    'goals': <Map<String, dynamic>>[],
+    'transactions': <Map<String, dynamic>>[],
+    'assetSnapshots': <Map<String, dynamic>>[],
+    'achievements': <String, dynamic>{},
   });
 }
