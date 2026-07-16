@@ -6,9 +6,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hive/hive.dart';
 import 'package:human_status/main.dart';
+import 'package:human_status/models/financial_plan.dart';
 import 'package:human_status/models/quest.dart';
 import 'package:human_status/models/stat.dart';
 import 'package:human_status/providers/backup_provider.dart';
+import 'package:human_status/providers/financial_planning_provider.dart';
 import 'package:human_status/providers/profile_provider.dart';
 import 'package:human_status/providers/quest_provider.dart';
 import 'package:human_status/screens/home_shell.dart';
@@ -544,6 +546,150 @@ void main() {
         );
       },
     );
+
+    testWidgets('가져오기 소스 선택 중 예외가 나도 일반화된 오류만 보여주고 원문은 새지 않는다', (tester) async {
+      final storage = await createTestStorage();
+      await storage.saveQuest(
+        Quest(
+          id: 'q0',
+          title: '원래 퀘스트',
+          description: '',
+          statRewards: {'health': 10},
+          createdAt: DateTime(2026, 7, 1),
+        ),
+      );
+
+      await pumpApp(
+        tester,
+        storage,
+        SettingsScreen(
+          debugPickBackupSource: (_) async =>
+              throw StateError('SENTINEL_PICK_FAILURE'),
+        ),
+      );
+
+      await tester.tap(find.text('백업 가져오기'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('파일을 읽을 수 없습니다. 다시 시도해주세요.'), findsOneWidget);
+      expect(find.textContaining('SENTINEL_PICK_FAILURE'), findsNothing);
+      expect(find.text('교체'), findsNothing);
+      // 취소와 동일하게 아무것도 바뀌지 않아야 한다.
+      expect(storage.getQuests().single.title, '원래 퀘스트');
+    });
+
+    testWidgets('encode() 실패 시 일반화된 오류만 보여주고 원문은 새지 않는다', (tester) async {
+      final storage = await createTestStorage();
+      final backupService = _ThrowingEncodeBackupService(storage: storage);
+
+      final container = ProviderContainer(
+        overrides: [
+          storageServiceProvider.overrideWithValue(storage),
+          backupServiceProvider.overrideWithValue(backupService),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp(
+            theme: AppTheme.light,
+            home: const SettingsScreen(),
+          ),
+        ),
+      );
+
+      await tester.tap(find.text('백업 내보내기'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('백업 저장에 실패했습니다. 잠시 후 다시 시도해주세요.'), findsOneWidget);
+      expect(find.textContaining('SENTINEL_ENCODE_FAILURE'), findsNothing);
+    });
+
+    testWidgets('저장 단계(디스크 쓰기) 실패 시 일반화된 오류만 보여주고 원문은 새지 않는다', (tester) async {
+      final storage = await createTestStorage();
+
+      await pumpApp(
+        tester,
+        storage,
+        SettingsScreen(
+          debugSaveBackupFile: (fileName, jsonStr) async {
+            throw StateError('SENTINEL_SAVE_FAILURE');
+          },
+        ),
+      );
+
+      await tester.tap(find.text('백업 내보내기'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('백업 저장에 실패했습니다. 잠시 후 다시 시도해주세요.'), findsOneWidget);
+      expect(find.textContaining('SENTINEL_SAVE_FAILURE'), findsNothing);
+    });
+
+    testWidgets('provider reload 하나가 실패해도 나머지 reload와 실패 경고 메시지가 그대로 유지된다', (
+      tester,
+    ) async {
+      final storage = _FlakyFinancialPlanStorage(inMemory: true);
+      await storage.init();
+      addTearDown(Hive.close);
+      await storage.saveQuest(
+        Quest(
+          id: 'q0',
+          title: '원래 퀘스트',
+          description: '',
+          statRewards: {'health': 10},
+          createdAt: DateTime(2026, 7, 1),
+        ),
+      );
+
+      final backupService = BackupService(storage: storage);
+      backupService.debugApplyFaultInjector = () =>
+          throw StateError('SENTINEL_APPLY_FAILURE');
+      final incoming = _sampleBackupJson(questTitles: ['가져올 퀘스트']);
+
+      final container = ProviderContainer(
+        overrides: [
+          storageServiceProvider.overrideWithValue(storage),
+          backupServiceProvider.overrideWithValue(backupService),
+        ],
+      );
+      addTearDown(container.dispose);
+      // financialPlanProvider의 초기 빌드는 정상적으로 끝낸 뒤에만 reload
+      // 단계에서 실패하도록 켠다 — 그래야 "reload가 실패한다"는 시나리오를
+      // 정확히 재현한다.
+      container.read(financialPlanProvider);
+      storage.throwOnGetFinancialPlan = true;
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp(
+            theme: AppTheme.light,
+            home: SettingsScreen(debugPickBackupSource: (_) async => incoming),
+          ),
+        ),
+      );
+
+      await tester.tap(find.text('백업 가져오기'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('교체'));
+      await tester.pumpAndSettle();
+
+      // financialPlan reload가 던지더라도, 되돌림 경고는 여전히 보여야 한다.
+      expect(
+        find.text('가져오기에 실패해 기존 데이터로 되돌렸습니다. 다시 시도할 수 있어요.'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('SENTINEL_RELOAD_FAILURE'), findsNothing);
+      expect(find.textContaining('SENTINEL_APPLY_FAILURE'), findsNothing);
+
+      // 실패한 provider 외 나머지는 여전히 storage와 동기화된다.
+      expect(
+        container.read(questsProvider).map((q) => q.toJson()).toList(),
+        storage.getQuests().map((q) => q.toJson()).toList(),
+      );
+    });
   });
 }
 
@@ -570,4 +716,31 @@ String _sampleBackupJson({required List<String> questTitles}) {
     'assetSnapshots': <Map<String, dynamic>>[],
     'achievements': <String, dynamic>{},
   });
+}
+
+/// A [BackupService] whose `encode()` always throws — used to verify export
+/// never lets a raw exception from the encode step reach the UI.
+class _ThrowingEncodeBackupService extends BackupService {
+  _ThrowingEncodeBackupService({required super.storage});
+
+  @override
+  String encode() => throw StateError('SENTINEL_ENCODE_FAILURE');
+}
+
+/// A [StorageService] whose `getFinancialPlan()` can be switched to throw on
+/// demand — used to simulate a single provider's reload failing partway
+/// through [SettingsScreen]'s post-restore reload sweep, without touching
+/// the initial (successful) read providers perform at construction time.
+class _FlakyFinancialPlanStorage extends StorageService {
+  _FlakyFinancialPlanStorage({super.inMemory});
+
+  bool throwOnGetFinancialPlan = false;
+
+  @override
+  FinancialPlan getFinancialPlan() {
+    if (throwOnGetFinancialPlan) {
+      throw StateError('SENTINEL_RELOAD_FAILURE');
+    }
+    return super.getFinancialPlan();
+  }
 }

@@ -324,7 +324,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     if (_exportInProgress) return;
     setState(() => _exportInProgress = true);
     try {
-      final jsonStr = ref.read(backupServiceProvider).encode();
+      final String jsonStr;
+      try {
+        jsonStr = ref.read(backupServiceProvider).encode();
+      } catch (_) {
+        if (context.mounted) _showGenericExportError(context);
+        return;
+      }
 
       if (!context.mounted) return;
 
@@ -341,11 +347,15 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             actions: [
               TextButton(
                 onPressed: () async {
-                  await Clipboard.setData(ClipboardData(text: jsonStr));
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('클립보드에 복사되었습니다.')),
-                    );
+                  try {
+                    await Clipboard.setData(ClipboardData(text: jsonStr));
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('클립보드에 복사되었습니다.')),
+                      );
+                    }
+                  } catch (_) {
+                    if (context.mounted) _showGenericExportError(context);
                   }
                 },
                 child: const Text('복사'),
@@ -377,7 +387,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         return;
       }
 
-      final location = await getSaveLocation(suggestedName: fileName);
+      final FileSaveLocation? location;
+      try {
+        location = await getSaveLocation(suggestedName: fileName);
+      } catch (_) {
+        if (context.mounted) _showGenericExportError(context);
+        return;
+      }
       if (location == null) return;
 
       try {
@@ -406,62 +422,80 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     );
   }
 
+  /// Reloads every provider a restore can touch from storage. Each reload is
+  /// best-effort: one notifier throwing (e.g. a corrupt box read) must not
+  /// stop the rest from syncing, and must never swallow the caller's own
+  /// failure/rollback warning — a reload failure here is silently ignored
+  /// rather than rethrown.
   void _reloadBackupAffectedProviders(WidgetRef ref) {
-    ref.read(statsProvider.notifier).reload();
-    ref.read(questsProvider.notifier).reload();
-    ref.read(profileProvider.notifier).reload();
-    ref.read(unlockedAchievementsProvider.notifier).reload();
-    ref.read(goalsProvider.notifier).reload();
-    ref.read(transactionsProvider.notifier).reload();
-    ref.read(assetSnapshotsProvider.notifier).reload();
-    ref.read(financialPlanProvider.notifier).reload();
+    void safeReload(void Function() reload) {
+      try {
+        reload();
+      } catch (_) {
+        // 개별 provider 재로딩 실패가 나머지 재로딩이나 호출자가 이미
+        // 보여주기로 한 실패/경고 메시지를 막아서는 안 된다.
+      }
+    }
+
+    safeReload(() => ref.read(statsProvider.notifier).reload());
+    safeReload(() => ref.read(questsProvider.notifier).reload());
+    safeReload(() => ref.read(profileProvider.notifier).reload());
+    safeReload(() => ref.read(unlockedAchievementsProvider.notifier).reload());
+    safeReload(() => ref.read(goalsProvider.notifier).reload());
+    safeReload(() => ref.read(transactionsProvider.notifier).reload());
+    safeReload(() => ref.read(assetSnapshotsProvider.notifier).reload());
+    safeReload(() => ref.read(financialPlanProvider.notifier).reload());
   }
 
   Future<void> _importBackup(BuildContext context, WidgetRef ref) async {
     if (_importInProgress) return;
     setState(() => _importInProgress = true);
     try {
+      // 소스 선택(파일 피커/웹 붙여넣기 다이얼로그/파일 읽기) 전체를 하나의
+      // 경계로 감싼다 — 플랫폼 채널이나 파일 IO가 어디서 던지든 원문 예외가
+      // 새어나가지 않고 일반화된 오류만 보여준다. `return`으로 끝나는 사용자
+      // 취소는 예외가 아니므로 이 catch에 걸리지 않고 조용히 종료된다.
       String? jsonStr;
-      if (widget.debugPickBackupSource != null) {
-        jsonStr = await widget.debugPickBackupSource!(context);
-      } else if (kIsWeb) {
-        final controller = TextEditingController();
-        jsonStr = await showDialog<String>(
-          context: context,
-          builder: (context) => AlertDialog(
-            title: const Text('백업 가져오기'),
-            content: TextField(
-              controller: controller,
-              autofocus: true,
-              maxLines: 10,
-              decoration: const InputDecoration(hintText: '백업 JSON을 붙여넣으세요'),
+      try {
+        if (widget.debugPickBackupSource != null) {
+          jsonStr = await widget.debugPickBackupSource!(context);
+        } else if (kIsWeb) {
+          final controller = TextEditingController();
+          jsonStr = await showDialog<String>(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: const Text('백업 가져오기'),
+              content: TextField(
+                controller: controller,
+                autofocus: true,
+                maxLines: 10,
+                decoration: const InputDecoration(hintText: '백업 JSON을 붙여넣으세요'),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('취소'),
+                ),
+                FilledButton(
+                  onPressed: () => Navigator.pop(context, controller.text),
+                  child: const Text('가져오기'),
+                ),
+              ],
             ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('취소'),
-              ),
-              FilledButton(
-                onPressed: () => Navigator.pop(context, controller.text),
-                child: const Text('가져오기'),
-              ),
-            ],
-          ),
-        );
-      } else {
-        const typeGroup = XTypeGroup(label: 'json', extensions: ['json']);
-        final file = await openFile(acceptedTypeGroups: [typeGroup]);
-        if (file == null) return;
-        try {
+          );
+        } else {
+          const typeGroup = XTypeGroup(label: 'json', extensions: ['json']);
+          final file = await openFile(acceptedTypeGroups: [typeGroup]);
+          if (file == null) return;
           jsonStr = await file.readAsString();
-        } catch (_) {
-          if (context.mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('파일을 읽을 수 없습니다. 다시 시도해주세요.')),
-            );
-          }
-          return;
         }
+      } catch (_) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('파일을 읽을 수 없습니다. 다시 시도해주세요.')),
+          );
+        }
+        return;
       }
       // null은 사용자가 선택/붙여넣기를 취소한 것이라 조용히 끝난다. 반면
       // 빈 문자열은 "가져오기"를 눌렀지만 내용이 없는 경우라 오류를 알려야
