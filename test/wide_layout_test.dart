@@ -16,7 +16,7 @@ const _wide = Size(2560, 1440);
 
 /// Asserts the first [PageContentBounds]'s inner [ConstrainedBox] — the box
 /// that actually carries the width cap, since [PageContentBounds] itself
-/// resolves to [Center], whose render box always fills the space its parent
+/// resolves to [Align], whose render box always fills the space its parent
 /// gives it — is capped at [maxWidth] and centered once the screen is wider
 /// than that cap, and simply fills the screen width below the cap (a no-op
 /// on compact/mobile widths).
@@ -82,6 +82,25 @@ void main() {
       expect(rect.width, closeTo(PageContentBounds.wide, 0.5));
       final expectedLeft = (_wide.width - PageContentBounds.wide) / 2;
       expect(rect.left, closeTo(expectedLeft, 0.5));
+    });
+
+    testWidgets('짧은 콘텐츠도 세로 중앙으로 밀지 않고 상단에 둔다', (tester) async {
+      tester.view.physicalSize = _wide;
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: PageContentBounds(
+              maxWidth: PageContentBounds.wide,
+              child: SizedBox(key: const Key('short-content'), height: 100),
+            ),
+          ),
+        ),
+      );
+
+      expect(tester.getTopLeft(find.byKey(const Key('short-content'))).dy, 0);
     });
   });
 
