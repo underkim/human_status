@@ -22,6 +22,30 @@ final achievementServiceProvider = Provider<AchievementService>(
   (ref) => AchievementService(storage: ref.watch(storageServiceProvider)),
 );
 
+/// Thrown by [QuestsNotifier.addQuest] when a record with the same id
+/// already exists in storage (e.g. two concurrent creates for the same
+/// stable draft id). Nothing is persisted when this is thrown — the
+/// existing record is never silently overwritten.
+class QuestAlreadyExistsException implements Exception {
+  final String questId;
+  const QuestAlreadyExistsException(this.questId);
+
+  @override
+  String toString() =>
+      'QuestAlreadyExistsException: quest $questId already exists';
+}
+
+/// Thrown by [QuestsNotifier.updateQuest] when [questId] no longer exists
+/// in storage (e.g. deleted by a concurrent call or a stale UI reference).
+/// Nothing is persisted when this is thrown.
+class QuestNotFoundException implements Exception {
+  final String questId;
+  const QuestNotFoundException(this.questId);
+
+  @override
+  String toString() => 'QuestNotFoundException: quest $questId not found';
+}
+
 class QuestCompletionResult {
   final Map<String, LevelUpResult> levelUps;
   final List<AchievementDefinition> newAchievements;
@@ -84,35 +108,162 @@ class QuestsNotifier extends StateNotifier<List<Quest>> {
 
   void reload() => state = storage.getQuests();
 
-  Future<void> addQuest(Quest quest) async {
-    await storage.saveQuest(quest);
-    reload();
+  /// Creates [quest] as a brand-new record. Takes an unconditional defensive
+  /// copy before writing, so a caller that keeps its own reference (e.g. a
+  /// form's local `Quest` built from user input) can never have that
+  /// reference silently mutated later by something else touching the stored
+  /// record.
+  ///
+  /// Runs inside [rewardLockProvider] so two concurrent creates for the same
+  /// id (e.g. a stable draft id resubmitted before the first call's outcome
+  /// is observed) can never both write — whichever acquires the lock first
+  /// wins; if a record with [quest.id] already exists by the time this one
+  /// runs, it throws [QuestAlreadyExistsException] instead of silently
+  /// overwriting it. Registers a rollback *before* the save, so a failure
+  /// detected only after the write actually landed (e.g. a follow-up
+  /// integrity check) removes the just-created record and reloads — a retry
+  /// after a genuine failure creates exactly one quest.
+  Future<void> addQuest(Quest quest) {
+    return ref.read(rewardLockProvider).synchronized(() async {
+      if (storage.getQuest(quest.id) != null) {
+        throw QuestAlreadyExistsException(quest.id);
+      }
+
+      final rollback = RollbackScope();
+      rollback.addUndo(() async {
+        await storage.deleteQuest(quest.id);
+        reload();
+      });
+      try {
+        await storage.saveQuest(quest.copy());
+        reload();
+      } catch (_) {
+        await rollback.rollback();
+        rethrow;
+      }
+    });
   }
 
-  /// Persists edits to an existing quest (title/description/rewards/etc.).
-  /// XP already awarded for a completed quest is not retroactively changed —
-  /// this only rewrites the stored record.
-  Future<void> updateQuest(Quest quest) async {
-    await storage.saveQuest(quest);
-    reload();
+  /// Persists edits to an existing quest. [proposed] must be a detached
+  /// copy (e.g. `existing.copy()` with only the edited fields changed) —
+  /// never the live Hive-boxed quest — so a failed save can never leave the
+  /// caller's in-memory instance half-edited. This re-derives the actual
+  /// candidate from the *current* stored original plus [proposed]'s
+  /// editable fields (title/description/statRewards/difficulty/
+  /// isRecurring), ignoring any id/status/source/createdAt/completedAt/
+  /// goalId on [proposed] — a stale caller reference (or an edit racing a
+  /// concurrent completion) can never revert completed status, already-
+  /// awarded XP history, or the quest's goal link.
+  ///
+  /// XP already awarded for a completed quest is not retroactively changed
+  /// — this only rewrites the stored record.
+  ///
+  /// Runs inside [rewardLockProvider] (the same critical section as
+  /// [completeQuest]) so this can never interleave with a concurrent
+  /// completion of the same quest. Snapshots the stored original before any
+  /// write and rolls back to it exactly on a one-shot failure — including a
+  /// failure detected only after the write actually landed — so a retry
+  /// after a genuine failure never leaves partial edits. Throws
+  /// [QuestNotFoundException] (persisting nothing) if [proposed.id] no
+  /// longer exists in storage.
+  Future<void> updateQuest(Quest proposed) {
+    return ref.read(rewardLockProvider).synchronized(() async {
+      final original = storage.getQuest(proposed.id);
+      if (original == null) throw QuestNotFoundException(proposed.id);
+
+      final snapshot = original.copy();
+      final rollback = RollbackScope();
+      rollback.addUndo(() async {
+        await storage.saveQuest(snapshot);
+        reload();
+      });
+
+      final candidate = original.copy()
+        ..title = proposed.title
+        ..description = proposed.description
+        ..statRewards = Map<String, double>.from(proposed.statRewards)
+        ..difficulty = proposed.difficulty
+        ..isRecurring = proposed.isRecurring;
+      try {
+        await storage.saveQuest(candidate);
+        reload();
+      } catch (_) {
+        await rollback.rollback();
+        rethrow;
+      }
+    });
   }
 
-  Future<void> deleteQuest(String id) async {
-    await storage.deleteQuest(id);
-    reload();
+  /// Deletes [id]. Snapshots the stored quest as a detached copy before
+  /// deletion so a one-shot failure detected only after the underlying
+  /// delete actually landed (not merely a guard that stopped an unperformed
+  /// delete) can restore it via a real save. Runs inside [rewardLockProvider]
+  /// so this can never interleave with a concurrent completeQuest/
+  /// updateQuest/adoptSuggestion on the same quest. If [id] no longer exists
+  /// (already deleted, e.g. by a concurrent duplicate call that ran first
+  /// while this one waited on the lock), this is a safe no-op. Does not
+  /// alter any linked goal or completed-history semantics — a quest never
+  /// needs to unlink anything on its own deletion (contrast
+  /// [GoalsNotifier.deleteGoal], which unlinks its quests).
+  Future<void> deleteQuest(String id) {
+    return ref.read(rewardLockProvider).synchronized(() async {
+      final quest = storage.getQuest(id);
+      if (quest == null) return;
+
+      final snapshot = quest.copy();
+      final rollback = RollbackScope();
+      rollback.addUndo(() async {
+        await storage.saveQuest(snapshot);
+        reload();
+      });
+      try {
+        await storage.deleteQuest(id);
+        reload();
+      } catch (_) {
+        await rollback.rollback();
+        rethrow;
+      }
+    });
   }
 
-  Future<void> adoptSuggestion(String id) async {
-    final quest = storage.getQuests().firstWhere((q) => q.id == id);
-    quest.status = QuestStatus.active;
-    await storage.saveQuest(quest);
-    reload();
+  /// Adopts a suggested quest, moving it from suggested to active. Builds a
+  /// detached copy of the stored quest changing only `status` — the live
+  /// Hive-boxed instance is never mutated directly.
+  ///
+  /// Runs inside [rewardLockProvider] so this can never interleave with a
+  /// concurrent completeQuest/updateQuest/deleteQuest on the same quest — if
+  /// [id] no longer exists, or is no longer [QuestStatus.suggested] (already
+  /// adopted or dismissed by a concurrent call that ran first while this one
+  /// waited on the lock), this is a safe no-op rather than overwriting
+  /// whatever state won the race. Registers a rollback before the write so a
+  /// one-shot after-write failure restores the stored suggested quest
+  /// exactly.
+  Future<void> adoptSuggestion(String id) {
+    return ref.read(rewardLockProvider).synchronized(() async {
+      final quest = storage.getQuest(id);
+      if (quest == null || quest.status != QuestStatus.suggested) return;
+
+      final snapshot = quest.copy();
+      final rollback = RollbackScope();
+      rollback.addUndo(() async {
+        await storage.saveQuest(snapshot);
+        reload();
+      });
+
+      final candidate = quest.copy()..status = QuestStatus.active;
+      try {
+        await storage.saveQuest(candidate);
+        reload();
+      } catch (_) {
+        await rollback.rollback();
+        rethrow;
+      }
+    });
   }
 
-  Future<void> dismissSuggestion(String id) async {
-    await storage.deleteQuest(id);
-    reload();
-  }
+  /// Dismisses a suggested quest by deleting it outright — reuses
+  /// [deleteQuest]'s atomic/no-op/rollback semantics.
+  Future<void> dismissSuggestion(String id) => deleteQuest(id);
 
   /// Completes a quest, awarding XP to every stat it's linked to (with a
   /// bonus multiplier if the quest is linked to a Goal), then evaluates

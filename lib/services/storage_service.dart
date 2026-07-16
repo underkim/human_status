@@ -243,6 +243,8 @@ class StorageService {
 
   List<Quest> getQuests() => questsBox.values.toList();
 
+  Quest? getQuest(String id) => questsBox.get(id);
+
   Future<void> saveQuest(Quest quest) => questsBox.put(quest.id, quest);
 
   Future<void> deleteQuest(String id) => questsBox.delete(id);
