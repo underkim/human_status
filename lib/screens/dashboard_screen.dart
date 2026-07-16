@@ -204,6 +204,11 @@ class _RemainingActiveQuestsState
   final Set<String> _completingIds = {};
 
   Future<void> _completeQuest(Quest quest) async {
+    // 실패 스낵바의 재시도 액션은 ScaffoldMessenger(이 State보다 상위)가
+    // 들고 있어서, 리스트 리빌드/화면 전환으로 이 State가 이미 dispose된
+    // 뒤에도 그 콜백이 호출될 수 있다 — setState를 부르기 전에 반드시
+    // 먼저 확인한다.
+    if (!mounted) return;
     if (_completingIds.contains(quest.id)) return;
     setState(() => _completingIds.add(quest.id));
     try {
@@ -253,11 +258,7 @@ class _RemainingActiveQuestsState
             FilledButton(
               onPressed: completing ? null : () => _completeQuest(q),
               child: completing
-                  ? const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
+                  ? pendingActionIndicator('완료 처리 중')
                   : const Text('완료'),
             ),
           ],

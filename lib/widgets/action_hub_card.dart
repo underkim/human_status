@@ -39,6 +39,10 @@ class _ActionHubCardState extends ConsumerState<ActionHubCard> {
   final Set<String> _adoptingIds = {};
 
   Future<void> _completeHighlighted(String id, String title) async {
+    // 실패 스낵바의 재시도 액션은 ScaffoldMessenger(이 State보다 상위)가
+    // 들고 있어서, 라우트/탭 전환으로 이 State가 이미 dispose된 뒤에도 그
+    // 콜백이 호출될 수 있다 — setState를 부르기 전에 반드시 먼저 확인한다.
+    if (!mounted) return;
     if (_completingIds.contains(id)) return;
     setState(() => _completingIds.add(id));
     try {
@@ -74,6 +78,9 @@ class _ActionHubCardState extends ConsumerState<ActionHubCard> {
   }
 
   Future<void> _adoptSuggested(String id) async {
+    // 위와 같은 이유(재시도 액션이 이 State보다 오래 살아남을 수 있음)로
+    // setState 이전에 mounted를 먼저 확인한다.
+    if (!mounted) return;
     if (_adoptingIds.contains(id)) return;
     setState(() => _adoptingIds.add(id));
     try {
@@ -137,11 +144,7 @@ class _ActionHubCardState extends ConsumerState<ActionHubCard> {
                     ? null
                     : () => _completeHighlighted(nextQuest.id, nextQuest.title),
                 child: completing
-                    ? const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
+                    ? pendingActionIndicator('완료 처리 중')
                     : const Text('완료'),
               ),
             ],
@@ -163,11 +166,7 @@ class _ActionHubCardState extends ConsumerState<ActionHubCard> {
               FilledButton(
                 onPressed: adopting ? null : () => _adoptSuggested(top.id),
                 child: adopting
-                    ? const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
+                    ? pendingActionIndicator('채택 처리 중')
                     : const Text('채택하고 시작'),
               ),
             ],

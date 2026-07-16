@@ -211,6 +211,93 @@ void main() {
     await tester.pump(const Duration(milliseconds: 100));
   });
 
+  testWidgets('남은 퀘스트 완료 실패 후 행이 dispose된 뒤 재시도 콜백을 직접 호출해도 안전하다', (
+    tester,
+  ) async {
+    setScreenSize(tester, _tallScreen);
+    final storage = await createTestStorage();
+    await _seedThreeActiveQuests(storage);
+    late _GatedQuestsNotifier notifier;
+
+    await pumpApp(
+      tester,
+      storage,
+      const DashboardScreen(),
+      overrides: [
+        questsProvider.overrideWith((ref) {
+          notifier = _GatedQuestsNotifier(
+            ref.watch(storageServiceProvider),
+            ref,
+          );
+          notifier.shouldThrow = true;
+          return notifier;
+        }),
+      ],
+    );
+
+    final r1Button = _completeButtonFor('남은 퀘스트 1');
+    await tester.ensureVisible(r1Button);
+    await tester.tap(r1Button);
+    notifier.gate.complete();
+    await tester.pumpAndSettle();
+
+    expect(notifier.completeCallsById['r1'], 1);
+    final retryCallback = tester
+        .widget<SnackBarAction>(find.byType(SnackBarAction))
+        .onPressed;
+
+    // 남은 퀘스트 목록(및 대시보드 전체)을 트리에서 치워 그 State를
+    // dispose한다 — 실제로는 스낵바를 띄운 화면을 벗어나는 라우트 전환에
+    // 해당한다.
+    await tester.pumpWidget(const SizedBox.shrink());
+
+    // dispose 이후 캡처해둔 재시도 콜백을 직접 호출해도 setState-after-
+    // dispose 등 프레임워크 예외 없이 조용히 끝나야 하고, provider가
+    // 다시 호출되지도 않아야 한다.
+    expect(() => retryCallback(), returnsNormally);
+    await tester.pump();
+
+    expect(notifier.completeCallsById['r1'], 1);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('남은 퀘스트 완료 처리 중에는 접근성 레이블로 진행 상태가 안내된다', (tester) async {
+    setScreenSize(tester, _tallScreen);
+    final storage = await createTestStorage();
+    await _seedThreeActiveQuests(storage);
+    final semantics = tester.ensureSemantics();
+    late _GatedQuestsNotifier notifier;
+
+    await pumpApp(
+      tester,
+      storage,
+      const DashboardScreen(),
+      overrides: [
+        questsProvider.overrideWith((ref) {
+          notifier = _GatedQuestsNotifier(
+            ref.watch(storageServiceProvider),
+            ref,
+          );
+          return notifier;
+        }),
+      ],
+    );
+
+    final r1Button = _completeButtonFor('남은 퀘스트 1');
+    await tester.ensureVisible(r1Button);
+
+    expect(find.bySemanticsLabel('완료 처리 중'), findsNothing);
+
+    await tester.tap(r1Button);
+    await tester.pump();
+
+    expect(find.bySemanticsLabel('완료 처리 중'), findsOneWidget);
+
+    notifier.gate.complete();
+    await tester.pumpAndSettle();
+    semantics.dispose();
+  });
+
   testWidgets('didComplete가 false면(다른 화면이 먼저 완료/삭제) 완료 스낵바나 다이얼로그를 띄우지 않는다', (
     tester,
   ) async {
