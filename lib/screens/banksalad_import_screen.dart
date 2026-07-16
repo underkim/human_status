@@ -16,6 +16,7 @@ import '../theme/app_spacing.dart';
 import '../utils/formatters.dart';
 import '../widgets/error_state.dart';
 import '../widgets/loading_state.dart';
+import '../widgets/page_content_bounds.dart';
 import '../widgets/transaction_tile.dart';
 
 /// Imports both the transaction ledger and the asset/liability snapshot from
@@ -155,7 +156,9 @@ class _BanksaladImportScreenState extends ConsumerState<BanksaladImportScreen> {
 
     return Scaffold(
       appBar: AppBar(title: const Text('뱅크샐러드 파일 가져오기')),
-      body: AbsorbPointer(
+      body: PageContentBounds(
+        maxWidth: PageContentBounds.narrow,
+        child: AbsorbPointer(
         absorbing: _isImporting,
         child: ListView(
           padding: const EdgeInsets.all(AppSpacing.lg),
@@ -220,6 +223,7 @@ class _BanksaladImportScreenState extends ConsumerState<BanksaladImportScreen> {
             ],
           ],
         ),
+      ),
       ),
     );
   }

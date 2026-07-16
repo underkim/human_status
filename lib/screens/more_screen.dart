@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../widgets/page_content_bounds.dart';
 import 'insights_screen.dart';
 import 'report_screen.dart';
 import 'settings_screen.dart';
@@ -14,7 +15,9 @@ class MoreScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('더보기')),
-      body: ListView(
+      body: PageContentBounds(
+        maxWidth: PageContentBounds.wide,
+        child: ListView(
         children: [
           ListTile(
             leading: const Icon(Icons.summarize_outlined),
@@ -44,6 +47,7 @@ class MoreScreen extends StatelessWidget {
             ),
           ),
         ],
+      ),
       ),
     );
   }

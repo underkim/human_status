@@ -5,6 +5,7 @@ import 'package:uuid/uuid.dart';
 import '../models/quest.dart';
 import '../providers/profile_provider.dart';
 import '../providers/quest_provider.dart';
+import '../widgets/page_content_bounds.dart';
 import '../widgets/quest_card.dart';
 
 const _difficultyXp = {
@@ -69,7 +70,9 @@ class _QuestFormScreenState extends ConsumerState<QuestFormScreen> {
 
     return Scaffold(
       appBar: AppBar(title: Text(_isEditing ? '퀘스트 수정' : '퀘스트 추가')),
-      body: AbsorbPointer(
+      body: PageContentBounds(
+        maxWidth: PageContentBounds.narrow,
+        child: AbsorbPointer(
         absorbing: _isSubmitting,
         child: Form(
           key: _formKey,
@@ -133,6 +136,7 @@ class _QuestFormScreenState extends ConsumerState<QuestFormScreen> {
             ],
           ),
         ),
+      ),
       ),
     );
   }

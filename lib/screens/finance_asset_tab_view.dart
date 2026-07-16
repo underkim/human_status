@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/financial_planning_provider.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_spacing.dart';
+import '../widgets/page_content_bounds.dart';
 import 'asset_snapshot_screen.dart';
 import 'banksalad_import_screen.dart';
 import 'finance_screen.dart';
@@ -74,7 +75,9 @@ class _FinanceAssetTabViewState extends ConsumerState<FinanceAssetTabView>
       subtitleColor = behindCount == 0 ? colors.success : colors.warning;
     }
 
-    return Column(
+    return PageContentBounds(
+      maxWidth: PageContentBounds.wide,
+      child: Column(
       children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(
@@ -116,6 +119,7 @@ class _FinanceAssetTabViewState extends ConsumerState<FinanceAssetTabView>
           ),
         ),
       ],
+      ),
     );
   }
 }

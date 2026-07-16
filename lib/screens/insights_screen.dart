@@ -10,6 +10,7 @@ import '../services/stats_insights_service.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_spacing.dart';
 import '../widgets/completion_heatmap.dart';
+import '../widgets/page_content_bounds.dart';
 import '../widgets/progression_journey_card.dart';
 
 const _weekdayLabels = ['월', '화', '수', '목', '금', '토', '일'];
@@ -44,7 +45,9 @@ class InsightsScreen extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(title: const Text('통계')),
-      body: ListView(
+      body: PageContentBounds(
+        maxWidth: PageContentBounds.wide,
+        child: ListView(
         padding: const EdgeInsets.all(16),
         children: [
           Card(
@@ -270,6 +273,7 @@ class InsightsScreen extends ConsumerWidget {
             }).toList(),
           ),
         ],
+      ),
       ),
     );
   }

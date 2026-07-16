@@ -13,6 +13,7 @@ import '../theme/app_colors.dart';
 import '../theme/app_spacing.dart';
 import '../theme/app_typography.dart';
 import '../utils/formatters.dart';
+import '../widgets/page_content_bounds.dart';
 
 /// 주간/월간 활동 리포트 — 퀘스트·스텟·목표·재무를 한 기간 단위로 묶어
 /// 직전 기간과 비교해준다. 매일의 개별 기록(통계 탭)과 달리 "이번 주가
@@ -59,7 +60,9 @@ class _ReportScreenState extends ConsumerState<ReportScreen> {
 
     return Scaffold(
       appBar: AppBar(title: const Text('리포트')),
-      body: ListView(
+      body: PageContentBounds(
+        maxWidth: PageContentBounds.wide,
+        child: ListView(
         padding: const EdgeInsets.all(AppSpacing.lg),
         children: [
           Center(
@@ -92,6 +95,7 @@ class _ReportScreenState extends ConsumerState<ReportScreen> {
             _CompletedGoalsCard(titles: current.completedGoalTitles),
           ],
         ],
+      ),
       ),
     );
   }

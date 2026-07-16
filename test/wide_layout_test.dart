@@ -2,10 +2,18 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:human_status/models/goal.dart';
 import 'package:human_status/models/quest.dart';
+import 'package:human_status/screens/banksalad_import_screen.dart';
 import 'package:human_status/screens/dashboard_screen.dart';
+import 'package:human_status/screens/finance_asset_tab_view.dart';
+import 'package:human_status/screens/financial_planning_wizard_screen.dart';
+import 'package:human_status/screens/goal_form_screen.dart';
 import 'package:human_status/screens/goals_screen.dart';
+import 'package:human_status/screens/insights_screen.dart';
+import 'package:human_status/screens/more_screen.dart';
 import 'package:human_status/screens/onboarding_screen.dart';
+import 'package:human_status/screens/quest_form_screen.dart';
 import 'package:human_status/screens/quests_screen.dart';
+import 'package:human_status/screens/report_screen.dart';
 import 'package:human_status/screens/settings_screen.dart';
 import 'package:human_status/widgets/page_content_bounds.dart';
 
@@ -298,6 +306,322 @@ void main() {
       _expectBounded(tester, PageContentBounds.wide, _wide.width);
       expect(tester.takeException(), isNull);
       expect(find.text('데이터 및 개인정보'), findsOneWidget);
+    });
+  });
+
+  group('더보기 화면 — 컴팩트/와이드 폭 제약과 목적지 이동', () {
+    testWidgets('컴팩트 400x800에서 세 행이 각 목적지로 이동한다', (tester) async {
+      setScreenSize(tester, _compact);
+      final storage = await createTestStorage();
+      await pumpApp(tester, storage, const MoreScreen());
+
+      _expectBounded(tester, PageContentBounds.wide, _compact.width);
+      expect(tester.takeException(), isNull);
+
+      await tester.tap(find.text('리포트'));
+      await tester.pumpAndSettle();
+      expect(find.text('요약'), findsOneWidget);
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('통계'));
+      await tester.pumpAndSettle();
+      expect(find.text('완료 기록'), findsOneWidget);
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('설정'));
+      await tester.pumpAndSettle();
+      expect(find.text('데이터 및 개인정보'), findsOneWidget);
+    });
+
+    testWidgets('와이드 2560x1440에서 본문이 1200 근처로 잘리고 가운데 정렬되며 세 행 모두 이동 가능하다', (
+      tester,
+    ) async {
+      setScreenSize(tester, _wide);
+      final storage = await createTestStorage();
+      await pumpApp(tester, storage, const MoreScreen());
+
+      _expectBounded(tester, PageContentBounds.wide, _wide.width);
+      expect(tester.takeException(), isNull);
+
+      await tester.tap(find.text('리포트'));
+      await tester.pumpAndSettle();
+      expect(find.text('요약'), findsOneWidget);
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('통계'));
+      await tester.pumpAndSettle();
+      expect(find.text('완료 기록'), findsOneWidget);
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('설정'));
+      await tester.pumpAndSettle();
+      expect(find.text('데이터 및 개인정보'), findsOneWidget);
+    });
+  });
+
+  group('재무 화면 — 컴팩트/와이드 폭 제약과 탭 전환', () {
+    testWidgets('컴팩트 400x800에서 탭 전환이 오버플로우 없이 동작한다', (tester) async {
+      setScreenSize(tester, _compact);
+      final storage = await createTestStorage();
+      await pumpApp(
+        tester,
+        storage,
+        const Scaffold(body: FinanceAssetTabView()),
+      );
+
+      _expectBounded(tester, PageContentBounds.wide, _compact.width);
+      expect(tester.takeException(), isNull);
+
+      await tester.tap(find.text('자산현황'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('아직 가져온 자산 현황이 없어요'), findsOneWidget);
+
+      await tester.tap(find.text('거래내역'));
+      await tester.pumpAndSettle();
+      expect(find.text('이번 달'), findsOneWidget);
+    });
+
+    testWidgets('와이드 2560x1440에서 본문이 1200 근처로 잘리고 가운데 정렬되며 탭 전환·스크롤이 계속 동작한다', (
+      tester,
+    ) async {
+      setScreenSize(tester, _wide);
+      final storage = await createTestStorage();
+      await pumpApp(
+        tester,
+        storage,
+        const Scaffold(body: FinanceAssetTabView()),
+      );
+
+      _expectBounded(tester, PageContentBounds.wide, _wide.width);
+      expect(tester.takeException(), isNull);
+
+      await tester.tap(find.text('자산현황'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('아직 가져온 자산 현황이 없어요'), findsOneWidget);
+
+      await tester.tap(find.text('거래내역'));
+      await tester.pumpAndSettle();
+      await tester.drag(find.text('이번 달'), const Offset(0, -200));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+    });
+  });
+
+  group('리포트 화면 — 컴팩트/와이드 폭 제약과 기간 전환', () {
+    testWidgets('컴팩트 400x800에서 주간/월간 전환이 오버플로우 없이 동작한다', (tester) async {
+      setScreenSize(tester, _compact);
+      final storage = await createTestStorage();
+      await pumpApp(tester, storage, const ReportScreen());
+
+      _expectBounded(tester, PageContentBounds.wide, _compact.width);
+      expect(tester.takeException(), isNull);
+
+      await tester.tap(find.text('월간'));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('와이드 2560x1440에서 본문이 1200 근처로 잘리고 가운데 정렬되며 기간 전환이 계속 동작한다', (
+      tester,
+    ) async {
+      setScreenSize(tester, _wide);
+      final storage = await createTestStorage();
+      await pumpApp(tester, storage, const ReportScreen());
+
+      _expectBounded(tester, PageContentBounds.wide, _wide.width);
+      expect(tester.takeException(), isNull);
+
+      await tester.tap(find.text('월간'));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+    });
+  });
+
+  group('통계 화면 — 컴팩트/와이드 폭 제약', () {
+    testWidgets('컴팩트 400x800에서 스크롤 가능하고 오버플로우가 없다', (tester) async {
+      setScreenSize(tester, _compact);
+      final storage = await createTestStorage();
+      await pumpApp(tester, storage, const InsightsScreen());
+
+      _expectBounded(tester, PageContentBounds.wide, _compact.width);
+      expect(tester.takeException(), isNull);
+      expect(find.text('완료 기록'), findsOneWidget);
+
+      await tester.drag(find.text('완료 기록'), const Offset(0, -300));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('와이드 2560x1440에서 본문이 1200 근처로 잘리고 가운데 정렬된다', (tester) async {
+      setScreenSize(tester, _wide);
+      final storage = await createTestStorage();
+      await pumpApp(tester, storage, const InsightsScreen());
+
+      _expectBounded(tester, PageContentBounds.wide, _wide.width);
+      expect(tester.takeException(), isNull);
+      expect(find.text('완료 기록'), findsOneWidget);
+    });
+  });
+
+  group('목표 폼 — 컴팩트/와이드 폭 제약과 제출 가능성', () {
+    testWidgets('컴팩트 400x800에서 저장 버튼이 오버플로우 없이 눌린다', (tester) async {
+      setScreenSize(tester, _compact);
+      final storage = await createTestStorage();
+      await pumpApp(tester, storage, const GoalFormScreen());
+
+      _expectBounded(tester, PageContentBounds.narrow, _compact.width);
+      expect(tester.takeException(), isNull);
+
+      await tester.enterText(find.widgetWithText(TextFormField, '목표'), '새 목표');
+      await tester.tap(find.widgetWithText(FilledButton, '추가하기'));
+      // 제출 중 계속 애니메이션하는 CircularProgressIndicator가 남아 있어
+      // pumpAndSettle이 멈추지 않는다 — goal_form_screen_test.dart와 동일하게
+      // 고정된 프레임 수만큼만 진행시킨다.
+      for (var i = 0; i < 10; i++) {
+        await tester.pump(const Duration(milliseconds: 200));
+      }
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets(
+      '와이드 2560x1440에서 본문이 960 근처로 잘리고 가운데 정렬되며 저장 버튼이 창 오른쪽 끝이 아닌 잘린 폭 안에 있다',
+      (tester) async {
+        setScreenSize(tester, _wide);
+        final storage = await createTestStorage();
+        await pumpApp(tester, storage, const GoalFormScreen());
+
+        _expectBounded(tester, PageContentBounds.narrow, _wide.width);
+        expect(tester.takeException(), isNull);
+
+        final buttonRect = tester.getRect(
+          find.widgetWithText(FilledButton, '추가하기'),
+        );
+        final bodyRect = tester.getRect(
+          find
+              .descendant(
+                of: find.byType(PageContentBounds).first,
+                matching: find.byType(ConstrainedBox),
+              )
+              .first,
+        );
+        expect(buttonRect.right, lessThanOrEqualTo(bodyRect.right + 0.5));
+        // 좁은 콘텐츠라도 세로 중앙이 아니라 상단 근처에서 시작해야 한다.
+        expect(tester.getTopLeft(find.byType(Form)).dy, lessThan(200));
+
+        await tester.enterText(
+          find.widgetWithText(TextFormField, '목표'),
+          '새 목표',
+        );
+        await tester.tap(find.widgetWithText(FilledButton, '추가하기'));
+        for (var i = 0; i < 10; i++) {
+          await tester.pump(const Duration(milliseconds: 200));
+        }
+        expect(tester.takeException(), isNull);
+      },
+    );
+  });
+
+  group('퀘스트 폼 — 컴팩트/와이드 폭 제약과 제출 가능성', () {
+    testWidgets('컴팩트 400x800에서 저장 버튼이 오버플로우 없이 눌린다', (tester) async {
+      setScreenSize(tester, _compact);
+      final storage = await createTestStorage();
+      await pumpApp(tester, storage, const QuestFormScreen());
+
+      _expectBounded(tester, PageContentBounds.narrow, _compact.width);
+      expect(tester.takeException(), isNull);
+
+      await tester.enterText(find.widgetWithText(TextFormField, '제목'), '새 퀘스트');
+      await tester.tap(find.widgetWithText(FilledButton, '추가하기'));
+      await tester.pumpAndSettle();
+    });
+
+    testWidgets('와이드 2560x1440에서 본문이 960 근처로 잘리고 가운데 정렬되며 저장 버튼이 잘린 폭 안에 있다', (
+      tester,
+    ) async {
+      setScreenSize(tester, _wide);
+      final storage = await createTestStorage();
+      await pumpApp(tester, storage, const QuestFormScreen());
+
+      _expectBounded(tester, PageContentBounds.narrow, _wide.width);
+      expect(tester.takeException(), isNull);
+
+      final buttonRect = tester.getRect(
+        find.widgetWithText(FilledButton, '추가하기'),
+      );
+      final bodyRect = tester.getRect(
+        find
+            .descendant(
+              of: find.byType(PageContentBounds).first,
+              matching: find.byType(ConstrainedBox),
+            )
+            .first,
+      );
+      expect(buttonRect.right, lessThanOrEqualTo(bodyRect.right + 0.5));
+
+      await tester.enterText(find.widgetWithText(TextFormField, '제목'), '새 퀘스트');
+      await tester.tap(find.widgetWithText(FilledButton, '추가하기'));
+      await tester.pumpAndSettle();
+    });
+  });
+
+  group('뱅크샐러드 가져오기 화면 — 컴팩트/와이드 폭 제약', () {
+    testWidgets('컴팩트 400x800에서 파일 선택 버튼이 오버플로우 없이 보인다', (tester) async {
+      setScreenSize(tester, _compact);
+      final storage = await createTestStorage();
+      await pumpApp(tester, storage, const BanksaladImportScreen());
+
+      _expectBounded(tester, PageContentBounds.narrow, _compact.width);
+      expect(tester.takeException(), isNull);
+      expect(find.widgetWithText(OutlinedButton, '파일 선택'), findsOneWidget);
+    });
+
+    testWidgets('와이드 2560x1440에서 본문이 960 근처로 잘리고 가운데 정렬된다', (tester) async {
+      setScreenSize(tester, _wide);
+      final storage = await createTestStorage();
+      await pumpApp(tester, storage, const BanksaladImportScreen());
+
+      _expectBounded(tester, PageContentBounds.narrow, _wide.width);
+      expect(tester.takeException(), isNull);
+      expect(find.widgetWithText(OutlinedButton, '파일 선택'), findsOneWidget);
+      // 좁은 콘텐츠라도 세로 중앙이 아니라 상단 근처에서 시작해야 한다.
+      expect(
+        tester.getTopLeft(find.widgetWithText(OutlinedButton, '파일 선택')).dy,
+        lessThan(200),
+      );
+    });
+  });
+
+  group('장기 재무계획 마법사 — 컴팩트/와이드 폭 제약과 스텝 진행', () {
+    testWidgets('컴팩트 400x800에서 다음 버튼이 오버플로우 없이 눌린다', (tester) async {
+      setScreenSize(tester, _compact);
+      final storage = await createTestStorage();
+      await pumpApp(tester, storage, const FinancialPlanningWizardScreen());
+
+      _expectBounded(tester, PageContentBounds.narrow, _compact.width);
+      expect(tester.takeException(), isNull);
+
+      await tester.tap(find.widgetWithText(FilledButton, '다음').hitTestable());
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('와이드 2560x1440에서 본문이 960 근처로 잘리고 가운데 정렬되며 스텝 진행이 계속 동작한다', (
+      tester,
+    ) async {
+      setScreenSize(tester, _wide);
+      final storage = await createTestStorage();
+      await pumpApp(tester, storage, const FinancialPlanningWizardScreen());
+
+      _expectBounded(tester, PageContentBounds.narrow, _wide.width);
+      expect(tester.takeException(), isNull);
+
+      await tester.tap(find.widgetWithText(FilledButton, '다음').hitTestable());
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
     });
   });
 }

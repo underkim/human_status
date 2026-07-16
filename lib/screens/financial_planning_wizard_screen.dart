@@ -7,6 +7,7 @@ import '../services/financial_planning_service.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_spacing.dart';
 import '../utils/formatters.dart';
+import '../widgets/page_content_bounds.dart';
 
 /// A multi-step wizard for long-term financial planning (retirement / home
 /// purchase). Uses Flutter's Stepper — the one screen in this app with a
@@ -321,7 +322,9 @@ class _FinancialPlanningWizardScreenState extends ConsumerState<FinancialPlannin
 
     return Scaffold(
       appBar: AppBar(title: const Text('장기 재무계획')),
-      body: Stepper(
+      body: PageContentBounds(
+        maxWidth: PageContentBounds.narrow,
+        child: Stepper(
         currentStep: _currentStep,
         steps: steps,
         onStepContinue: () async {
@@ -349,6 +352,7 @@ class _FinancialPlanningWizardScreenState extends ConsumerState<FinancialPlannin
             ),
           );
         },
+      ),
       ),
     );
   }

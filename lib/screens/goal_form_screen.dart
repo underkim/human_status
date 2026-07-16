@@ -12,6 +12,7 @@ import '../theme/app_colors.dart';
 import '../utils/formatters.dart';
 import '../widgets/achievement_dialog.dart';
 import '../widgets/level_up_dialog.dart';
+import '../widgets/page_content_bounds.dart';
 
 const _financialHorizonsMonths = [6, 12, 36];
 
@@ -111,7 +112,9 @@ class _GoalFormScreenState extends ConsumerState<GoalFormScreen> {
 
     return Scaffold(
       appBar: AppBar(title: Text(_isEditing ? '목표 수정' : '목표 추가')),
-      body: AbsorbPointer(
+      body: PageContentBounds(
+        maxWidth: PageContentBounds.narrow,
+        child: AbsorbPointer(
         absorbing: _isSubmitting,
         child: Form(
           key: _formKey,
@@ -250,6 +253,7 @@ class _GoalFormScreenState extends ConsumerState<GoalFormScreen> {
             ],
           ),
         ),
+      ),
       ),
     );
   }
