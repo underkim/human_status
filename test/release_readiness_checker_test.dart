@@ -100,14 +100,15 @@ android {
     expect(ids, contains('android_application_id_placeholder'));
   });
 
-  test('applicationId와 Kotlin 패키지 경로가 어긋나면 실패한다', () {
+  test('namespace와 applicationId가 달라도 소스가 namespace와 맞으면 통과한다', () {
+    // applicationId is allowed to diverge from namespace/Kotlin package path;
+    // only namespace determines where the Kotlin source must live.
     writeReadyFixture();
-    // Keep applicationId real, but leave the Kotlin source under the old path.
     writeFile('android/app/build.gradle.kts', '''
 android {
     namespace = "com.acme.human_status"
     defaultConfig {
-        applicationId = "com.acme.human_status"
+        applicationId = "com.acme.human_status.paid"
     }
     buildTypes {
         release {
@@ -116,6 +117,15 @@ android {
     }
 }
 ''');
+    final report = checkReleaseReadiness(tempRoot);
+    expect(report.isReady, isTrue);
+    expect(report.issues, isEmpty);
+  });
+
+  test('namespace에 대응하는 Kotlin 디렉터리가 없으면 실패한다', () {
+    writeReadyFixture();
+    // Keep namespace/applicationId real, but leave the Kotlin source under
+    // a stale (placeholder) directory that doesn't match namespace.
     Directory(
       '${tempRoot.path}/android/app/src/main/kotlin/com/acme/human_status',
     ).deleteSync(recursive: true);
@@ -128,6 +138,21 @@ android {
     expect(
       report.issues.map((i) => i.id),
       contains('android_package_path_mismatch'),
+    );
+  });
+
+  test('디렉터리는 namespace와 맞지만 package 선언이 다르면 실패한다', () {
+    writeReadyFixture();
+    // Right directory, but the file still declares the old package.
+    writeFile(
+      'android/app/src/main/kotlin/com/acme/human_status/MainActivity.kt',
+      'package com.example.human_status\nclass MainActivity\n',
+    );
+    final report = checkReleaseReadiness(tempRoot);
+    expect(report.isReady, isFalse);
+    expect(
+      report.issues.map((i) => i.id),
+      contains('android_package_declaration_mismatch'),
     );
   });
 
@@ -194,15 +219,68 @@ set(APPLICATION_ID "com.example.human_status")
     );
   });
 
-  test('버전이 flutter create 기본값(1.0.0+1)이면 실패한다', () {
+  test('버전이 1.0.0+1이어도 정당한 첫 릴리즈이므로 통과한다', () {
+    // 1.0.0+1 is exactly what `flutter create` scaffolds, but it is also a
+    // perfectly legitimate first-release version -- it must not be flagged
+    // just for matching the template default.
     writeReadyFixture();
     writeFile('pubspec.yaml', '''
 name: human_status
 version: 1.0.0+1
 ''');
     final report = checkReleaseReadiness(tempRoot);
+    expect(report.isReady, isTrue);
+    expect(report.issues, isEmpty);
+  });
+
+  test('빌드 번호가 없는 버전은 실패한다', () {
+    writeReadyFixture();
+    writeFile('pubspec.yaml', '''
+name: human_status
+version: 1.2.0
+''');
+    final report = checkReleaseReadiness(tempRoot);
     expect(report.isReady, isFalse);
-    expect(report.issues.map((i) => i.id), contains('version_placeholder'));
+    expect(
+      report.issues.map((i) => i.id),
+      contains('version_build_number_missing'),
+    );
+  });
+
+  test('빌드 번호가 0이면 실패한다', () {
+    writeReadyFixture();
+    writeFile('pubspec.yaml', '''
+name: human_status
+version: 1.2.0+0
+''');
+    final report = checkReleaseReadiness(tempRoot);
+    expect(report.isReady, isFalse);
+    expect(
+      report.issues.map((i) => i.id),
+      contains('version_build_number_nonpositive'),
+    );
+  });
+
+  test('버전 형식 자체가 유효하지 않으면 실패한다', () {
+    writeReadyFixture();
+    writeFile('pubspec.yaml', '''
+name: human_status
+version: not-a-version
+''');
+    final report = checkReleaseReadiness(tempRoot);
+    expect(report.isReady, isFalse);
+    expect(report.issues.map((i) => i.id), contains('version_invalid'));
+  });
+
+  test('프리릴리즈 태그가 있는 유효한 버전은 통과한다', () {
+    writeReadyFixture();
+    writeFile('pubspec.yaml', '''
+name: human_status
+version: 2.0.0-beta.1+7
+''');
+    final report = checkReleaseReadiness(tempRoot);
+    expect(report.isReady, isTrue);
+    expect(report.issues, isEmpty);
   });
 
   test('필수 플랫폼 파일이 없으면 누락 이슈를 보고한다', () {

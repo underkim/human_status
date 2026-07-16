@@ -43,7 +43,12 @@ class ReleaseReadinessReport {
 }
 
 const _placeholderDomain = 'com.example';
-const _placeholderVersion = '1.0.0+1';
+
+/// `MAJOR.MINOR.PATCH[-prerelease]+BUILD`, matching what `flutter build`
+/// accepts as `--build-name+--build-number` (pubspec `version:` field).
+/// The build number is mandatory here even though pub itself allows a bare
+/// semantic version, because Android/iOS store submissions require one.
+final _versionPattern = RegExp(r'^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?\+(\d+)$');
 
 String? _firstMatch(String content, RegExp pattern) {
   final match = pattern.firstMatch(content);
@@ -132,31 +137,50 @@ List<ReleaseReadinessIssue> _checkAndroid(Directory root) {
         message:
             'Android applicationId가 아직 기본값($applicationId)입니다. '
             'Play Console에 등록하면 이 값은 영구히 고정되므로, $gradlePath 에서 '
-            '실제 배포용 ID로 변경한 뒤 android/app/src/main/kotlin 아래 패키지 '
-            '경로도 함께 옮겨야 합니다.',
+            '실제 배포용 ID로 변경하세요. applicationId는 namespace/Kotlin 패키지 '
+            '경로와 달라도 되므로 소스 경로를 함께 옮길 필요는 없습니다.',
         filePath: gradlePath,
       ),
     );
   }
 
-  if (applicationId != null) {
-    final expectedRelativeDir = applicationId.replaceAll('.', '/');
-    final expectedDir = Directory(
-      '${root.path}/android/app/src/main/kotlin/$expectedRelativeDir',
-    );
-    if (!expectedDir.existsSync()) {
+  if (namespace != null) {
+    final expectedRelativeDir = namespace.replaceAll('.', '/');
+    final expectedDirPath = 'android/app/src/main/kotlin/$expectedRelativeDir';
+    final expectedDir = Directory('${root.path}/$expectedDirPath');
+    final mainActivityFile = File('${expectedDir.path}/MainActivity.kt');
+    if (!mainActivityFile.existsSync()) {
       issues.add(
         ReleaseReadinessIssue(
           id: 'android_package_path_mismatch',
           category: 'android',
           message:
-              'applicationId($applicationId)에 대응하는 Kotlin 패키지 경로 '
-              'android/app/src/main/kotlin/$expectedRelativeDir 가 없습니다. '
-              'MainActivity.kt의 실제 위치/패키지 선언과 applicationId가 '
-              '일치하는지 확인하세요.',
-          filePath: 'android/app/src/main/kotlin',
+              'namespace($namespace)에 대응하는 Kotlin 소스 '
+              '$expectedDirPath/MainActivity.kt 가 없습니다. Android에서 Kotlin/Java '
+              '소스 패키지 경로는 applicationId가 아니라 namespace를 따라야 하므로, '
+              'MainActivity.kt를 namespace와 일치하는 디렉터리로 옮기세요.',
+          filePath: expectedDirPath,
         ),
       );
+    } else {
+      final declaredPackage = _firstMatch(
+        mainActivityFile.readAsStringSync(),
+        RegExp(r'^package\s+([\w.]+)', multiLine: true),
+      );
+      if (declaredPackage != namespace) {
+        issues.add(
+          ReleaseReadinessIssue(
+            id: 'android_package_declaration_mismatch',
+            category: 'android',
+            message:
+                '$expectedDirPath/MainActivity.kt 의 package 선언'
+                '(${declaredPackage ?? '없음'})이 namespace($namespace)와 '
+                '일치하지 않습니다. package 선언을 namespace와 정확히 같게 '
+                '맞추세요.',
+            filePath: '$expectedDirPath/MainActivity.kt',
+          ),
+        );
+      }
     }
   }
 
@@ -346,18 +370,46 @@ List<ReleaseReadinessIssue> _checkVersion(Directory root) {
       ),
     ];
   }
-  if (version == _placeholderVersion) {
+  final match = _versionPattern.firstMatch(version);
+  if (match == null) {
+    if (RegExp(r'^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$').hasMatch(version)) {
+      return [
+        ReleaseReadinessIssue(
+          id: 'version_build_number_missing',
+          category: 'version',
+          message:
+              '$path 의 version($version)에 빌드 번호(+N)가 없습니다. Android '
+              'versionCode/iOS CFBundleVersion으로 쓰이는 빌드 번호가 필요하니 '
+              '"$version+1"처럼 +빌드번호를 붙이세요.',
+          filePath: path,
+        ),
+      ];
+    }
     return [
       ReleaseReadinessIssue(
-        id: 'version_placeholder',
+        id: 'version_invalid',
         category: 'version',
         message:
-            '버전이 아직 flutter create 기본값($_placeholderVersion)입니다. '
-            '$path 의 version을 실제 배포할 버전/빌드 번호로 올리세요 '
-            '(예: 1.0.0+1 -> 1.0.0+2, 스토어에 다시 올릴 때마다 빌드 번호를 증가시켜야 합니다).',
+            '$path 의 version($version)이 올바른 형식이 아닙니다. '
+            'MAJOR.MINOR.PATCH+빌드번호 형식(예: 1.0.0+1)을 따라야 합니다.',
         filePath: path,
       ),
     ];
   }
+
+  final buildNumber = int.parse(match.group(1)!);
+  if (buildNumber <= 0) {
+    return [
+      ReleaseReadinessIssue(
+        id: 'version_build_number_nonpositive',
+        category: 'version',
+        message:
+            '$path 의 version($version) 빌드 번호는 1 이상의 양의 정수여야 합니다. '
+            'Android/iOS 스토어 모두 0 이하의 빌드 번호를 허용하지 않습니다.',
+        filePath: path,
+      ),
+    ];
+  }
+
   return [];
 }

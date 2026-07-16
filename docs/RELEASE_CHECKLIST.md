@@ -35,6 +35,15 @@ flutter build web --release
 업로드합니다. GitHub Release 생성이나 외부 배포는 하지 않으며, 저장소 시크릿도
 사용하지 않습니다.
 
+`<버전>` 라벨은 태그 이름/수동 입력값을
+`tool/ci/sanitize_version_label.sh`(Ubuntu)와
+`tool/ci/sanitize_version_label.ps1`(Windows)로 정제해 만듭니다. 이 값들은
+셸 스크립트 본문에 직접 끼워 넣지 않고 환경 변수로만 전달되어 셸 인젝션을
+막고, 영숫자·점·대시·밑줄 이외 문자는 대시로 바뀌며, 앞뒤 점은 제거하고,
+64자를 넘으면 잘라냅니다. 결과가 비어 있으면 `dev`로 대체됩니다.
+`test/release_artifacts_version_label_test.dart`가 두 스크립트 모두에 대해
+빈 입력/점만 있는 입력/64자 초과 입력 같은 경계값을 검증합니다.
+
 ### 워크플로 아티팩트 받기
 
 1. GitHub 저장소 → Actions → "Release artifacts" 워크플로 실행 선택
@@ -99,9 +108,12 @@ sha256sum -c human_status-web-<버전>.zip.sha256
 바꿔야 합니다.
 
 - [ ] **Android** — `android/app/build.gradle.kts`의 `namespace`와
-      `applicationId`를 변경하고, `android/app/src/main/kotlin/` 아래
-      `MainActivity.kt`의 패키지 경로/디렉터리를 새 applicationId와
-      일치하도록 옮긴다
+      `applicationId`를 변경한다. Kotlin/Java 소스의 패키지 경로/디렉터리
+      (`android/app/src/main/kotlin/` 아래, `MainActivity.kt`)는
+      **applicationId가 아니라 namespace**를 따라야 하므로, namespace를
+      바꿨다면 그 경로와 `MainActivity.kt`의 `package` 선언을 새 namespace와
+      일치하도록 옮긴다. applicationId는 namespace와 달라도 되는 별개의
+      값이다(예: 같은 소스에서 유료판 applicationId만 다르게 배포하는 경우).
 - [ ] **iOS** — `ios/Runner.xcodeproj/project.pbxproj`의
       `PRODUCT_BUNDLE_IDENTIFIER`(Runner 타깃)를 변경하고, Apple Developer
       계정에 동일한 Bundle ID로 App ID를 등록한다
@@ -109,9 +121,12 @@ sha256sum -c human_status-web-<버전>.zip.sha256
       `PRODUCT_BUNDLE_IDENTIFIER`를 변경한다 (배포 대상이라면)
 - [ ] **Linux** — `linux/CMakeLists.txt`의 `APPLICATION_ID`를 변경한다
       (배포 대상이라면)
-- [ ] **버전** — `pubspec.yaml`의 `version`이 `flutter create` 기본값
-      (`1.0.0+1`)에서 실제 배포 버전/빌드 번호로 바뀌어 있는지 확인한다.
-      스토어에 다시 올릴 때마다 빌드 번호(`+` 뒤 숫자)를 반드시 올린다
+- [ ] **버전** — `pubspec.yaml`의 `version`이 `MAJOR.MINOR.PATCH+빌드번호`
+      형식이고 빌드 번호가 1 이상의 양의 정수인지 확인한다. `1.0.0+1`은
+      `flutter create` 기본값이면서 동시에 정당한 첫 릴리즈 버전이므로 그
+      자체로는 문제가 아니다 — 빌드 번호가 아예 없거나 0 이하일 때만
+      실패로 취급한다. 스토어에 다시 올릴 때마다 빌드 번호(`+` 뒤 숫자)를
+      반드시 올린다
 
 이 전체 항목은 `tool/check_release_readiness.dart`가 자동으로 검사합니다:
 
@@ -125,8 +140,10 @@ placeholder ID나 debug 서명이 하나라도 남아 있으면 0이 아닌 코�
 
 ## 5. 시크릿을 안전하게 다루는 서명 체크리스트
 
-- [ ] Android 릴리즈 키스토어는 저장소에 **절대 커밋하지 않는다**
-      (`.gitignore`에 `*.jks`, `*.keystore`, `key.properties` 등을 추가한다)
+- [x] Android 릴리즈 키스토어는 저장소에 **절대 커밋하지 않는다** —
+      `.gitignore`가 이미 `android/key.properties`, `*.jks`, `*.keystore`를
+      막고 있다(`test/gitignore_signing_secrets_test.dart`가 회귀를 잡는다).
+      다른 경로/확장자로 키를 보관한다면 그 패턴도 `.gitignore`에 추가하세요.
 - [ ] `android/app/build.gradle.kts`의 `buildTypes.release.signingConfig`가
       더 이상 `signingConfigs.getByName("debug")`를 참조하지 않고, 로컬에서는
       `key.properties`(커밋 금지) 파일에서, CI에서는 GitHub Actions

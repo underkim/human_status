@@ -53,13 +53,10 @@ jobs:
         shell: pwsh
         run: |
           # Values coming from the workflow trigger (tag name / manual input)
-          # are only ever read out of environment variables here, never
-          # spliced into a run: script body, so they cannot inject shell
-          # syntax regardless of their content.
-          $raw = if ([string]::IsNullOrWhiteSpace($env:INPUT_VERSION_LABEL)) { $env:REF_NAME } else { $env:INPUT_VERSION_LABEL }
-          if ([string]::IsNullOrWhiteSpace($raw)) { $raw = 'dev' }
-          $sanitized = [regex]::Replace($raw, '[^A-Za-z0-9._-]', '-')
-          if ([string]::IsNullOrWhiteSpace($sanitized)) { $sanitized = 'dev' }
+          # are only ever read out of environment variables by the script
+          # below, never spliced into a run: script body, so they cannot
+          # inject shell syntax regardless of their content.
+          $sanitized = & "${{ github.workspace }}/tool/ci/sanitize_version_label.ps1"
           Write-Output "VERSION_LABEL=$sanitized" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: Package Windows release archive
@@ -113,16 +110,10 @@ jobs:
           INPUT_VERSION_LABEL: ${{ github.event.inputs.version_label }}
           REF_NAME: ${{ github.ref_name }}
         run: |
-          # See the Windows job for why this reads env vars instead of
-          # interpolating the expression directly into the script body.
-          raw="${INPUT_VERSION_LABEL:-$REF_NAME}"
-          if [ -z "$raw" ]; then
-            raw="dev"
-          fi
-          sanitized=$(printf '%s' "$raw" | sed 's/[^A-Za-z0-9._-]/-/g')
-          if [ -z "$sanitized" ]; then
-            sanitized="dev"
-          fi
+          # See the Windows job for why this reads env vars (inside the
+          # script below) instead of interpolating the expression directly
+          # into this step's script body.
+          sanitized="$(bash "$GITHUB_WORKSPACE/tool/ci/sanitize_version_label.sh")"
           echo "VERSION_LABEL=$sanitized" >> "$GITHUB_ENV"
 
       - name: Package Web release archive

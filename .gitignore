@@ -43,3 +43,9 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Android release signing secrets -- never commit keystores or the
+# properties file that points at them and holds their passwords.
+android/key.properties
+*.jks
+*.keystore
