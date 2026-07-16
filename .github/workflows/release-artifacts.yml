@@ -1,0 +1,149 @@
+name: Release artifacts
+
+# Builds distributable Windows/Web bundles and uploads them as workflow
+# artifacts for a maintainer to download manually. This workflow never
+# creates/publishes a GitHub Release and never deploys anywhere -- it only
+# produces zip archives + checksums attached to the run.
+on:
+  workflow_dispatch:
+    inputs:
+      version_label:
+        description: >-
+          Optional version label for archive file names (letters, digits,
+          dot, dash, underscore only). Leave blank to derive one from the
+          git ref automatically.
+        required: false
+        default: ''
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+env:
+  FLUTTER_VERSION: 3.44.6
+
+jobs:
+  windows-release:
+    name: Windows x64 release
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+
+      - name: flutter pub get
+        run: flutter pub get
+
+      - name: flutter build windows --release
+        run: flutter build windows --release --no-pub
+
+      - name: Derive sanitized version label
+        env:
+          INPUT_VERSION_LABEL: ${{ github.event.inputs.version_label }}
+          REF_NAME: ${{ github.ref_name }}
+        shell: pwsh
+        run: |
+          # Values coming from the workflow trigger (tag name / manual input)
+          # are only ever read out of environment variables here, never
+          # spliced into a run: script body, so they cannot inject shell
+          # syntax regardless of their content.
+          $raw = if ([string]::IsNullOrWhiteSpace($env:INPUT_VERSION_LABEL)) { $env:REF_NAME } else { $env:INPUT_VERSION_LABEL }
+          if ([string]::IsNullOrWhiteSpace($raw)) { $raw = 'dev' }
+          $sanitized = [regex]::Replace($raw, '[^A-Za-z0-9._-]', '-')
+          if ([string]::IsNullOrWhiteSpace($sanitized)) { $sanitized = 'dev' }
+          Write-Output "VERSION_LABEL=$sanitized" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Package Windows release archive
+        shell: pwsh
+        run: |
+          $archiveName = "human_status-windows-x64-$env:VERSION_LABEL.zip"
+          $releaseDir = "build/windows/x64/runner/Release"
+          if (-not (Test-Path $releaseDir)) {
+            Write-Error "Release output not found at $releaseDir"
+            exit 1
+          }
+          New-Item -ItemType Directory -Force -Path "dist" | Out-Null
+          Compress-Archive -Path "$releaseDir/*" -DestinationPath "dist/$archiveName" -Force
+          $hash = Get-FileHash -Algorithm SHA256 "dist/$archiveName"
+          "$($hash.Hash.ToLower())  $archiveName" | Out-File -FilePath "dist/$archiveName.sha256" -Encoding ascii -NoNewline
+          Add-Content -Path "dist/$archiveName.sha256" -Value "" -Encoding ascii
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-release-${{ env.VERSION_LABEL }}
+          path: |
+            dist/*.zip
+            dist/*.sha256
+          if-no-files-found: error
+          retention-days: 14
+
+  web-release:
+    name: Web release
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+
+      - name: flutter pub get
+        run: flutter pub get
+
+      - name: flutter build web --release
+        run: flutter build web --release --no-pub
+
+      - name: Derive sanitized version label
+        env:
+          INPUT_VERSION_LABEL: ${{ github.event.inputs.version_label }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          # See the Windows job for why this reads env vars instead of
+          # interpolating the expression directly into the script body.
+          raw="${INPUT_VERSION_LABEL:-$REF_NAME}"
+          if [ -z "$raw" ]; then
+            raw="dev"
+          fi
+          sanitized=$(printf '%s' "$raw" | sed 's/[^A-Za-z0-9._-]/-/g')
+          if [ -z "$sanitized" ]; then
+            sanitized="dev"
+          fi
+          echo "VERSION_LABEL=$sanitized" >> "$GITHUB_ENV"
+
+      - name: Package Web release archive
+        run: |
+          set -euo pipefail
+          archive_name="human_status-web-${VERSION_LABEL}.zip"
+          release_dir="build/web"
+          if [ ! -d "$release_dir" ]; then
+            echo "Release output not found at $release_dir" >&2
+            exit 1
+          fi
+          mkdir -p dist
+          (cd "$release_dir" && zip -qr "$OLDPWD/dist/$archive_name" .)
+          (cd dist && sha256sum "$archive_name" > "$archive_name.sha256")
+
+      - name: Upload Web artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: web-release-${{ env.VERSION_LABEL }}
+          path: |
+            dist/*.zip
+            dist/*.sha256
+          if-no-files-found: error
+          retention-days: 14
