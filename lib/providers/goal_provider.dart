@@ -93,6 +93,20 @@ class GoalNotFoundException implements Exception {
   String toString() => 'GoalNotFoundException: goal $goalId not found';
 }
 
+/// Thrown by [GoalsNotifier.createGoal] when a record with [goalId] already
+/// exists in storage (e.g. two concurrent creates for the same stable draft
+/// id). Nothing is persisted when this is thrown — the existing goal is
+/// never silently overwritten, and no quest from this call's decomposition
+/// is added either.
+class GoalAlreadyExistsException implements Exception {
+  final String goalId;
+  const GoalAlreadyExistsException(this.goalId);
+
+  @override
+  String toString() =>
+      'GoalAlreadyExistsException: goal $goalId already exists';
+}
+
 class GoalsNotifier extends StateNotifier<List<Goal>> {
   final StorageService storage;
   final Ref ref;
@@ -146,7 +160,8 @@ class GoalsNotifier extends StateNotifier<List<Goal>> {
         await storage.saveGoal(candidate);
         reload();
 
-        final crossedFinancialTarget = candidate.targetAmount != null &&
+        final crossedFinancialTarget =
+            candidate.targetAmount != null &&
             candidate.currentAmount >= candidate.targetAmount!;
         if (!crossedFinancialTarget) return null;
         return await completeGoalLocked(candidate.id, rollback);
@@ -184,8 +199,10 @@ class GoalsNotifier extends StateNotifier<List<Goal>> {
           reload();
         });
 
-        final linkedQuests =
-            storage.getQuests().where((q) => q.goalId == goalId).toList();
+        final linkedQuests = storage
+            .getQuests()
+            .where((q) => q.goalId == goalId)
+            .toList();
         for (final q in linkedQuests) {
           if (!_liveQuestStatuses.contains(q.status)) continue;
           final questSnapshot = q.copy();
@@ -218,12 +235,32 @@ class GoalsNotifier extends StateNotifier<List<Goal>> {
   /// where a goal with no actionable quest would strand the user), a
   /// decomposition that yields zero quests throws
   /// [GoalRequiresQuestsException] instead of succeeding. Decomposition runs
-  /// before anything is saved, so that case leaves storage untouched — a
-  /// retry can never create a duplicate goal. If persisting the goal/quests
-  /// or the achievement check throws for any other reason, everything this
-  /// call had written (the goal, any quests already added, any achievements
-  /// unlocked during this call) is rolled back before the error is
-  /// rethrown, so a retry after a genuine failure doesn't duplicate either.
+  /// *before* the shared [rewardLockProvider] is acquired — it's AI/network
+  /// work with no bound on latency, and touches no shared reward state, so
+  /// holding the lock across it would block every other quest/goal
+  /// completion in the app for no reason. That also means a decomposition
+  /// failure (including the empty-decomposition case above) leaves storage
+  /// untouched — a retry can never create a duplicate goal.
+  ///
+  /// Everything after decomposition — the goal save, every generated
+  /// quest's save, and the achievement check — runs as a single transaction
+  /// inside one [rewardLockProvider] acquisition, via
+  /// [QuestsNotifier.addQuestLocked] rather than the public [addQuest] (which
+  /// would try to re-acquire the same non-reentrant lock and deadlock). If
+  /// [goal.id] already exists in storage by the time the lock is acquired
+  /// (e.g. a concurrent duplicate create that won the race), this throws
+  /// [GoalAlreadyExistsException] without touching storage or adding any
+  /// quest from this call's decomposition. If any other step — a quest save
+  /// or the achievement check — throws, everything this call had written
+  /// (the goal, any quests already added, any achievements unlocked during
+  /// this call) is rolled back, while the lock is still held, before the
+  /// error is rethrown — so a retry after a genuine failure doesn't
+  /// duplicate either. Goals, quests, and achievements are each reloaded
+  /// exactly once, after the transaction's final commit or final rollback —
+  /// never mid-transaction — so no partial state is ever observable to a
+  /// provider listener or to a completion queued behind this call on the
+  /// same lock.
+  ///
   /// Regular (non-onboarding) goal creation is unaffected: [requireQuests]
   /// defaults to false, so an empty decomposition still succeeds exactly as
   /// before.
@@ -236,42 +273,53 @@ class GoalsNotifier extends StateNotifier<List<Goal>> {
       throw const GoalRequiresQuestsException();
     }
 
-    final unlockedBefore = storage.getUnlockedAchievements().keys.toSet();
-    final addedQuestIds = <String>[];
-    try {
-      await storage.saveGoal(goal);
-      reload();
+    return ref.read(rewardLockProvider).synchronized(() async {
+      final rollback = RollbackScope();
+      try {
+        if (storage.getGoal(goal.id) != null) {
+          throw GoalAlreadyExistsException(goal.id);
+        }
+        rollback.addUndo(() => storage.deleteGoal(goal.id));
+        await storage.saveGoal(goal.copy());
 
-      for (final q in quests) {
-        await ref.read(questsProvider.notifier).addQuest(q);
-        addedQuestIds.add(q.id);
-      }
+        final questsNotifier = ref.read(questsProvider.notifier);
+        for (final q in quests) {
+          await questsNotifier.addQuestLocked(q, rollback);
+        }
 
-      final achievementService = ref.read(achievementServiceProvider);
-      final newAchievements = await achievementService.checkAndUnlock(
-        achievementService.currentContext(),
-      );
-      if (newAchievements.isNotEmpty) {
+        final unlockedBefore = storage.getUnlockedAchievements().keys.toSet();
+        rollback.addUndo(() async {
+          final addedIds = storage
+              .getUnlockedAchievements()
+              .keys
+              .toSet()
+              .difference(unlockedBefore);
+          for (final id in addedIds) {
+            await storage.deleteUnlockedAchievement(id);
+          }
+        });
+        final achievementService = ref.read(achievementServiceProvider);
+        final newAchievements = await achievementService.checkAndUnlock(
+          achievementService.currentContext(),
+        );
+
+        reload();
+        ref.read(questsProvider.notifier).reload();
+        if (newAchievements.isNotEmpty) {
+          ref.read(unlockedAchievementsProvider.notifier).reload();
+        }
+        return GoalCreationResult(
+          quests: quests,
+          newAchievements: newAchievements,
+        );
+      } catch (_) {
+        await rollback.rollback();
+        reload();
+        ref.read(questsProvider.notifier).reload();
         ref.read(unlockedAchievementsProvider.notifier).reload();
+        rethrow;
       }
-      return GoalCreationResult(
-        quests: quests,
-        newAchievements: newAchievements,
-      );
-    } catch (_) {
-      for (final id in addedQuestIds) {
-        await storage.deleteQuest(id);
-      }
-      await storage.deleteGoal(goal.id);
-      final unlockedAfter = storage.getUnlockedAchievements().keys.toSet();
-      for (final id in unlockedAfter.difference(unlockedBefore)) {
-        await storage.deleteUnlockedAchievement(id);
-      }
-      reload();
-      ref.read(questsProvider.notifier).reload();
-      ref.read(unlockedAchievementsProvider.notifier).reload();
-      rethrow;
-    }
+    });
   }
 
   /// Marks [goalId] completed, awards a lump-sum XP bonus to its linked

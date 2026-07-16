@@ -125,23 +125,40 @@ class QuestsNotifier extends StateNotifier<List<Quest>> {
   /// after a genuine failure creates exactly one quest.
   Future<void> addQuest(Quest quest) {
     return ref.read(rewardLockProvider).synchronized(() async {
-      if (storage.getQuest(quest.id) != null) {
-        throw QuestAlreadyExistsException(quest.id);
-      }
-
       final rollback = RollbackScope();
-      rollback.addUndo(() async {
-        await storage.deleteQuest(quest.id);
-        reload();
-      });
       try {
-        await storage.saveQuest(quest.copy());
+        await addQuestLocked(quest, rollback);
         reload();
       } catch (_) {
         await rollback.rollback();
+        reload();
         rethrow;
       }
     });
+  }
+
+  /// Adds [quest] as one step of an in-progress reward transaction, assuming
+  /// the caller already holds [rewardLockProvider] and owns [rollback] —
+  /// this never acquires the lock itself, and never reloads/publishes
+  /// provider state, so a caller folding several of these into one
+  /// transaction (see [GoalsNotifier.createGoal]) can commit or roll back
+  /// the whole batch before publishing anything. Exposed (not private) only
+  /// for that caller; do not call this unless already inside a
+  /// `rewardLockProvider.synchronized(...)` block.
+  ///
+  /// Same collision/copy/rollback-ordering semantics as [addQuest]: throws
+  /// [QuestAlreadyExistsException] without persisting if a record with
+  /// [quest.id] already exists, takes an unconditional defensive copy before
+  /// writing, and registers the delete-undo *before* the write so a failure
+  /// detected only after the write actually landed still removes a real
+  /// record.
+  Future<void> addQuestLocked(Quest quest, RollbackScope rollback) async {
+    if (storage.getQuest(quest.id) != null) {
+      throw QuestAlreadyExistsException(quest.id);
+    }
+
+    rollback.addUndo(() => storage.deleteQuest(quest.id));
+    await storage.saveQuest(quest.copy());
   }
 
   /// Persists edits to an existing quest. [proposed] must be a detached
@@ -244,12 +261,14 @@ class QuestsNotifier extends StateNotifier<List<Quest>> {
   /// anything on its own deletion (contrast [GoalsNotifier.deleteGoal],
   /// which unlinks its quests).
   Future<void> deleteQuest(String id) {
-    return ref.read(rewardLockProvider).synchronized(
-      () => _deleteQuestLocked(
-        id,
-        shouldDelete: (status) => status != QuestStatus.completed,
-      ),
-    );
+    return ref
+        .read(rewardLockProvider)
+        .synchronized(
+          () => _deleteQuestLocked(
+            id,
+            shouldDelete: (status) => status != QuestStatus.completed,
+          ),
+        );
   }
 
   /// Adopts a suggested quest, moving it from suggested to active. Builds a
@@ -301,12 +320,14 @@ class QuestsNotifier extends StateNotifier<List<Quest>> {
   /// [rewardLockProvider] (a single acquisition — no nested lock) so the
   /// status check and the delete/rollback happen atomically together.
   Future<void> dismissSuggestion(String id) {
-    return ref.read(rewardLockProvider).synchronized(
-      () => _deleteQuestLocked(
-        id,
-        shouldDelete: (status) => status == QuestStatus.suggested,
-      ),
-    );
+    return ref
+        .read(rewardLockProvider)
+        .synchronized(
+          () => _deleteQuestLocked(
+            id,
+            shouldDelete: (status) => status == QuestStatus.suggested,
+          ),
+        );
   }
 
   /// Completes a quest, awarding XP to every stat it's linked to (with a
