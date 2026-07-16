@@ -1082,6 +1082,10 @@ Future<void> showAddTransactionDialog(BuildContext context, WidgetRef ref) async
                       await ref.read(transactionsProvider.notifier).addTransaction(tx);
                       if (dialogContext.mounted) Navigator.pop(dialogContext);
                     } catch (_) {
+                      // 저장이 실패로 끝나기 전에 사용자가 바깥을 탭하거나 뒤로가기로
+                      // 다이얼로그(이 StatefulBuilder)를 이미 닫았을 수 있다 — 그 경우
+                      // setState를 부르면 dispose된 위젯에 예외가 난다.
+                      if (!dialogContext.mounted) return;
                       // 실패 원인은 노출하지 않고 다이얼로그를 열어 둔 채 재시도를 유도한다.
                       setState(() {
                         isSaving = false;

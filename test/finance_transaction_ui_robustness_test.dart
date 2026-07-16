@@ -126,6 +126,56 @@ void main() {
       expect(find.text('거래 추가'), findsNothing);
       expect(storage.getTransactions(), hasLength(1));
     });
+
+    testWidgets('저장이 대기 중일 때 뒤로가기로 다이얼로그를 닫아도 실패 처리에서 예외가 나지 않는다', (
+      tester,
+    ) async {
+      final storage = await createTestStorage();
+      late _GatedTransactionsNotifier notifier;
+      await pumpApp(
+        tester,
+        storage,
+        const Scaffold(body: FinanceListView()),
+        overrides: [
+          transactionsProvider.overrideWith((ref) {
+            notifier = _GatedTransactionsNotifier(
+              ref.watch(storageServiceProvider),
+              ref,
+            );
+            notifier.shouldThrow = true;
+            return notifier;
+          }),
+        ],
+      );
+
+      await _openAddDialog(tester);
+      await tester.tap(find.widgetWithText(FilledButton, '추가'));
+      await tester.pump();
+
+      // '취소' 버튼은 저장 중 비활성화되지만, showDialog의 기본
+      // barrierDismissible(바깥 탭)이나 시스템 뒤로가기는 그와 무관하게
+      // 다이얼로그(라우트)를 곧장 pop할 수 있다 — 저장이 아직 게이트에
+      // 걸려 있는 이 시점에 그 경로를 흉내낸다. 배리어를 실제로 탭하는
+      // 대신 다이얼로그가 속한 Navigator에 직접 pop을 호출해, 탭 위치·
+      // 배리어 겹침 같은 히트테스트 디테일과 무관하게 "라우트가 외부에서
+      // 닫혔다"는 상황 자체를 결정적으로 재현한다.
+      Navigator.of(tester.element(find.byType(AlertDialog))).pop();
+      // 다이얼로그의 종료 트랜지션이 실제로 끝나 라우트가 트리에서 빠질
+      // 때까지 기다린다 — 저장은 여전히 게이트에 걸려 있어 다른 타이머가
+      // 없으므로 pumpAndSettle이 여기서 멈춰 있지 않는다.
+      await tester.pumpAndSettle();
+      expect(find.text('거래 추가'), findsNothing);
+
+      // 이제 실패를 흘려보낸다: 다이얼로그(그 StatefulBuilder)는 이미
+      // dispose됐으므로, catch 블록이 dialogContext.mounted를 확인하지
+      // 않고 setState를 부르면 여기서 프레임워크 예외가 난다.
+      notifier.gate.complete();
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      expect(find.text('거래 추가'), findsNothing);
+      expect(storage.getTransactions(), isEmpty);
+    });
   });
 
   group('거래 삭제 — 중복 탭/실패 방어', () {
