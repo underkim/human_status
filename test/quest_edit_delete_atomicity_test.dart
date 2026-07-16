@@ -426,8 +426,8 @@ void main() {
       expect(storage.getQuests(), hasLength(1));
     });
 
-    test('동시에 두 번 채택해도 정확히 한 번만 실제 저장이 일어나고 결과는 active 하나뿐이다', () async {
-      final storage = await createTestStorage();
+    test('동시에 두 번 채택해도 정확히 한 번만 실제 saveQuest 호출이 일어나고 결과는 active 하나뿐이다', () async {
+      final storage = await _faultyStorage();
       await storage.saveQuest(
         _quest('q1', title: '추천 퀘스트', status: QuestStatus.suggested),
       );
@@ -438,13 +438,185 @@ void main() {
       addTearDown(container.dispose);
       final notifier = container.read(questsProvider.notifier);
 
+      storage.saveQuestCalls.clear();
       await Future.wait([
         notifier.adoptSuggestion('q1'),
         notifier.adoptSuggestion('q1'),
       ]);
 
+      // Not just the final state — exactly one real saveQuest landed; the
+      // second, queued call observed the quest already active and no-op'd
+      // without writing (it never even reaches a save).
+      expect(storage.saveQuestCalls.length, 1);
+      expect(storage.saveQuestCalls.single.status, QuestStatus.active);
       expect(storage.getQuest('q1')!.status, QuestStatus.active);
       expect(storage.getQuests(), hasLength(1));
+    });
+  });
+
+  group('adoptSuggestion vs dismissSuggestion — 큐잉된 레이스', () {
+    // 두 호출을 같은 리스트 리터럴 안에서 await 없이 순서대로 평가하면,
+    // rewardLockProvider의 AsyncLock은 synchronized()가 *호출된* 순서로
+    // 큐를 쌓는다(각 액션이 실제로 실행되는 시점이 아니라) — 그래서 아래
+    // Future.wait의 원소 순서가 곧 잠금 획득 순서를 결정론적으로 재현한다.
+    // adoptSuggestion/completeQuest 등도 동일한 패턴을 쓴다.
+    test('채택이 먼저 잠금을 잡으면(무시가 뒤에 큐잉) 최종 active이고 무시는 실제 삭제를 한 번도 하지 않는다', () async {
+      final storage = await _faultyStorage();
+      await storage.saveQuest(
+        _quest('q1', title: '추천 퀘스트', status: QuestStatus.suggested),
+      );
+
+      final container = ProviderContainer(
+        overrides: [storageServiceProvider.overrideWithValue(storage)],
+      );
+      addTearDown(container.dispose);
+      final notifier = container.read(questsProvider.notifier);
+
+      storage.saveQuestCalls.clear();
+      storage.deleteQuestCalls = 0;
+      await Future.wait([
+        notifier.adoptSuggestion('q1'),
+        notifier.dismissSuggestion('q1'),
+      ]);
+
+      expect(storage.getQuest('q1')!.status, QuestStatus.active);
+      // The queued dismiss re-read the quest inside its own lock turn, saw
+      // it was no longer suggested, and never called through to delete —
+      // it must not silently erase the quest adopt just activated.
+      expect(storage.deleteQuestCalls, 0);
+      expect(storage.saveQuestCalls.length, 1);
+      expect(storage.getQuests(), hasLength(1));
+    });
+
+    test('무시가 먼저 잠금을 잡으면(채택이 뒤에 큐잉) 최종적으로 사라지고 채택은 실제 저장을 한 번도 하지 않는다', () async {
+      final storage = await _faultyStorage();
+      await storage.saveQuest(
+        _quest('q1', title: '추천 퀘스트', status: QuestStatus.suggested),
+      );
+
+      final container = ProviderContainer(
+        overrides: [storageServiceProvider.overrideWithValue(storage)],
+      );
+      addTearDown(container.dispose);
+      final notifier = container.read(questsProvider.notifier);
+
+      storage.saveQuestCalls.clear();
+      storage.deleteQuestCalls = 0;
+      await Future.wait([
+        notifier.dismissSuggestion('q1'),
+        notifier.adoptSuggestion('q1'),
+      ]);
+
+      expect(storage.getQuest('q1'), isNull);
+      expect(storage.deleteQuestCalls, 1);
+      // The queued adopt re-read the quest inside its own lock turn, found
+      // it gone, and never called through to save — it must not resurrect
+      // a quest that was legitimately dismissed.
+      expect(storage.saveQuestCalls, isEmpty);
+      expect(storage.getQuests(), isEmpty);
+    });
+  });
+
+  group('completeQuest vs deleteQuest — 큐잉된 레이스', () {
+    test('완료가 먼저 잠금을 잡으면(삭제가 뒤에 큐잉) 완료 상태·XP가 보존되고 삭제는 실제 삭제를 한 번도 하지 않는다', () async {
+      final storage = await _faultyStorage();
+      await storage.saveQuest(_quest('q1', title: '완료할 퀘스트', statRewards: {'health': 20}));
+
+      final container = ProviderContainer(
+        overrides: [storageServiceProvider.overrideWithValue(storage)],
+      );
+      addTearDown(container.dispose);
+      final notifier = container.read(questsProvider.notifier);
+
+      storage.deleteQuestCalls = 0;
+      await Future.wait([
+        notifier.completeQuest('q1'),
+        notifier.deleteQuest('q1'),
+      ]);
+
+      final result = storage.getQuest('q1');
+      expect(result, isNotNull);
+      expect(result!.status, QuestStatus.completed);
+      expect(result.completedAt, isNotNull);
+      // XP was awarded exactly once — the queued delete never got a chance
+      // to erase completed history, and completeQuest itself only ever
+      // runs its award path once per call.
+      expect(storage.getStat('health')!.currentXp, 20);
+      expect(storage.deleteQuestCalls, 0);
+    });
+
+    test('삭제가 먼저 잠금을 잡으면(완료가 뒤에 큐잉) 퀘스트가 사라지고 완료는 XP를 전혀 지급하지 않는다', () async {
+      final storage = await _faultyStorage();
+      await storage.saveQuest(_quest('q1', title: '지울 퀘스트', statRewards: {'health': 20}));
+
+      final container = ProviderContainer(
+        overrides: [storageServiceProvider.overrideWithValue(storage)],
+      );
+      addTearDown(container.dispose);
+      final notifier = container.read(questsProvider.notifier);
+
+      storage.deleteQuestCalls = 0;
+      await Future.wait([
+        notifier.deleteQuest('q1'),
+        notifier.completeQuest('q1'),
+      ]);
+
+      expect(storage.getQuest('q1'), isNull);
+      expect(storage.deleteQuestCalls, 1);
+      // The queued completeQuest re-read storage inside its own lock turn,
+      // found the quest gone, and awarded nothing.
+      expect(storage.getStat('health')!.currentXp, 0);
+    });
+  });
+
+  group('completeQuest vs updateQuest — 큐잉된 편집/완료 레이스(양방향)', () {
+    test('완료가 먼저 잠금을 잡으면(편집이 뒤에 큐잉) 완료 상태·XP를 보존한 채 편집 필드만 반영된다', () async {
+      final storage = await createTestStorage();
+      final quest = _quest('q1', title: '원래 제목', statRewards: {'health': 20});
+      await storage.saveQuest(quest);
+
+      final container = ProviderContainer(
+        overrides: [storageServiceProvider.overrideWithValue(storage)],
+      );
+      addTearDown(container.dispose);
+      final notifier = container.read(questsProvider.notifier);
+
+      final proposed = quest.copy()..title = '편집된 제목';
+      await Future.wait([
+        notifier.completeQuest('q1'),
+        notifier.updateQuest(proposed),
+      ]);
+
+      final result = storage.getQuest('q1')!;
+      expect(result.status, QuestStatus.completed);
+      expect(result.title, '편집된 제목');
+      expect(result.completedAt, isNotNull);
+      // XP awarded exactly once, whichever order the two calls actually ran in.
+      expect(storage.getStat('health')!.currentXp, 20);
+    });
+
+    test('편집이 먼저 잠금을 잡으면(완료가 뒤에 큐잉) 편집된 필드 위에 완료 상태·XP가 정확히 한 번 반영된다', () async {
+      final storage = await createTestStorage();
+      final quest = _quest('q1', title: '원래 제목', statRewards: {'health': 20});
+      await storage.saveQuest(quest);
+
+      final container = ProviderContainer(
+        overrides: [storageServiceProvider.overrideWithValue(storage)],
+      );
+      addTearDown(container.dispose);
+      final notifier = container.read(questsProvider.notifier);
+
+      final proposed = quest.copy()..title = '편집된 제목';
+      await Future.wait([
+        notifier.updateQuest(proposed),
+        notifier.completeQuest('q1'),
+      ]);
+
+      final result = storage.getQuest('q1')!;
+      expect(result.status, QuestStatus.completed);
+      expect(result.title, '편집된 제목');
+      expect(result.completedAt, isNotNull);
+      expect(storage.getStat('health')!.currentXp, 20);
     });
   });
 }

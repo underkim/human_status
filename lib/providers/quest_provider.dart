@@ -194,36 +194,62 @@ class QuestsNotifier extends StateNotifier<List<Quest>> {
     });
   }
 
-  /// Deletes [id]. Snapshots the stored quest as a detached copy before
+  /// Shared body for [deleteQuest]/[dismissSuggestion], assuming the caller
+  /// already holds [rewardLockProvider]. Re-reads [id] from storage — inside
+  /// the same lock acquisition, never a second one — and only proceeds if
+  /// [shouldDelete] accepts its *current* status; this is what lets each
+  /// caller apply its own precondition (see below) against whichever status
+  /// actually won the race, instead of a stale one captured before the lock
+  /// was acquired. Snapshots the stored quest as a detached copy before
   /// deletion so a one-shot failure detected only after the underlying
   /// delete actually landed (not merely a guard that stopped an unperformed
-  /// delete) can restore it via a real save. Runs inside [rewardLockProvider]
-  /// so this can never interleave with a concurrent completeQuest/
-  /// updateQuest/adoptSuggestion on the same quest. If [id] no longer exists
-  /// (already deleted, e.g. by a concurrent duplicate call that ran first
-  /// while this one waited on the lock), this is a safe no-op. Does not
-  /// alter any linked goal or completed-history semantics — a quest never
-  /// needs to unlink anything on its own deletion (contrast
-  /// [GoalsNotifier.deleteGoal], which unlinks its quests).
-  Future<void> deleteQuest(String id) {
-    return ref.read(rewardLockProvider).synchronized(() async {
-      final quest = storage.getQuest(id);
-      if (quest == null) return;
+  /// delete) can restore it via a real save.
+  Future<void> _deleteQuestLocked(
+    String id, {
+    required bool Function(QuestStatus status) shouldDelete,
+  }) async {
+    final quest = storage.getQuest(id);
+    if (quest == null || !shouldDelete(quest.status)) return;
 
-      final snapshot = quest.copy();
-      final rollback = RollbackScope();
-      rollback.addUndo(() async {
-        await storage.saveQuest(snapshot);
-        reload();
-      });
-      try {
-        await storage.deleteQuest(id);
-        reload();
-      } catch (_) {
-        await rollback.rollback();
-        rethrow;
-      }
+    final snapshot = quest.copy();
+    final rollback = RollbackScope();
+    rollback.addUndo(() async {
+      await storage.saveQuest(snapshot);
+      reload();
     });
+    try {
+      await storage.deleteQuest(id);
+      reload();
+    } catch (_) {
+      await rollback.rollback();
+      rethrow;
+    }
+  }
+
+  /// Deletes [id] — the active-tab "delete" action, so [id] is normally
+  /// active when tapped. Runs inside [rewardLockProvider] so this can never
+  /// interleave with a concurrent completeQuest/updateQuest/adoptSuggestion
+  /// on the same quest.
+  ///
+  /// If [id] no longer exists (already deleted, e.g. by a concurrent
+  /// duplicate call that ran first while this one waited on the lock), this
+  /// is a safe no-op. If a concurrent [completeQuest] won the lock first —
+  /// this call was queued behind it — [id]'s *current* status (re-read
+  /// inside this same lock acquisition) is now completed; deleting it would
+  /// erase completed history and the XP it already awarded, so this is also
+  /// a safe no-op rather than a delete. (The reverse order — this delete
+  /// wins first — leaves nothing for the queued completeQuest to act on, so
+  /// it already no-ops on its own; see [_completeQuestLocked].) Does not
+  /// alter any linked goal semantics — a quest never needs to unlink
+  /// anything on its own deletion (contrast [GoalsNotifier.deleteGoal],
+  /// which unlinks its quests).
+  Future<void> deleteQuest(String id) {
+    return ref.read(rewardLockProvider).synchronized(
+      () => _deleteQuestLocked(
+        id,
+        shouldDelete: (status) => status != QuestStatus.completed,
+      ),
+    );
   }
 
   /// Adopts a suggested quest, moving it from suggested to active. Builds a
@@ -262,8 +288,26 @@ class QuestsNotifier extends StateNotifier<List<Quest>> {
   }
 
   /// Dismisses a suggested quest by deleting it outright — reuses
-  /// [deleteQuest]'s atomic/no-op/rollback semantics.
-  Future<void> dismissSuggestion(String id) => deleteQuest(id);
+  /// [_deleteQuestLocked]'s snapshot/delete/rollback semantics, but with its
+  /// own precondition: [id]'s *current* status (re-read inside this lock
+  /// acquisition, not the stale status the caller observed before this call
+  /// was queued) must still be [QuestStatus.suggested].
+  ///
+  /// This matters because [dismissSuggestion] previously aliased
+  /// [deleteQuest] outright, which deletes by id regardless of status — if a
+  /// concurrent [adoptSuggestion] won the lock first (suggested -> active)
+  /// while this dismiss was queued behind it, the alias would go on to
+  /// delete that now-*active* quest instead of safely no-op'ing. Runs inside
+  /// [rewardLockProvider] (a single acquisition — no nested lock) so the
+  /// status check and the delete/rollback happen atomically together.
+  Future<void> dismissSuggestion(String id) {
+    return ref.read(rewardLockProvider).synchronized(
+      () => _deleteQuestLocked(
+        id,
+        shouldDelete: (status) => status == QuestStatus.suggested,
+      ),
+    );
+  }
 
   /// Completes a quest, awarding XP to every stat it's linked to (with a
   /// bonus multiplier if the quest is linked to a Goal), then evaluates
