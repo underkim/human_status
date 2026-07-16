@@ -65,8 +65,15 @@ dev_dependencies:
   flutter_lints: ^6.0.0
 
   # Generates platform launcher icons from assets/branding/human_status_icon_master.png.
-  # Re-run `dart run flutter_launcher_icons` after changing the master image or this config.
+  # Re-run `dart run tool/generate_app_icons.dart` after changing the master
+  # image or this config (see tool/generate_app_icons.dart for what it does).
   flutter_launcher_icons: 0.14.4
+
+  # Used by tool/generate_app_icons.dart to build a true multi-frame Windows
+  # .ico directly from the master image (encodeIco() over a multi-frame
+  # Image). Pinned to the exact version already locked transitively via
+  # flutter_launcher_icons.
+  image: 4.3.0
 
 flutter_launcher_icons:
   image_path: "assets/branding/human_status_icon_master.png"
@@ -76,10 +83,11 @@ flutter_launcher_icons:
   macos:
     generate: true
     image_path: "assets/branding/human_status_icon_master.png"
-  # flutter_launcher_icons only emits a single-size Windows .ico. After running
-  # `dart run flutter_launcher_icons`, regenerate windows/runner/resources/app_icon.ico
-  # as a multi-size ICO (16/32/48/64/128/256) directly from the master image, e.g.:
-  #   Image.open(image_path).convert('RGBA').save(ico_path, sizes=[(16,16),(32,32),(48,48),(64,64),(128,128),(256,256)])
+  # flutter_launcher_icons only emits a single-size Windows .ico. Don't run
+  # this section's generator directly — use `dart run tool/generate_app_icons.dart`,
+  # which runs flutter_launcher_icons and then rebuilds
+  # windows/runner/resources/app_icon.ico as a true multi-size ICO
+  # (16/32/48/64/128/256) from the master image.
   windows:
     generate: true
     image_path: "assets/branding/human_status_icon_master.png"

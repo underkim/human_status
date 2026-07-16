@@ -130,6 +130,89 @@ void main() {
     test('마스터 이미지가 flutter assets 목록에도 포함되어 있다', () {
       expect(pubspecText.contains('- $masterPath'), isTrue);
     });
+
+    test('image 패키지가 정확한 버전으로 dev_dependency 에 고정되어 있다', () {
+      final match = RegExp(
+        r'^\s*image:\s*(\d+\.\d+\.\d+)\s*$',
+        multiLine: true,
+      ).firstMatch(pubspecText);
+      expect(
+        match,
+        isNotNull,
+        reason:
+            'tool/generate_app_icons.dart 가 쓰는 image 패키지는 caret 범위가 아닌 '
+            '정확한 버전으로 고정되어야 한다(Windows .ico 재현성)',
+      );
+    });
+  });
+
+  group('tool/generate_app_icons.dart', () {
+    late String scriptText;
+
+    setUpAll(() {
+      scriptText = File('tool/generate_app_icons.dart').readAsStringSync();
+    });
+
+    test('README/pubspec 이 안내하는 유일한 재생성 진입점이 커밋되어 있다', () {
+      expect(File('tool/generate_app_icons.dart').existsSync(), isTrue);
+      expect(scriptText.contains("import 'package:image/image.dart'"), isTrue);
+    });
+
+    test('flutter_launcher_icons 를 실행하고 실패 시 실패로 처리한다', () {
+      expect(scriptText.contains("'run'"), isTrue);
+      expect(scriptText.contains('flutter_launcher_icons'), isTrue);
+      expect(
+        RegExp(r'exitCode\s*!=\s*0').hasMatch(scriptText),
+        isTrue,
+        reason: 'flutter_launcher_icons 의 0이 아닌 종료 코드를 무시하면 안 된다',
+      );
+    });
+
+    test('iOS ASSETCATALOG_COMPILER_APPICON_NAME 은 건드리지 않는다고 명시되어 있다', () {
+      expect(scriptText.contains('ASSETCATALOG_COMPILER_APPICON_NAME'), isTrue);
+      expect(
+        scriptText.contains(
+          'ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS',
+        ),
+        isTrue,
+      );
+    });
+
+    test('예상 밖 프로젝트 구조에서 0이 아닌 코드로 종료하는 실패 경로가 있다', () {
+      expect(
+        scriptText.contains('exit(1)'),
+        isTrue,
+        reason: '실패 시 0이 아닌 코드로 프로세스를 종료해야 한다',
+      );
+      final failCalls = RegExp(r'_fail\(').allMatches(scriptText).length;
+      expect(
+        failCalls,
+        greaterThanOrEqualTo(4),
+        reason: '마스터 이미지/프로젝트 파일/알 수 없는 설정 형태 각각에 대해 실패 경로가 있어야 한다',
+      );
+    });
+
+    test('Windows .ico 를 16/32/48/64/128/256 다중 프레임으로 재생성한다', () {
+      expect(scriptText.contains('[16, 32, 48, 64, 128, 256]'), isTrue);
+      expect(scriptText.contains('encodeIco'), isTrue);
+    });
+  });
+
+  group('README', () {
+    late String readme;
+
+    setUpAll(() {
+      readme = File('README.md').readAsStringSync();
+    });
+
+    test('아이콘 재생성 명령으로 커밋된 Dart 스크립트 하나만 안내한다', () {
+      expect(readme.contains('dart run tool/generate_app_icons.dart'), isTrue);
+      expect(
+        readme.contains('Image.open'),
+        isFalse,
+        reason: '재현 불가능한 수동 Python 스니펫을 다시 안내하면 안 된다',
+      );
+    });
   });
 
   group('Android 런처 아이콘', () {
@@ -210,6 +293,55 @@ void main() {
         final pixels = (size * scale).round();
         final filename = image['filename'] as String;
         _expectPng('$dir/$filename', width: pixels, height: pixels);
+      }
+    });
+  });
+
+  group('iOS Xcode 프로젝트 설정', () {
+    // flutter_launcher_icons 0.14.4는 ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS
+    // (불리언 설정)을 애셋 카탈로그 이름("AppIcon")으로 덮어써 프로젝트를 깨뜨리는
+    // 회귀가 있다. tool/generate_app_icons.dart가 이를 복구하므로, 커밋된
+    // project.pbxproj에는 항상 YES만 남아야 하고 다른 값(특히 "AppIcon")이
+    // 섞여 있으면 안 된다. ASSETCATALOG_COMPILER_APPICON_NAME은 별개 설정이라
+    // "AppIcon"이 맞다.
+    late String pbxproj;
+
+    setUpAll(() {
+      pbxproj = File('ios/Runner.xcodeproj/project.pbxproj').readAsStringSync();
+    });
+
+    test('GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS 는 모든 빌드 설정에서 YES 이다', () {
+      final matches = RegExp(
+        r'ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS\s*=\s*([^;]+);',
+      ).allMatches(pbxproj).toList();
+      expect(matches, isNotEmpty, reason: '이 불리언 설정을 선언한 빌드 설정이 있어야 한다');
+      for (final match in matches) {
+        expect(
+          match.group(1)!.trim(),
+          'YES',
+          reason:
+              'flutter_launcher_icons 가 이 불리언 설정을 애셋 카탈로그 이름으로 '
+              '덮어쓰는 회귀가 있다 — YES 이외의 값은 프로젝트 손상이다',
+        );
+      }
+    });
+
+    test('GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = AppIcon 은 절대 나타나지 않는다', () {
+      expect(
+        pbxproj.contains(
+          'ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = AppIcon;',
+        ),
+        isFalse,
+      );
+    });
+
+    test('ASSETCATALOG_COMPILER_APPICON_NAME 은 그대로 AppIcon 이다', () {
+      final matches = RegExp(
+        r'ASSETCATALOG_COMPILER_APPICON_NAME\s*=\s*([^;]+);',
+      ).allMatches(pbxproj).toList();
+      expect(matches, isNotEmpty);
+      for (final match in matches) {
+        expect(match.group(1)!.trim(), 'AppIcon');
       }
     });
   });

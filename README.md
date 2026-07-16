@@ -90,12 +90,22 @@ Windows·Web 릴리즈 빌드는 2026-07-16에 로컬에서 검증되었습니�
 Android/iOS/macOS/Windows/Web 런처·파비콘 아이콘이 승인된 마스터 아트워크
 (`assets/branding/human_status_icon_master.png`)로부터 `flutter_launcher_icons`
 (pubspec.yaml에 버전 고정, 설정 커밋됨)로 생성되어 기본 Flutter
-placeholder 아이콘을 대체했습니다. 마스터를 바꾼 뒤에는
-`dart run flutter_launcher_icons`로 재생성하고, Windows는 `pubspec.yaml`의
-안내대로 다중 크기 `.ico`를 다시 만들어야 합니다(`test/app_icon_assets_test.dart`가
-누락/placeholder 회귀를 잡아줍니다). 이 아이콘은 시각적으로는 배포용이지만,
-실제 배포 게이트는 여전히 아래의 영구 ID/서명 확정과 실기기(Android/iOS)
-검증입니다.
+placeholder 아이콘을 대체했습니다. 마스터를 바꾼 뒤에는 재생성 명령
+하나만 실행하면 됩니다(수동/Python 단계 없음):
+
+```sh
+dart run tool/generate_app_icons.dart
+```
+
+이 스크립트가 `flutter_launcher_icons`를 실행하고, flutter_launcher_icons
+0.14.4가 iOS 프로젝트의 `ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS`
+불리언 설정을 깨뜨리는 알려진 회귀를 복구하고(`ASSETCATALOG_COMPILER_APPICON_NAME`은
+건드리지 않음), 마스터로부터 진짜 다중 크기 Windows `.ico`(16/32/48/64/128/256)를
+재생성합니다. 재실행해도 항상 같은 산출물이 나오도록 결정적으로 동작하며,
+프로젝트 구조가 예상과 다르면 조용히 넘어가지 않고 0이 아닌 코드로 종료합니다.
+`test/app_icon_assets_test.dart`가 누락/placeholder 회귀와 iOS 설정 손상을
+잡아줍니다. 이 아이콘은 시각적으로는 배포용이지만, 실제 배포 게이트는
+여전히 아래의 영구 ID/서명 확정과 실기기(Android/iOS) 검증입니다.
 
 ### Android 릴리즈에 대한 참고
 
