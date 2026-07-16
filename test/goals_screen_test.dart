@@ -226,6 +226,65 @@ void main() {
     expect(find.text('StateError'), findsNothing);
     expect(storage.getGoals(), hasLength(1));
     expect(find.text('지울 목표'), findsOneWidget);
+
+    // 실패로 끝났으니 pending 가드는 풀려 있어야 하고, 재시도는 성공해야 한다.
+    notifier.shouldThrow = false;
+    notifier.gate = Completer<void>();
+    await tester.tap(find.byIcon(Icons.more_vert));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('삭제'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('삭제할까요'), findsOneWidget);
+    await tester.tap(find.widgetWithText(FilledButton, '삭제'));
+    await tester.pump();
+    notifier.gate.complete();
+    await tester.pumpAndSettle();
+
+    expect(notifier.deleteCalls, 2);
+    expect(storage.getGoals(), isEmpty);
+  });
+
+  testWidgets('삭제 확인창을 취소하면 가드가 풀려 다시 삭제를 시도할 수 있다', (tester) async {
+    setScreenSize(tester, const Size(600, 1600));
+    final storage = await createTestStorage();
+    await storage.saveGoal(_goal('g1', '지울 목표'));
+    late _GatedGoalsListNotifier notifier;
+    await pumpApp(
+      tester,
+      storage,
+      const GoalsScreen(),
+      overrides: [
+        goalsProvider.overrideWith((ref) {
+          notifier = _GatedGoalsListNotifier(ref.watch(storageServiceProvider), ref);
+          return notifier;
+        }),
+      ],
+    );
+
+    await tester.tap(find.byIcon(Icons.more_vert));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('삭제'));
+    await tester.pumpAndSettle();
+    // 취소 — deleteGoal은 아직 한 번도 호출되지 않았어야 한다(가드는 실제
+    // 삭제 호출과 무관하게, 취소 경로에서도 반드시 풀린다).
+    await tester.tap(find.text('취소'));
+    await tester.pumpAndSettle();
+    expect(notifier.deleteCalls, 0);
+    expect(storage.getGoals(), hasLength(1));
+
+    // 가드가 풀려 있으므로 다시 시도하면 정상적으로 확인창이 뜨고 삭제된다.
+    await tester.tap(find.byIcon(Icons.more_vert));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('삭제'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('삭제할까요'), findsOneWidget);
+    await tester.tap(find.widgetWithText(FilledButton, '삭제'));
+    await tester.pump();
+    notifier.gate.complete();
+    await tester.pumpAndSettle();
+
+    expect(notifier.deleteCalls, 1);
+    expect(storage.getGoals(), isEmpty);
   });
 
   testWidgets('완료 버튼을 리빌드 전에 두 번 눌러도 완료 처리는 한 번만 일어난다', (tester) async {
@@ -255,6 +314,12 @@ void main() {
 
     notifier.gate.complete();
     await _pumpUntilDone(tester);
+
+    // Exactly one success SnackBar surfaces — the blocked second call never
+    // ran, so there's no second completion to (correctly, harmlessly) no-op
+    // and no second success feedback to accidentally double-show.
+    expect(find.text('"완료할 목표" 목표를 달성했어요!'), findsOneWidget);
+
     while (find.text('확인').evaluate().isNotEmpty) {
       await tester.tap(find.text('확인').first);
       await _pumpUntilDone(tester, iterations: 3);
@@ -290,5 +355,20 @@ void main() {
     expect(find.text('목표 완료 처리에 실패했어요. 잠시 후 다시 시도해주세요.'), findsOneWidget);
     expect(find.text('StateError'), findsNothing);
     expect(storage.getGoal('g1')!.status, GoalStatus.active);
+
+    // 실패로 끝났으니 pending 가드는 풀려 있어야 하고, 재시도는 성공해야 한다.
+    notifier.shouldThrow = false;
+    notifier.gate = Completer<void>();
+    await tester.tap(find.text('목표 달성'));
+    notifier.gate.complete();
+    await _pumpUntilDone(tester);
+    while (find.text('확인').evaluate().isNotEmpty) {
+      await tester.tap(find.text('확인').first);
+      await _pumpUntilDone(tester, iterations: 3);
+    }
+    await _pumpUntilDone(tester, iterations: 3);
+
+    expect(notifier.completeCalls, 2);
+    expect(storage.getGoal('g1')!.status, GoalStatus.completed);
   });
 }

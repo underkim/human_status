@@ -79,9 +79,12 @@ class GoalRequiresQuestsException implements Exception {
       'GoalRequiresQuestsException: decomposition produced no quests';
 }
 
-/// Thrown by [GoalsNotifier.updateGoal]/[GoalsNotifier.deleteGoal] when
-/// [goalId] no longer exists in storage (e.g. deleted by a concurrent call
-/// or a stale UI reference). Nothing is persisted when this is thrown.
+/// Thrown by [GoalsNotifier.updateGoal] when [goalId] no longer exists in
+/// storage (e.g. deleted by a concurrent call or a stale UI reference).
+/// Nothing is persisted when this is thrown. [GoalsNotifier.deleteGoal] does
+/// NOT throw this for the same situation — a missing goal there is a safe
+/// no-op (see its doc comment), since deleting an already-deleted goal
+/// should never surface as a user-facing error.
 class GoalNotFoundException implements Exception {
   final String goalId;
   const GoalNotFoundException(this.goalId);

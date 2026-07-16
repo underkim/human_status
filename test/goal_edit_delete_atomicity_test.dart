@@ -78,13 +78,20 @@ class _FaultyGoalStorage extends StorageService {
     return super.saveQuest(quest);
   }
 
+  // The real delete always runs *before* the configured throw — this
+  // reproduces a failure detected only after the underlying Hive write has
+  // already taken effect (e.g. a follow-up integrity check), not merely a
+  // guard that stops the write from happening at all. That's the harder
+  // case for rollback: it must resurrect a goal that's genuinely gone from
+  // storage, via a real saveGoal call, not just skip an unperformed delete.
   @override
-  Future<void> deleteGoal(String id) {
+  Future<void> deleteGoal(String id) async {
     deleteGoalCalls++;
-    if (deleteGoalCalls == throwOnDeleteGoalCall) {
+    final shouldThrow = deleteGoalCalls == throwOnDeleteGoalCall;
+    await super.deleteGoal(id);
+    if (shouldThrow) {
       throw StateError('simulated goal delete failure (call $deleteGoalCalls)');
     }
-    return super.deleteGoal(id);
   }
 }
 
@@ -229,11 +236,68 @@ void main() {
       expect(storage.saveQuestCalls[3].goalId, 'g1');
     });
 
-    test('목표 삭제 자체가 실패하면 이미 언링크됐던 퀘스트까지 원래 링크로 복원된다', () async {
-      final storage = await _faultyStorage();
+    test(
+      '목표 삭제 자체가 실패해 이미 실제로 삭제된 뒤라도, 롤백이 실제 saveGoal로 goal과 모든 active/suggested '
+      '링크를 복원하고 완료 퀘스트 링크는 건드리지 않으며, 재시도하면 정확히 한 번 성공한다',
+      () async {
+        final storage = await _faultyStorage();
+        await storage.saveGoal(_goal('g1', title: '목표'));
+        await storage.saveQuest(_quest('q1', 'g1', QuestStatus.active));
+        await storage.saveQuest(_quest('q2', 'g1', QuestStatus.suggested));
+        await storage.saveQuest(_quest('done', 'g1', QuestStatus.completed));
+
+        final container = ProviderContainer(
+          overrides: [storageServiceProvider.overrideWithValue(storage)],
+        );
+        addTearDown(container.dispose);
+        final notifier = container.read(goalsProvider.notifier);
+
+        storage.saveGoalCalls.clear();
+        storage.throwOnDeleteGoalCall = 1;
+
+        await expectLater(
+          notifier.deleteGoal('g1'),
+          throwsA(isA<StateError>()),
+        );
+
+        // The underlying delete genuinely ran (and removed the goal) before
+        // the configured throw — confirmed by deleteGoalCalls, not merely
+        // inferred from the outcome.
+        expect(storage.deleteGoalCalls, 1);
+        // Rollback resurrected the goal via one real saveGoal call — not by
+        // the delete having been skipped in the first place.
+        expect(storage.saveGoalCalls.length, 1);
+        expect(storage.saveGoalCalls.single.id, 'g1');
+        expect(storage.saveGoalCalls.single.title, '목표');
+
+        final restored = storage.getGoal('g1');
+        expect(restored, isNotNull);
+        expect(restored!.title, '목표');
+        expect(storage.getQuests().firstWhere((q) => q.id == 'q1').goalId, 'g1');
+        expect(storage.getQuests().firstWhere((q) => q.id == 'q2').goalId, 'g1');
+        expect(storage.getQuests().firstWhere((q) => q.id == 'done').goalId, 'g1');
+
+        // Retry succeeds exactly once the fault clears.
+        storage.throwOnDeleteGoalCall = 0;
+        await notifier.deleteGoal('g1');
+
+        expect(storage.deleteGoalCalls, 2);
+        expect(storage.getGoal('g1'), isNull);
+        // Active/suggested links clear...
+        expect(storage.getQuests().firstWhere((q) => q.id == 'q1').goalId, isNull);
+        expect(storage.getQuests().firstWhere((q) => q.id == 'q2').goalId, isNull);
+        // ...but the completed quest's link survives for history/bonus XP.
+        expect(storage.getQuests().firstWhere((q) => q.id == 'done').goalId, 'g1');
+      },
+    );
+
+    test('성공적인 삭제는 진행중/추천 링크만 지우고 완료 퀘스트 링크는 그대로 둔다', () async {
+      final storage = await createTestStorage();
       await storage.saveGoal(_goal('g1', title: '목표'));
       await storage.saveQuest(_quest('q1', 'g1', QuestStatus.active));
+      await storage.saveQuest(_quest('q2', 'g1', QuestStatus.suggested));
       await storage.saveQuest(_quest('done', 'g1', QuestStatus.completed));
+      await storage.saveQuest(_quest('other', 'g2', QuestStatus.active));
 
       final container = ProviderContainer(
         overrides: [storageServiceProvider.overrideWithValue(storage)],
@@ -241,44 +305,18 @@ void main() {
       addTearDown(container.dispose);
       final notifier = container.read(goalsProvider.notifier);
 
-      storage.throwOnDeleteGoalCall = 1;
-
-      await expectLater(
-        notifier.deleteGoal('g1'),
-        throwsA(isA<StateError>()),
-      );
-
-      expect(storage.getGoal('g1'), isNotNull);
-      expect(storage.getQuests().firstWhere((q) => q.id == 'q1').goalId, 'g1');
-      expect(storage.getQuests().firstWhere((q) => q.id == 'done').goalId, 'g1');
-    });
-
-    test('실패 후 재시도하면 이번엔 정확히 한 번 삭제되고 부분 상태가 남지 않는다', () async {
-      final storage = await _faultyStorage();
-      await storage.saveGoal(_goal('g1', title: '목표'));
-      await storage.saveQuest(_quest('q1', 'g1', QuestStatus.active));
-
-      final container = ProviderContainer(
-        overrides: [storageServiceProvider.overrideWithValue(storage)],
-      );
-      addTearDown(container.dispose);
-      final notifier = container.read(goalsProvider.notifier);
-
-      storage.throwOnDeleteGoalCall = 1;
-      await expectLater(
-        notifier.deleteGoal('g1'),
-        throwsA(isA<StateError>()),
-      );
-
-      storage.throwOnDeleteGoalCall = 0;
       await notifier.deleteGoal('g1');
 
       expect(storage.getGoal('g1'), isNull);
-      expect(storage.getQuests().single.goalId, isNull);
+      expect(storage.getQuests().firstWhere((q) => q.id == 'q1').goalId, isNull);
+      expect(storage.getQuests().firstWhere((q) => q.id == 'q2').goalId, isNull);
+      expect(storage.getQuests().firstWhere((q) => q.id == 'done').goalId, 'g1');
+      expect(storage.getQuests().firstWhere((q) => q.id == 'other').goalId, 'g2');
+      expect(storage.getQuests(), hasLength(4));
     });
 
-    test('동시에 두 번 삭제를 호출해도 한 번만 실제로 삭제되고 예외 없이 안전하게 끝난다', () async {
-      final storage = await createTestStorage();
+    test('동시에 두 번 삭제를 호출해도 실제 deleteGoal 호출은 정확히 한 번만 일어난다', () async {
+      final storage = await _faultyStorage();
       await storage.saveGoal(_goal('g1', title: '목표'));
       await storage.saveQuest(_quest('q1', 'g1', QuestStatus.active));
 
@@ -293,10 +331,16 @@ void main() {
         notifier.deleteGoal('g1'),
       ]);
 
+      // Not just the final state — the underlying storage call count proves
+      // the second, concurrent call actually no-op'd instead of racing to a
+      // second real delete that happened to be harmless.
+      expect(storage.deleteGoalCalls, 1);
       expect(storage.getGoal('g1'), isNull);
       expect(storage.getQuests().single.goalId, isNull);
-      // Both calls resolved successfully — no exception surfaced.
-      await notifier.deleteGoal('g1'); // a third, later duplicate is also a no-op.
+
+      // A third, later duplicate is also a no-op and doesn't call through.
+      await notifier.deleteGoal('g1');
+      expect(storage.deleteGoalCalls, 1);
       expect(storage.getGoal('g1'), isNull);
     });
   });
