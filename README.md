@@ -85,6 +85,18 @@ Windows·Web 릴리즈 빌드는 2026-07-16에 로컬에서 검증되었습니�
 기준으로 정리되어 있지 않아, 82개 파일을 기계적으로 재포맷하는 작업은 이
 변경 범위 밖입니다).
 
+### 앱 아이콘
+
+Android/iOS/macOS/Windows/Web 런처·파비콘 아이콘이 승인된 마스터 아트워크
+(`assets/branding/human_status_icon_master.png`)로부터 `flutter_launcher_icons`
+(pubspec.yaml에 버전 고정, 설정 커밋됨)로 생성되어 기본 Flutter
+placeholder 아이콘을 대체했습니다. 마스터를 바꾼 뒤에는
+`dart run flutter_launcher_icons`로 재생성하고, Windows는 `pubspec.yaml`의
+안내대로 다중 크기 `.ico`를 다시 만들어야 합니다(`test/app_icon_assets_test.dart`가
+누락/placeholder 회귀를 잡아줍니다). 이 아이콘은 시각적으로는 배포용이지만,
+실제 배포 게이트는 여전히 아래의 영구 ID/서명 확정과 실기기(Android/iOS)
+검증입니다.
+
 ### Android 릴리즈에 대한 참고
 
 Android 릴리즈 빌드는 아직 debug 서명과 `com.example` 애플리케이션 ID를
