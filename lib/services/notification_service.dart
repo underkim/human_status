@@ -1,4 +1,4 @@
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show kIsWeb, visibleForTesting;
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_timezone/flutter_timezone.dart';
 import 'package:timezone/data/latest_all.dart' as tz_data;
@@ -53,6 +53,36 @@ Future<String> _defaultTimezoneIdentifierResolver() async {
   return info.identifier;
 }
 
+/// The Android schedule mode used for every notification this service
+/// schedules. Centralized so the daily reminder and the weekly report can
+/// never drift apart.
+///
+/// `inexactAllowWhileIdle` needs no special permission — unlike
+/// `exactAllowWhileIdle`, which requires `SCHEDULE_EXACT_ALARM`, a
+/// permission Android 13+ does *not* grant by default to new installs, so
+/// scheduling with it can silently fail. Neither the daily quest nudge nor
+/// the weekly report is time-critical, so trading a little delivery slack
+/// for a reminder that reliably fires without extra permissions is the
+/// right call. See Android's own guidance to prefer inexact alarms for
+/// anything that isn't an alarm clock or a calendar event.
+const AndroidScheduleMode androidNotificationScheduleMode =
+    AndroidScheduleMode.inexactAllowWhileIdle;
+
+/// Matches [FlutterLocalNotificationsPlugin.zonedSchedule]'s signature so
+/// the real method can be passed directly. Injectable so tests can record
+/// the arguments a real schedule call would receive — in particular
+/// [AndroidScheduleMode] — without touching platform channels.
+typedef ZonedScheduleCall =
+    Future<void> Function({
+      required int id,
+      required String title,
+      required String body,
+      required tz.TZDateTime scheduledDate,
+      required NotificationDetails notificationDetails,
+      required AndroidScheduleMode androidScheduleMode,
+      DateTimeComponents? matchDateTimeComponents,
+    });
+
 /// Local (on-device) daily reminder notifications. No-op on web, where the
 /// underlying plugin has no native scheduling support.
 class NotificationService {
@@ -62,8 +92,11 @@ class NotificationService {
   NotificationService({
     TimezoneIdentifierResolver timezoneIdentifierResolver =
         _defaultTimezoneIdentifierResolver,
+    @visibleForTesting ZonedScheduleCall? zonedScheduleCall,
     // ignore: prefer_initializing_formals
-  }) : _timezoneIdentifierResolver = timezoneIdentifierResolver;
+  }) : _timezoneIdentifierResolver = timezoneIdentifierResolver,
+       // ignore: prefer_initializing_formals
+       _zonedScheduleCall = zonedScheduleCall;
 
   static const _dailyReminderId = 1;
   static const _weeklyReportId = 2;
@@ -77,7 +110,11 @@ class NotificationService {
   final FlutterLocalNotificationsPlugin _plugin =
       FlutterLocalNotificationsPlugin();
   final TimezoneIdentifierResolver _timezoneIdentifierResolver;
+  final ZonedScheduleCall? _zonedScheduleCall;
   bool _initialized = false;
+
+  ZonedScheduleCall get _scheduleCall =>
+      _zonedScheduleCall ?? _plugin.zonedSchedule;
 
   /// Throws [NotificationTimezoneException] if the device's timezone
   /// identifier can't be resolved — never silently schedules in UTC or the
@@ -156,6 +193,28 @@ class NotificationService {
         >()
         ?.requestNotificationsPermission();
 
+    await scheduleDailyReminderCall(
+      hour: hour,
+      minute: minute,
+      activeQuestCount: activeQuestCount,
+    );
+
+    // null means the platform can't report permission (iOS/desktop) — assume
+    // granted rather than alarming the user for nothing.
+    return granted ?? true;
+  }
+
+  /// The [_scheduleCall] invocation half of [scheduleDailyReminder], split
+  /// out so tests can exercise the real scheduling logic — including the
+  /// [androidNotificationScheduleMode] policy actually reaching the plugin
+  /// call — without going through the OS permission-request API, which has
+  /// no working platform channel in a unit-test binding.
+  @visibleForTesting
+  Future<void> scheduleDailyReminderCall({
+    required int hour,
+    required int minute,
+    int activeQuestCount = 0,
+  }) async {
     final now = tz.TZDateTime.now(tz.local);
     var scheduled = tz.TZDateTime(
       tz.local,
@@ -173,7 +232,7 @@ class NotificationService {
         ? '진행중인 퀘스트가 $activeQuestCount개 있어요!'
         : '오늘의 퀘스트를 확인해보세요!';
 
-    await _plugin.zonedSchedule(
+    await _scheduleCall(
       id: _dailyReminderId,
       title: 'Human Status',
       body: body,
@@ -188,13 +247,9 @@ class NotificationService {
         macOS: DarwinNotificationDetails(),
         linux: LinuxNotificationDetails(),
       ),
-      androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+      androidScheduleMode: androidNotificationScheduleMode,
       matchDateTimeComponents: DateTimeComponents.time,
     );
-
-    // null means the platform can't report permission (iOS/desktop) — assume
-    // granted rather than alarming the user for nothing.
-    return granted ?? true;
   }
 
   Future<void> cancelReminder() async {
@@ -214,6 +269,15 @@ class NotificationService {
         >()
         ?.requestNotificationsPermission();
 
+    await scheduleWeeklyReportReminderCall();
+
+    return granted ?? true;
+  }
+
+  /// The [_scheduleCall] invocation half of [scheduleWeeklyReportReminder] —
+  /// see [scheduleDailyReminderCall] for why this is split out.
+  @visibleForTesting
+  Future<void> scheduleWeeklyReportReminderCall() async {
     final now = tz.TZDateTime.now(tz.local);
     // 다음 일요일 20:00 — DST 경계에서 시각이 밀리지 않도록 Duration 덧셈 대신
     // 달력 필드로 하루씩 재구성한다.
@@ -235,7 +299,7 @@ class NotificationService {
       );
     }
 
-    await _plugin.zonedSchedule(
+    await _scheduleCall(
       id: _weeklyReportId,
       title: '주간 리포트',
       body: '이번 주 퀘스트·재무 요약이 준비됐어요. 더보기 → 리포트에서 확인해보세요.',
@@ -250,11 +314,9 @@ class NotificationService {
         macOS: DarwinNotificationDetails(),
         linux: LinuxNotificationDetails(),
       ),
-      androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+      androidScheduleMode: androidNotificationScheduleMode,
       matchDateTimeComponents: DateTimeComponents.dayOfWeekAndTime,
     );
-
-    return granted ?? true;
   }
 
   Future<void> cancelWeeklyReportReminder() async {

@@ -138,8 +138,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         title: const Text('알림 시간'),
         content: Text(
           current != null
-              ? '매일 ${(current ~/ 60).toString().padLeft(2, '0')}:${(current % 60).toString().padLeft(2, '0')}에 알림을 보내드려요.'
-              : '진행중인 퀘스트를 알려주는 매일 알림을 설정할 수 있어요.',
+              ? '매일 ${(current ~/ 60).toString().padLeft(2, '0')}:${(current % 60).toString().padLeft(2, '0')}에 알림을 보내드려요. (기기 상태에 따라 몇 분 늦을 수 있어요)'
+              : '진행중인 퀘스트를 알려주는 매일 알림을 설정할 수 있어요. (기기 상태에 따라 몇 분 늦을 수 있어요)',
         ),
         actions: [
           if (current != null)

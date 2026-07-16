@@ -47,12 +47,13 @@
         </receiver>
     </application>
 
-    <!-- RECEIVE_BOOT_COMPLETED lets the receiver above run; SCHEDULE_EXACT_ALARM
-         is required on Android 12+ for the exactAllowWhileIdle schedule mode
-         NotificationService uses. POST_NOTIFICATIONS is already merged in by
-         the flutter_local_notifications plugin's own manifest. -->
+    <!-- RECEIVE_BOOT_COMPLETED lets the receiver above run. NotificationService
+         schedules with inexactAllowWhileIdle, which needs no special
+         permission (unlike exactAllowWhileIdle's SCHEDULE_EXACT_ALARM, not
+         granted by default on Android 13+ new installs). POST_NOTIFICATIONS
+         is already merged in by the flutter_local_notifications plugin's own
+         manifest. -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
-    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM"/>
     <!-- Required to query activities that can process text, see:
          https://developer.android.com/training/package-visibility and
          https://developer.android.com/reference/android/content/Intent#ACTION_PROCESS_TEXT.
