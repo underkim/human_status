@@ -47,19 +47,32 @@ Goal _financialGoal(
   createdAt: DateTime(2026, 7, 1),
 );
 
-/// A [StorageService] whose [saveGoal] can be switched to throw on demand —
-/// used to force a failure partway through addTransaction/deleteTransaction,
-/// after the transaction write (or delete) has already landed but before the
-/// paired goal-amount write commits.
-class _ThrowsOnSaveGoalStorage extends StorageService {
-  _ThrowsOnSaveGoalStorage({super.inMemory});
+/// A [StorageService] whose [saveGoal] throws on exactly the [throwOnCall]th
+/// invocation (1-indexed) and otherwise behaves normally — used to force a
+/// failure partway through addTransaction/deleteTransaction (after the
+/// transaction write/delete has already landed but before the paired
+/// goal-amount write commits) while still letting the *rollback's own*
+/// saveGoal call go through to the real Hive box. This matters because
+/// Hive's in-memory box always returns the same cached [Goal] instance: if
+/// the fault stayed active forever, the rollback's `goal.currentAmount =
+/// prevAmount` assignment would make later reads look "restored" purely from
+/// that shared in-memory mutation, even if the rollback's own persistence
+/// write never actually reached the box. Recording every call's amount lets
+/// tests assert the rollback path really executed a second, successful
+/// write — not just that the cached object happens to hold the right value.
+class _ThrowsOnNthSaveGoalStorage extends StorageService {
+  _ThrowsOnNthSaveGoalStorage({super.inMemory});
 
-  bool throwOnSaveGoal = false;
+  int throwOnCall = 0; // 0 = never throw.
+  final List<double> saveGoalCallAmounts = [];
 
   @override
   Future<void> saveGoal(Goal goal) {
-    if (throwOnSaveGoal) {
-      throw StateError('simulated goal write failure');
+    saveGoalCallAmounts.add(goal.currentAmount);
+    if (saveGoalCallAmounts.length == throwOnCall) {
+      throw StateError(
+        'simulated goal write failure (call ${saveGoalCallAmounts.length})',
+      );
     }
     return super.saveGoal(goal);
   }
@@ -87,8 +100,8 @@ class _UnlocksThenThrowsAchievementService extends AchievementService {
 
 void main() {
   group('addTransaction — 원자성/롤백', () {
-    test('목표 저장 도중 실패하면 이미 쓰여진 거래도 함께 롤백된다', () async {
-      final storage = _ThrowsOnSaveGoalStorage(inMemory: true);
+    test('목표 저장 도중 실패하면 이미 쓰여진 거래도 함께 롤백되고, 롤백 자체의 저장도 실제로 성공한다', () async {
+      final storage = _ThrowsOnNthSaveGoalStorage(inMemory: true);
       await storage.init();
       addTearDown(Hive.close);
       await storage.saveGoal(_financialGoal('g1', current: 10000));
@@ -99,7 +112,15 @@ void main() {
       addTearDown(container.dispose);
       final notifier = container.read(transactionsProvider.notifier);
 
-      storage.throwOnSaveGoal = true;
+      // The setup save above already counted as call #1 — reset the
+      // recorder so "call #1" below means the first save made by
+      // addTransaction itself.
+      storage.saveGoalCallAmounts.clear();
+      // Only the forward-path save (call #1, the goal bumped to 15000)
+      // fails — the rollback's own restoring save (call #2) must go
+      // through for real, not just happen to read back correctly because
+      // Hive's in-memory box returns the same cached Goal instance.
+      storage.throwOnCall = 1;
       await expectLater(
         notifier.addTransaction(
           _tx('t1', TransactionType.income, 5000, goalId: 'g1'),
@@ -107,6 +128,11 @@ void main() {
         throwsA(isA<StateError>()),
       );
 
+      // The forward write attempted 15000, then the rollback's own write
+      // restored (and actually persisted) 10000 — proving the rollback
+      // path really ran a second, successful save rather than the read
+      // merely reflecting an unpersisted in-memory mutation.
+      expect(storage.saveGoalCallAmounts, [15000, 10000]);
       // The transaction write that happened before the failing goal write
       // must be undone — no partial state left behind.
       expect(storage.getTransactions(), isEmpty);
@@ -230,8 +256,8 @@ void main() {
   });
 
   group('deleteTransaction — 원자성/롤백', () {
-    test('목표 되돌리기 저장 도중 실패하면 삭제됐던 거래가 복원된다', () async {
-      final storage = _ThrowsOnSaveGoalStorage(inMemory: true);
+    test('목표 되돌리기 저장 도중 실패하면 삭제됐던 거래가 복원되고, 롤백 자체의 저장도 실제로 성공한다', () async {
+      final storage = _ThrowsOnNthSaveGoalStorage(inMemory: true);
       await storage.init();
       addTearDown(Hive.close);
       final goal = _financialGoal('g1', current: 30000);
@@ -245,11 +271,22 @@ void main() {
       addTearDown(container.dispose);
       final notifier = container.read(transactionsProvider.notifier);
 
-      storage.throwOnSaveGoal = true;
+      // The setup save above already counted as call #1 — reset the
+      // recorder so "call #1" below means the first save made by
+      // deleteTransaction itself.
+      storage.saveGoalCallAmounts.clear();
+      // Only the forward-path save (call #1, reverting the goal to 0) fails
+      // — the rollback's own restoring save (call #2, back to 30000) must
+      // go through for real; see _ThrowsOnNthSaveGoalStorage's doc comment
+      // for why a permanently-throwing fault would let this pass by
+      // coincidence instead of proving the rollback write actually landed.
+      storage.throwOnCall = 1;
       await expectLater(
         notifier.deleteTransaction('t1'),
         throwsA(isA<StateError>()),
       );
+
+      expect(storage.saveGoalCallAmounts, [0, 30000]);
 
       final restored = storage.getTransactions().single;
       expect(restored.id, 't1');

@@ -35,46 +35,43 @@ class Goal {
     required this.createdAt,
     this.completedAt,
     bool? completionRewardClaimed,
-  }) : completionRewardClaimed =
-           completionRewardClaimed ?? (status == GoalStatus.completed);
+  }) : completionRewardClaimed = completionRewardClaimed ?? (status == GoalStatus.completed);
 
   Map<String, dynamic> toJson() => {
-    'id': id,
-    'title': title,
-    'description': description,
-    'statId': statId,
-    'targetDate': targetDate?.toIso8601String(),
-    'targetAmount': targetAmount,
-    'currentAmount': currentAmount,
-    'status': status.index,
-    'createdAt': createdAt.toIso8601String(),
-    'completedAt': completedAt?.toIso8601String(),
-    'completionRewardClaimed': completionRewardClaimed,
-  };
+        'id': id,
+        'title': title,
+        'description': description,
+        'statId': statId,
+        'targetDate': targetDate?.toIso8601String(),
+        'targetAmount': targetAmount,
+        'currentAmount': currentAmount,
+        'status': status.index,
+        'createdAt': createdAt.toIso8601String(),
+        'completedAt': completedAt?.toIso8601String(),
+        'completionRewardClaimed': completionRewardClaimed,
+      };
 
-  factory Goal.fromJson(Map<String, dynamic> json) {
-    final status = GoalStatus.values[json['status'] as int];
-    return Goal(
-      id: json['id'] as String,
-      title: json['title'] as String,
-      description: json['description'] as String,
-      statId: json['statId'] as String,
-      targetDate: json['targetDate'] != null
-          ? DateTime.parse(json['targetDate'] as String)
-          : null,
-      targetAmount: (json['targetAmount'] as num?)?.toDouble(),
-      currentAmount: (json['currentAmount'] as num).toDouble(),
-      status: status,
-      createdAt: DateTime.parse(json['createdAt'] as String),
-      completedAt: json['completedAt'] != null
-          ? DateTime.parse(json['completedAt'] as String)
-          : null,
-      // Backups written before this field existed have no key here: default
-      // an already-completed goal to claimed (it already got its bonus back
-      // when it was completed) and an active/abandoned one to unclaimed.
-      completionRewardClaimed: json['completionRewardClaimed'] as bool?,
-    );
-  }
+  factory Goal.fromJson(Map<String, dynamic> json) => Goal(
+        id: json['id'] as String,
+        title: json['title'] as String,
+        description: json['description'] as String,
+        statId: json['statId'] as String,
+        targetDate: json['targetDate'] != null
+            ? DateTime.parse(json['targetDate'] as String)
+            : null,
+        targetAmount: (json['targetAmount'] as num?)?.toDouble(),
+        currentAmount: (json['currentAmount'] as num).toDouble(),
+        status: GoalStatus.values[json['status'] as int],
+        createdAt: DateTime.parse(json['createdAt'] as String),
+        completedAt: json['completedAt'] != null
+            ? DateTime.parse(json['completedAt'] as String)
+            : null,
+        // Backups written before this field existed have no key here:
+        // default an already-completed goal to claimed (it already got its
+        // bonus back when it was completed) and an active/abandoned one to
+        // unclaimed.
+        completionRewardClaimed: json['completionRewardClaimed'] as bool?,
+      );
 }
 
 class GoalAdapter extends TypeAdapter<Goal> {
