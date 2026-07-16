@@ -36,6 +36,23 @@ class Quest {
     this.goalId,
   });
 
+  /// A detached clone of every field. Used to snapshot a quest (for
+  /// rollback) or build a mutated candidate without touching the live
+  /// Hive-boxed instance — see GoalsNotifier.deleteGoal.
+  Quest copy() => Quest(
+        id: id,
+        title: title,
+        description: description,
+        statRewards: Map<String, double>.from(statRewards),
+        difficulty: difficulty,
+        isRecurring: isRecurring,
+        status: status,
+        source: source,
+        createdAt: createdAt,
+        completedAt: completedAt,
+        goalId: goalId,
+      );
+
   Map<String, dynamic> toJson() => {
         'id': id,
         'title': title,

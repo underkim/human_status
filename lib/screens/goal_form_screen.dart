@@ -231,13 +231,15 @@ class _GoalFormScreenState extends ConsumerState<GoalFormScreen> {
               ),
               const SizedBox(height: 16),
               if (_isSubmitting)
-                const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 8),
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
                   child: Row(
                     children: [
-                      SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
-                      SizedBox(width: 12),
-                      Expanded(child: Text('AI가 목표를 퀘스트로 분해하고 있어요...')),
+                      const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
+                      const SizedBox(width: 12),
+                      // AI 분해는 생성 시에만 일어난다 — 편집 저장에는 다른, 사실에
+                      // 맞는 문구를 보여준다.
+                      Expanded(child: Text(_isEditing ? '저장하고 있어요...' : 'AI가 목표를 퀘스트로 분해하고 있어요...')),
                     ],
                   ),
                 ),
@@ -253,52 +255,70 @@ class _GoalFormScreenState extends ConsumerState<GoalFormScreen> {
   }
 
   Future<void> _submit() async {
+    // 폼이 리빌드되기 전(버튼이 아직 활성 상태로 보이는 동안) 연타해도 두 번째
+    // 호출은 여기서 곧장 막힌다 — AbsorbPointer/onPressed null은 리빌드 이후에만
+    // 효과가 있으므로 이 동기 체크가 실제 가드다.
+    if (_isSubmitting) return;
     if (!_formKey.currentState!.validate() || _selectedStatId == null) return;
 
-    final existing = widget.existing;
-    if (existing != null) {
-      // 편집: 분해 없이 편집 가능한 필드만 갱신. id·상태·생성시각·연결 스텟·
-      // currentAmount는 그대로 두어 진행률·연결 퀘스트가 깨지지 않게 한다.
-      existing.title = _titleController.text.trim();
-      existing.description = _descriptionController.text.trim();
-      existing.targetDate = _targetDate;
-      existing.targetAmount = _isFinancial ? double.tryParse(_amountController.text) : null;
-      final completion = await ref.read(goalsProvider.notifier).updateGoal(existing);
-      if (!mounted) return;
-      // 목표액을 낮춰 이미 모은 금액이 목표에 도달하면 그 자리에서 완료 처리된다.
-      if (completion != null) {
-        await showLevelUpDialog(context, ref.read(statsProvider), {existing.statId: completion.levelUp});
+    setState(() => _isSubmitting = true);
+    try {
+      final existing = widget.existing;
+      if (existing != null) {
+        // 편집: widget.existing/살아있는 Hive 객체는 절대 건드리지 않고, 그
+        // 복사본 위에 편집 가능한 필드만 바꾼 detached proposed goal을 만든다
+        // — id·상태·생성시각·연결 스텟·currentAmount 등은 그대로 두어 진행률·
+        // 연결 퀘스트가 깨지지 않게 하고, 저장이 실패해도 existing이 절대
+        // 변형되지 않는다.
+        final proposed = existing.copy()
+          ..title = _titleController.text.trim()
+          ..description = _descriptionController.text.trim()
+          ..targetDate = _targetDate
+          ..targetAmount = _isFinancial ? double.tryParse(_amountController.text) : null;
+        final completion = await ref.read(goalsProvider.notifier).updateGoal(proposed);
         if (!mounted) return;
-        await showAchievementDialog(context, completion.newAchievements);
-        if (!mounted) return;
+        // 목표액을 낮춰 이미 모은 금액이 목표에 도달하면 그 자리에서 완료 처리된다.
+        if (completion != null) {
+          await showLevelUpDialog(context, ref.read(statsProvider), {existing.statId: completion.levelUp});
+          if (!mounted) return;
+          await showAchievementDialog(context, completion.newAchievements);
+          if (!mounted) return;
+        }
+        final messenger = ScaffoldMessenger.of(context);
+        Navigator.of(context).pop();
+        messenger.showSnackBar(SnackBar(
+          content: Text(completion != null ? '목표를 달성했어요!' : '목표를 수정했어요.'),
+        ));
+        return;
       }
+
+      final goal = Goal(
+        id: const Uuid().v4(),
+        title: _titleController.text.trim(),
+        description: _descriptionController.text.trim(),
+        statId: _selectedStatId!,
+        targetDate: _targetDate,
+        targetAmount: _isFinancial ? double.tryParse(_amountController.text) : null,
+        createdAt: DateTime.now(),
+      );
+
+      final result = await ref.read(goalsProvider.notifier).createGoal(goal);
+      if (!mounted) return;
+      // '목표 설정' 같은 생성 기반 업적은 화면을 떠나기 전에 축하한다.
+      await showAchievementDialog(context, result.newAchievements);
+      if (!mounted) return;
       final messenger = ScaffoldMessenger.of(context);
       Navigator.of(context).pop();
-      messenger.showSnackBar(SnackBar(
-        content: Text(completion != null ? '목표를 달성했어요!' : '목표를 수정했어요.'),
-      ));
-      return;
+      messenger.showSnackBar(SnackBar(content: Text('퀘스트 ${result.quests.length}개가 생성되었어요.')));
+    } catch (_) {
+      // 원인은 노출하지 않는다 — 입력한 값은 그대로 남고 화면은 열려 있어
+      // 사용자가 바로 다시 시도할 수 있다.
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('목표를 저장하지 못했어요. 잠시 후 다시 시도해주세요.')),
+      );
+    } finally {
+      if (mounted) setState(() => _isSubmitting = false);
     }
-
-    setState(() => _isSubmitting = true);
-
-    final goal = Goal(
-      id: const Uuid().v4(),
-      title: _titleController.text.trim(),
-      description: _descriptionController.text.trim(),
-      statId: _selectedStatId!,
-      targetDate: _targetDate,
-      targetAmount: _isFinancial ? double.tryParse(_amountController.text) : null,
-      createdAt: DateTime.now(),
-    );
-
-    final result = await ref.read(goalsProvider.notifier).createGoal(goal);
-    if (!mounted) return;
-    // '목표 설정' 같은 생성 기반 업적은 화면을 떠나기 전에 축하한다.
-    await showAchievementDialog(context, result.newAchievements);
-    if (!mounted) return;
-    final messenger = ScaffoldMessenger.of(context);
-    Navigator.of(context).pop();
-    messenger.showSnackBar(SnackBar(content: Text('퀘스트 ${result.quests.length}개가 생성되었어요.')));
   }
 }

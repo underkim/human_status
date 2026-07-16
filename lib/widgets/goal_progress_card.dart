@@ -18,6 +18,10 @@ class GoalProgressCard extends StatelessWidget {
   final VoidCallback? onEdit;
   final VoidCallback? onDelete;
 
+  /// 완료 처리가 진행중일 때 true — 버튼을 잠그고 스피너로 바꿔 중복 탭을
+  /// 막는다. [onComplete]가 null이면(재무 목표 등) 의미 없다.
+  final bool isCompleting;
+
   /// 이 목표가 왜/어떻게 완료되는지 짧게 설명하는 캡션 — 금액이 차면
   /// 자동으로 완료되는 재무 목표와, 연결된 퀘스트를 다 마쳐야 수동으로
   /// "목표 달성" 버튼을 눌러야 하는 일반 목표가 겉보기엔 똑같은 카드라
@@ -37,6 +41,7 @@ class GoalProgressCard extends StatelessWidget {
     this.onEdit,
     this.onDelete,
     this.completionHint,
+    this.isCompleting = false,
   });
 
   @override
@@ -111,7 +116,16 @@ class GoalProgressCard extends StatelessWidget {
               const SizedBox(height: AppSpacing.sm),
               Align(
                 alignment: Alignment.centerRight,
-                child: FilledButton(onPressed: onComplete, child: const Text('목표 달성')),
+                child: FilledButton(
+                  onPressed: isCompleting ? null : onComplete,
+                  child: isCompleting
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Text('목표 달성'),
+                ),
               ),
             ],
             if (isCompleted) ...[

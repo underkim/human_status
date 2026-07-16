@@ -1,9 +1,51 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:human_status/models/goal.dart';
+import 'package:human_status/providers/goal_provider.dart';
+import 'package:human_status/providers/profile_provider.dart';
 import 'package:human_status/screens/goal_form_screen.dart';
 
 import 'helpers/test_app.dart';
+
+/// 제출 중엔 계속 애니메이션하는 CircularProgressIndicator가 화면에 남아
+/// 있어 pumpAndSettle이 절대 멈추지 않는다 — 대신 고정된 프레임 수만큼
+/// 수동으로 진행시킨다.
+Future<void> _pumpSubmit(WidgetTester tester, {int iterations = 10}) async {
+  for (var i = 0; i < iterations; i++) {
+    await tester.pump(const Duration(milliseconds: 200));
+  }
+}
+
+/// createGoal/updateGoal 호출을 [gate]가 풀릴 때까지 붙잡아두고, 호출
+/// 횟수를 세고, [shouldThrow]가 true면 실패를 재현하는 GoalsNotifier —
+/// finance_transaction_ui_robustness_test.dart의 `_GatedTransactionsNotifier`와
+/// 같은 패턴.
+class _GatedGoalsNotifier extends GoalsNotifier {
+  _GatedGoalsNotifier(super.storage, super.ref);
+
+  int createCalls = 0;
+  int updateCalls = 0;
+  bool shouldThrow = false;
+  Completer<void> gate = Completer<void>();
+
+  @override
+  Future<GoalCreationResult> createGoal(Goal goal, {bool requireQuests = false}) async {
+    createCalls++;
+    await gate.future;
+    if (shouldThrow) throw StateError('simulated create failure');
+    return super.createGoal(goal, requireQuests: requireQuests);
+  }
+
+  @override
+  Future<GoalCompletionResult?> updateGoal(Goal proposed) async {
+    updateCalls++;
+    await gate.future;
+    if (shouldThrow) throw StateError('simulated update failure');
+    return super.updateGoal(proposed);
+  }
+}
 
 void main() {
   testWidgets('첫 실행에는 약한 스텟(건강) 기준 추천 목표 칩이 뜨고 탭하면 제목이 채워진다', (tester) async {
@@ -109,7 +151,7 @@ void main() {
 
     await tester.enterText(find.widgetWithText(TextFormField, '옛 목표'), '새 목표');
     await tester.tap(find.text('저장하기'));
-    await tester.pumpAndSettle();
+    await _pumpSubmit(tester);
 
     // 같은 id가 갱신되고, 편집은 퀘스트를 분해하지 않는다.
     expect(storage.getGoals().length, 1);
@@ -141,7 +183,7 @@ void main() {
     expect(tester.widget<SwitchListTile>(find.byType(SwitchListTile)).onChanged, isNull);
     await tester.enterText(find.widgetWithText(TextFormField, '목표 금액'), '2000000');
     await tester.tap(find.text('저장하기'));
-    await tester.pumpAndSettle();
+    await _pumpSubmit(tester);
 
     final updated = storage.getGoals().single;
     expect(updated.targetAmount, 2000000);
@@ -167,16 +209,174 @@ void main() {
     // 목표액을 이미 모은 30만 이하(20만)로 낮춘다.
     await tester.enterText(find.widgetWithText(TextFormField, '목표 금액'), '200000');
     await tester.tap(find.text('저장하기'));
-    await tester.pumpAndSettle();
+    await _pumpSubmit(tester);
 
-    // 완료 보너스 XP로 레벨업/업적 다이얼로그가 뜨면 닫는다.
+    // 완료 보너스 XP로 레벨업/업적 다이얼로그가 뜨면 닫는다 — 제출이 끝나기
+    // 전(다이얼로그를 기다리는 동안)엔 스피너가 계속 애니메이션하므로 여기도
+    // pumpAndSettle 대신 수동으로 진행시킨다.
     while (find.text('확인').evaluate().isNotEmpty) {
       await tester.tap(find.text('확인').first);
-      await tester.pumpAndSettle();
+      await _pumpSubmit(tester, iterations: 3);
     }
+    await _pumpSubmit(tester, iterations: 3);
 
     final updated = storage.getGoals().single;
     expect(updated.status, GoalStatus.completed);
     expect(updated.completedAt, isNotNull);
+  });
+
+  testWidgets('생성 버튼을 리빌드 전에 두 번 눌러도 목표는 한 번만 생성된다', (tester) async {
+    setScreenSize(tester, const Size(600, 1600));
+    final storage = await createTestStorage();
+    late _GatedGoalsNotifier notifier;
+    await pumpApp(
+      tester,
+      storage,
+      const GoalFormScreen(),
+      overrides: [
+        goalsProvider.overrideWith((ref) {
+          notifier = _GatedGoalsNotifier(ref.watch(storageServiceProvider), ref);
+          return notifier;
+        }),
+      ],
+    );
+
+    await tester.enterText(find.widgetWithText(TextFormField, '목표'), '중복 탭 목표');
+
+    final button = tester.widget<FilledButton>(
+      find.widgetWithText(FilledButton, '추가하기'),
+    );
+    // 리빌드(pump) 이전에 동일 콜백을 두 번 직접 호출 — onPressed: null로
+    // 바뀌는 건 다음 프레임부터라, 실제 연타는 이 두 호출로만 재현된다.
+    button.onPressed!();
+    button.onPressed!();
+
+    expect(notifier.createCalls, 1);
+
+    notifier.gate.complete();
+    await _pumpSubmit(tester);
+    while (find.text('확인').evaluate().isNotEmpty) {
+      await tester.tap(find.text('확인').first);
+      await _pumpSubmit(tester, iterations: 3);
+    }
+    await _pumpSubmit(tester, iterations: 3);
+
+    expect(notifier.createCalls, 1);
+    expect(storage.getGoals(), hasLength(1));
+  });
+
+  testWidgets('생성이 실패하면 입력값이 유지된 채 화면이 열려 있고 일반 오류 메시지만 보여준다', (tester) async {
+    setScreenSize(tester, const Size(600, 1600));
+    final storage = await createTestStorage();
+    late _GatedGoalsNotifier notifier;
+    await pumpApp(
+      tester,
+      storage,
+      const GoalFormScreen(),
+      overrides: [
+        goalsProvider.overrideWith((ref) {
+          notifier = _GatedGoalsNotifier(ref.watch(storageServiceProvider), ref);
+          notifier.shouldThrow = true;
+          return notifier;
+        }),
+      ],
+    );
+
+    await tester.enterText(find.widgetWithText(TextFormField, '목표'), '실패할 목표');
+    await tester.tap(find.text('추가하기'));
+    notifier.gate.complete();
+    await _pumpSubmit(tester);
+
+    // 원인은 노출되지 않고, 화면은 그대로 열려 있으며, 입력값도 그대로 남는다.
+    expect(find.text('목표를 저장하지 못했어요. 잠시 후 다시 시도해주세요.'), findsOneWidget);
+    expect(find.text('StateError'), findsNothing);
+    expect(find.text('목표 추가'), findsOneWidget);
+    expect(find.widgetWithText(TextFormField, '실패할 목표'), findsOneWidget);
+    expect(storage.getGoals(), isEmpty);
+
+    // 실패 이후 버튼은 다시 활성화되어 재시도할 수 있다.
+    expect(
+      tester.widget<FilledButton>(find.widgetWithText(FilledButton, '추가하기')).onPressed,
+      isNotNull,
+    );
+  });
+
+  testWidgets('편집 저장 버튼을 리빌드 전에 두 번 눌러도 수정은 한 번만 반영된다', (tester) async {
+    setScreenSize(tester, const Size(600, 1600));
+    final storage = await createTestStorage();
+    final existing = Goal(
+      id: 'g1',
+      title: '옛 목표',
+      description: '',
+      statId: 'health',
+      createdAt: DateTime(2026, 7, 1),
+    );
+    await storage.saveGoal(existing);
+    late _GatedGoalsNotifier notifier;
+    await pumpApp(
+      tester,
+      storage,
+      GoalFormScreen(existing: existing),
+      overrides: [
+        goalsProvider.overrideWith((ref) {
+          notifier = _GatedGoalsNotifier(ref.watch(storageServiceProvider), ref);
+          return notifier;
+        }),
+      ],
+    );
+
+    await tester.enterText(find.widgetWithText(TextFormField, '옛 목표'), '새 제목');
+
+    final button = tester.widget<FilledButton>(
+      find.widgetWithText(FilledButton, '저장하기'),
+    );
+    button.onPressed!();
+    button.onPressed!();
+
+    expect(notifier.updateCalls, 1);
+
+    notifier.gate.complete();
+    await _pumpSubmit(tester);
+
+    expect(notifier.updateCalls, 1);
+    expect(storage.getGoals().single.title, '새 제목');
+  });
+
+  testWidgets('편집 저장이 실패하면 existing과 storage가 그대로고 화면이 열린 채 일반 오류만 보여준다', (tester) async {
+    setScreenSize(tester, const Size(600, 1600));
+    final storage = await createTestStorage();
+    final existing = Goal(
+      id: 'g1',
+      title: '옛 목표',
+      description: '',
+      statId: 'health',
+      createdAt: DateTime(2026, 7, 1),
+    );
+    await storage.saveGoal(existing);
+    late _GatedGoalsNotifier notifier;
+    await pumpApp(
+      tester,
+      storage,
+      GoalFormScreen(existing: existing),
+      overrides: [
+        goalsProvider.overrideWith((ref) {
+          notifier = _GatedGoalsNotifier(ref.watch(storageServiceProvider), ref);
+          notifier.shouldThrow = true;
+          return notifier;
+        }),
+      ],
+    );
+
+    await tester.enterText(find.widgetWithText(TextFormField, '옛 목표'), '바뀔 뻔한 제목');
+    await tester.tap(find.text('저장하기'));
+    notifier.gate.complete();
+    await _pumpSubmit(tester);
+
+    expect(find.text('목표를 저장하지 못했어요. 잠시 후 다시 시도해주세요.'), findsOneWidget);
+    expect(find.text('목표 수정'), findsOneWidget);
+    expect(find.widgetWithText(TextFormField, '바뀔 뻔한 제목'), findsOneWidget);
+    // 라이브 객체도 storage도 실패 시 절대 바뀌지 않는다.
+    expect(existing.title, '옛 목표');
+    expect(storage.getGoal('g1')!.title, '옛 목표');
   });
 }

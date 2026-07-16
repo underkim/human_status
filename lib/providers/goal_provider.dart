@@ -10,6 +10,8 @@ import '../services/xp_service.dart';
 import 'profile_provider.dart';
 import 'quest_provider.dart';
 
+const _liveQuestStatuses = {QuestStatus.active, QuestStatus.suggested};
+
 final goalServiceProvider = Provider<GoalService>(
   (ref) => GoalService(storage: ref.watch(storageServiceProvider)),
 );
@@ -77,6 +79,17 @@ class GoalRequiresQuestsException implements Exception {
       'GoalRequiresQuestsException: decomposition produced no quests';
 }
 
+/// Thrown by [GoalsNotifier.updateGoal]/[GoalsNotifier.deleteGoal] when
+/// [goalId] no longer exists in storage (e.g. deleted by a concurrent call
+/// or a stale UI reference). Nothing is persisted when this is thrown.
+class GoalNotFoundException implements Exception {
+  final String goalId;
+  const GoalNotFoundException(this.goalId);
+
+  @override
+  String toString() => 'GoalNotFoundException: goal $goalId not found';
+}
+
 class GoalsNotifier extends StateNotifier<List<Goal>> {
   final StorageService storage;
   final Ref ref;
@@ -86,32 +99,108 @@ class GoalsNotifier extends StateNotifier<List<Goal>> {
   void reload() => state = storage.getGoals();
 
   /// Persists edits to an existing goal (title/description/date/amount).
+  /// [proposed] must be a detached copy (e.g. `existing.copy()` with the
+  /// edited fields applied) — never the live Hive-boxed goal — so a failed
+  /// save can never leave the caller's in-memory instance half-edited. This
+  /// method re-derives the actual candidate from the *current* stored
+  /// original plus [proposed]'s editable fields (title/description/
+  /// targetDate/targetAmount), ignoring any immutable/progress/status/reward
+  /// fields on [proposed]; a stale caller reference can never clobber
+  /// concurrent progress.
+  ///
   /// Does NOT re-run quest decomposition — that only happens at creation, so
   /// editing never spawns duplicate quests. If the edit lowers a financial
   /// goal's target to at or below its current amount, the goal is completed
   /// right away (returning the result so the UI can celebrate) — otherwise a
   /// financial goal has no manual complete button and would be stuck active.
-  Future<GoalCompletionResult?> updateGoal(Goal goal) async {
-    await storage.saveGoal(goal);
-    reload();
-    return checkFinancialGoalCompletion(goal.id);
+  ///
+  /// Runs inside [rewardLockProvider] (same critical section as
+  /// [completeGoal]/[deleteGoal]) so an edit-triggered completion can never
+  /// interleave with a concurrent completion or delete. If any step — the
+  /// edit save, the completion's goal save, stat XP, or achievement check —
+  /// fails, everything this call changed is rolled back (goal, stat,
+  /// achievements, providers) before the error is rethrown. Throws
+  /// [GoalNotFoundException] (persisting nothing) if [proposed.id] no longer
+  /// exists in storage.
+  Future<GoalCompletionResult?> updateGoal(Goal proposed) {
+    return ref.read(rewardLockProvider).synchronized(() async {
+      final rollback = RollbackScope();
+      try {
+        final original = storage.getGoal(proposed.id);
+        if (original == null) throw GoalNotFoundException(proposed.id);
+
+        final snapshot = original.copy();
+        rollback.addUndo(() async {
+          await storage.saveGoal(snapshot);
+          reload();
+        });
+
+        final candidate = original.copy()
+          ..title = proposed.title
+          ..description = proposed.description
+          ..targetDate = proposed.targetDate
+          ..targetAmount = proposed.targetAmount;
+        await storage.saveGoal(candidate);
+        reload();
+
+        final crossedFinancialTarget = candidate.targetAmount != null &&
+            candidate.currentAmount >= candidate.targetAmount!;
+        if (!crossedFinancialTarget) return null;
+        return await completeGoalLocked(candidate.id, rollback);
+      } catch (_) {
+        await rollback.rollback();
+        rethrow;
+      }
+    });
   }
 
   /// Deletes [goalId]. Any still-active or suggested quests generated for it
   /// are unlinked (goalId cleared) so they survive as ordinary quests instead
   /// of pointing at a goal that no longer exists; completed quests keep their
   /// link for history and for the bonus XP they already earned.
-  Future<void> deleteGoal(String goalId) async {
-    for (final q in storage.getQuests()) {
-      if (q.goalId != goalId) continue;
-      if (q.status == QuestStatus.active || q.status == QuestStatus.suggested) {
-        q.goalId = null;
-        await storage.saveQuest(q);
+  ///
+  /// Runs inside [rewardLockProvider] so this can never interleave with a
+  /// concurrent [completeGoal]/[updateGoal] on the same goal. Every quest
+  /// mutation and the goal itself are snapshotted as detached copies before
+  /// any write, so a failure partway through (some quests already unlinked,
+  /// or the final goal delete itself) restores every touched record exactly
+  /// — a retry after a genuine failure can never leave partial/unlinked
+  /// drift. If [goalId] no longer exists (already deleted, e.g. by a
+  /// concurrent call that ran first while this one waited on the lock), this
+  /// is a safe no-op.
+  Future<void> deleteGoal(String goalId) {
+    return ref.read(rewardLockProvider).synchronized(() async {
+      final rollback = RollbackScope();
+      try {
+        final goal = storage.getGoal(goalId);
+        if (goal == null) return;
+
+        final goalSnapshot = goal.copy();
+        rollback.addUndo(() async {
+          await storage.saveGoal(goalSnapshot);
+          reload();
+        });
+
+        final linkedQuests =
+            storage.getQuests().where((q) => q.goalId == goalId).toList();
+        for (final q in linkedQuests) {
+          if (!_liveQuestStatuses.contains(q.status)) continue;
+          final questSnapshot = q.copy();
+          rollback.addUndo(() async {
+            await storage.saveQuest(questSnapshot);
+            ref.read(questsProvider.notifier).reload();
+          });
+          await storage.saveQuest(q.copy()..goalId = null);
+        }
+
+        await storage.deleteGoal(goalId);
+        reload();
+        ref.read(questsProvider.notifier).reload();
+      } catch (_) {
+        await rollback.rollback();
+        rethrow;
       }
-    }
-    await storage.deleteGoal(goalId);
-    reload();
-    ref.read(questsProvider.notifier).reload();
+    });
   }
 
   /// Decomposes [goal] into quests (Claude if configured, else the local

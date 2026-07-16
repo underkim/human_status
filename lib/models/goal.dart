@@ -37,6 +37,24 @@ class Goal {
     bool? completionRewardClaimed,
   }) : completionRewardClaimed = completionRewardClaimed ?? (status == GoalStatus.completed);
 
+  /// A detached clone of every field, including the mutable ones. Used
+  /// wherever code needs to snapshot a goal (for rollback) or build a
+  /// proposed edit without mutating the live Hive-boxed instance — see
+  /// GoalFormScreen and GoalsNotifier.updateGoal/deleteGoal.
+  Goal copy() => Goal(
+        id: id,
+        title: title,
+        description: description,
+        statId: statId,
+        targetDate: targetDate,
+        targetAmount: targetAmount,
+        currentAmount: currentAmount,
+        status: status,
+        createdAt: createdAt,
+        completedAt: completedAt,
+        completionRewardClaimed: completionRewardClaimed,
+      );
+
   Map<String, dynamic> toJson() => {
         'id': id,
         'title': title,
