@@ -1,6 +1,8 @@
 import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:human_status/models/goal.dart';
 import 'package:human_status/models/quest.dart';
 import 'package:human_status/models/stat.dart';
@@ -191,6 +193,98 @@ void main() {
 
         expect(quests, isNotEmpty);
         expect(quests.every((q) => q.goalId == goal.id), isTrue);
+      },
+    );
+  });
+
+  group('GoalService secure API key selection', () {
+    test(
+      'with no source override and no stored API key, the local engine is used and no HTTP request is made',
+      () async {
+        final storage = await createTestStorage();
+        var requested = false;
+        final client = MockClient((request) async {
+          requested = true;
+          return http.Response('unused', 200);
+        });
+        final service = GoalService(storage: storage, claudeHttpClient: client);
+        final goal = _goal();
+
+        final quests = await service.decompose(goal, count: 2);
+
+        expect(requested, isFalse);
+        expect(quests, isNotEmpty);
+      },
+    );
+
+    test(
+      'with no source override and a stored API key, Claude is used with that key and its result is returned',
+      () async {
+        final storage = await createTestStorage();
+        await storage.saveClaudeApiKey('sk-ant-from-secure-storage');
+        String? capturedApiKeyHeader;
+        final client = MockClient((request) async {
+          capturedApiKeyHeader = request.headers['x-api-key'];
+          return http.Response(
+            '{"content": [{"type": "text", "text": '
+            '"[{\\"title\\": \\"Claude Generated Quest\\", \\"description\\": \\"d\\", '
+            '\\"difficulty\\": \\"easy\\", \\"xp\\": 10}]"}]}',
+            200,
+          );
+        });
+        final service = GoalService(storage: storage, claudeHttpClient: client);
+        final goal = _goal();
+
+        final quests = await service.decompose(goal, count: 2);
+
+        expect(capturedApiKeyHeader, 'sk-ant-from-secure-storage');
+        expect(quests, hasLength(1));
+        expect(quests.first.title, 'Claude Generated Quest');
+      },
+    );
+
+    test(
+      'a Claude HTTP failure with a stored API key still falls back to the local engine',
+      () async {
+        final storage = await createTestStorage();
+        await storage.saveClaudeApiKey('sk-ant-broken');
+        final client = MockClient(
+          (request) async => http.Response('server error', 500),
+        );
+        final service = GoalService(storage: storage, claudeHttpClient: client);
+        final goal = _goal();
+
+        final quests = await service.decompose(goal, count: 2);
+
+        expect(quests, isNotEmpty);
+        expect(quests.every((q) => q.goalId == goal.id), isTrue);
+      },
+    );
+
+    test(
+      'a stale legacy profile.claudeApiKey alone (no secure key) is not selected once the app is initialized',
+      () async {
+        final storage = await createTestStorage();
+        // Simulate a leftover legacy field that failed to scrub for some
+        // reason; the secure cache (storage.claudeApiKey) is what governs
+        // source selection, not the raw profile field.
+        final profile = storage.getProfile();
+        profile.claudeApiKey = 'sk-stale-legacy-only-on-profile';
+        await storage.saveProfile(profile);
+        expect(storage.claudeApiKey, isNull);
+
+        var requested = false;
+        final client = MockClient((request) async {
+          requested = true;
+          return http.Response('unused', 200);
+        });
+        final service = GoalService(storage: storage, claudeHttpClient: client);
+        final goal = _goal();
+
+        final quests = await service.decompose(goal, count: 2);
+
+        expect(requested, isFalse);
+        expect(quests, isNotEmpty);
       },
     );
   });

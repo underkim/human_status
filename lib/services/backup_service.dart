@@ -405,6 +405,21 @@ class BackupService {
     for (final e in snapshot.achievements.entries) {
       await storage.unlockAchievement(e.key, e.value);
     }
-    await storage.saveProfile(snapshot.profile);
+    // 스냅샷 프로필 객체로 통째로 덮어쓰지 않는다 — 그 객체는 claudeApiKey를
+    // 애초에 복사하지 않았으므로(_copyProfile 참고), 그대로 saveProfile하면
+    // 아직 보안 저장소로 마이그레이션되지 못한 레거시 키(그 상태에서는
+    // 유일한 복사본)를 지워버린다. 대신 현재 프로필 객체에 비-시크릿
+    // 필드만 되돌려 써서 claudeApiKey는 항상 손대지 않는다.
+    final currentProfile = storage.getProfile();
+    currentProfile.lastQuestRefresh = snapshot.profile.lastQuestRefresh;
+    currentProfile.reminderMinutesSinceMidnight =
+        snapshot.profile.reminderMinutesSinceMidnight;
+    currentProfile.lastAdviceRefresh = snapshot.profile.lastAdviceRefresh;
+    currentProfile.cachedAdvice = snapshot.profile.cachedAdvice;
+    currentProfile.weeklyReportReminderEnabled =
+        snapshot.profile.weeklyReportReminderEnabled;
+    currentProfile.onboardingCompleted = snapshot.profile.onboardingCompleted;
+    currentProfile.preferredStatId = snapshot.profile.preferredStatId;
+    await storage.saveProfile(currentProfile);
   }
 }

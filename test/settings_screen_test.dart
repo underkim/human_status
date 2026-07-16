@@ -203,4 +203,53 @@ void main() {
       expect(storage.claudeApiKey, 'sk-ant-existing');
     });
   });
+
+  group('데이터 초기화와 레거시 전용 API 키 (Codex review 회귀)', () {
+    testWidgets('보안 저장소가 계속 사용 불가능해 레거시 필드가 유일한 복사본인 상태에서도, '
+        '데이터 초기화 UI를 실제로 밟은 뒤 유효 키와 레거시 복사본이 모두 살아남는다', (tester) async {
+      final secretStore = FakeSecretStore()..failWrite = true;
+      final storage = StorageService(inMemory: true, secretStore: secretStore);
+      await storage.init();
+      final profile = storage.getProfile();
+      profile.claudeApiKey = 'sk-legacy-only-survives-reset';
+      await storage.saveProfile(profile);
+      // 마이그레이션이 실패한 채로 유지되도록 재초기화한다 — 이제
+      // storage.claudeApiKey는 레거시 필드에서만 온 값이다.
+      await storage.init();
+      addTearDown(Hive.close);
+      expect(storage.claudeApiKey, 'sk-legacy-only-survives-reset');
+
+      await storage.saveQuest(
+        Quest(
+          id: 'q1',
+          title: '지울 퀘스트',
+          description: '',
+          statRewards: {'health': 10},
+          createdAt: DateTime(2026, 7, 1),
+        ),
+      );
+
+      await pumpApp(tester, storage, const SettingsScreen());
+      expect(find.text('설정됨 — AI 추천 사용 중'), findsOneWidget);
+
+      await tester.tap(find.text('데이터 초기화'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('초기화'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('초기화되었습니다.'), findsOneWidget);
+      expect(storage.getQuests(), isEmpty);
+      // 유효 키(캐시)와 레거시 유일 복사본이 모두 살아남는다.
+      expect(storage.claudeApiKey, 'sk-legacy-only-survives-reset');
+      expect(
+        storage.getProfile().claudeApiKey,
+        'sk-legacy-only-survives-reset',
+      );
+
+      // 재초기화 후에도 여전히 살아남아야 한다(마이그레이션은 여전히
+      // 실패하는 상태이므로 레거시 필드가 유지된다).
+      await storage.init();
+      expect(storage.claudeApiKey, 'sk-legacy-only-survives-reset');
+    });
+  });
 }

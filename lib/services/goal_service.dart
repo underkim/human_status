@@ -1,3 +1,5 @@
+import 'package:http/http.dart' as http;
+
 import '../models/goal.dart';
 import '../models/quest.dart';
 import 'claude_goal_decomposition_source.dart';
@@ -10,9 +12,15 @@ class GoalService {
   final StorageService storage;
   final GoalDecompositionSource source;
 
+  /// Passed through to a Claude-selected source; only ever set by tests so
+  /// the API-key-triggered network call can be observed/mocked without a
+  /// real request. Production code leaves this null.
+  final http.Client? claudeHttpClient;
+
   GoalService({
     required this.storage,
     GoalDecompositionSource? source,
+    this.claudeHttpClient,
   }) : source = source ?? LocalRuleGoalDecompositionSource();
 
   /// Breaks [goal] down into quests. Tries Claude first if an API key is
@@ -50,7 +58,10 @@ class GoalService {
     if (source is! LocalRuleGoalDecompositionSource) return source;
     final apiKey = storage.claudeApiKey;
     if (apiKey == null || apiKey.trim().isEmpty) return source;
-    return ClaudeGoalDecompositionSource(apiKey: apiKey);
+    return ClaudeGoalDecompositionSource(
+      apiKey: apiKey,
+      httpClient: claudeHttpClient,
+    );
   }
 
   /// Progress toward [goal], from 0.0 to 1.0. Financial goals (targetAmount

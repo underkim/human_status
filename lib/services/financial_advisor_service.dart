@@ -1,3 +1,5 @@
+import 'package:http/http.dart' as http;
+
 import '../models/goal.dart';
 import '../models/transaction.dart';
 import '../models/user_profile.dart';
@@ -12,11 +14,17 @@ class FinancialAdvisorService {
   final StorageService storage;
   final FinancialAdviceSource source;
 
+  /// Passed through to a Claude-selected source; only ever set by tests so
+  /// the API-key-triggered network call can be observed/mocked without a
+  /// real request. Production code leaves this null.
+  final http.Client? claudeHttpClient;
+
   static const refreshInterval = Duration(hours: 24);
 
   FinancialAdvisorService({
     required this.storage,
     FinancialAdviceSource? source,
+    this.claudeHttpClient,
   }) : source = source ?? LocalRuleFinancialAdviceSource();
 
   bool shouldRefresh(UserProfile profile) {
@@ -114,6 +122,9 @@ class FinancialAdvisorService {
     if (source is! LocalRuleFinancialAdviceSource) return source;
     final apiKey = storage.claudeApiKey;
     if (apiKey == null || apiKey.trim().isEmpty) return source;
-    return ClaudeFinancialAdviceSource(apiKey: apiKey);
+    return ClaudeFinancialAdviceSource(
+      apiKey: apiKey,
+      httpClient: claudeHttpClient,
+    );
   }
 }

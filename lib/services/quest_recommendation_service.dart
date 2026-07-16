@@ -1,3 +1,5 @@
+import 'package:http/http.dart' as http;
+
 import '../models/quest.dart';
 import '../models/user_profile.dart';
 import 'claude_quest_suggestion_source.dart';
@@ -10,11 +12,17 @@ class QuestRecommendationService {
   final StorageService storage;
   final QuestSuggestionSource source;
 
+  /// Passed through to a Claude-selected source; only ever set by tests so
+  /// the API-key-triggered network call can be observed/mocked without a
+  /// real request. Production code leaves this null.
+  final http.Client? claudeHttpClient;
+
   static const refreshInterval = Duration(hours: 24);
 
   QuestRecommendationService({
     required this.storage,
     QuestSuggestionSource? source,
+    this.claudeHttpClient,
   }) : source = source ?? LocalRuleQuestSuggestionSource();
 
   bool shouldRefresh(UserProfile profile) {
@@ -84,6 +92,9 @@ class QuestRecommendationService {
     if (source is! LocalRuleQuestSuggestionSource) return source;
     final apiKey = storage.claudeApiKey;
     if (apiKey == null || apiKey.trim().isEmpty) return source;
-    return ClaudeQuestSuggestionSource(apiKey: apiKey);
+    return ClaudeQuestSuggestionSource(
+      apiKey: apiKey,
+      httpClient: claudeHttpClient,
+    );
   }
 }

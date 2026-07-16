@@ -7,7 +7,6 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/stat.dart';
-import '../models/user_profile.dart';
 import '../providers/asset_snapshot_provider.dart';
 import '../providers/finance_provider.dart';
 import '../providers/financial_planning_provider.dart';
@@ -257,10 +256,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     if (confirmed != true) return;
 
     final storage = ref.read(storageServiceProvider);
-    final preservedProfile = ref.read(profileProvider);
     await storage.statsBox.clear();
     await storage.questsBox.clear();
-    await storage.profileBox.clear();
     await storage.achievementsBox.clear();
     await storage.goalsBox.clear();
     await storage.transactionsBox.clear();
@@ -269,18 +266,21 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     for (final s in StorageService.defaultStats) {
       await storage.saveStat(Stat(id: s.id, name: s.name, icon: s.icon));
     }
+    // profileBox는 clear하지 않고 현재 레코드를 제자리에서 수정한다 —
+    // clear+재생성은 아직 보안 저장소로 마이그레이션되지 못한 레거시 API
+    // 키 필드(그 상태에서는 유일한 복사본)까지 지워버린다. reminderMinutes/
+    // weeklyReportReminderEnabled와 (아직 남아 있을 수 있는) claudeApiKey는
+    // 건드리지 않고, lastQuestRefresh/lastAdviceRefresh/cachedAdvice/
+    // onboardingCompleted/preferredStatId만 초기 상태로 되돌린다.
     // lastQuestRefresh는 보존하지 않는다 — 초기화로 추천 퀘스트도 사라졌으니
     // 다음 실행에서 24시간 간격을 기다리지 않고 바로 새 추천이 생성돼야 한다.
-    // Claude API 키는 profileBox가 아니라 보안 저장소에 있으므로 이 초기화의
-    // 영향을 받지 않고 그대로 유지된다 — 여기서 복사할 필요가 없다.
-    await storage.saveProfile(
-      UserProfile(
-        reminderMinutesSinceMidnight:
-            preservedProfile.reminderMinutesSinceMidnight,
-        weeklyReportReminderEnabled:
-            preservedProfile.weeklyReportReminderEnabled,
-      ),
-    );
+    final profile = storage.getProfile();
+    profile.lastQuestRefresh = null;
+    profile.lastAdviceRefresh = null;
+    profile.cachedAdvice = [];
+    profile.onboardingCompleted = false;
+    profile.preferredStatId = null;
+    await storage.saveProfile(profile);
     ref.read(statsProvider.notifier).reload();
     ref.read(questsProvider.notifier).reload();
     ref.read(profileProvider.notifier).reload();

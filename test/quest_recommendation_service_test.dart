@@ -1,6 +1,8 @@
 import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:human_status/data/quest_templates.dart';
 import 'package:human_status/models/quest.dart';
 import 'package:human_status/models/stat.dart';
@@ -280,6 +282,95 @@ void main() {
         await service.refreshIfNeeded();
 
         expect(storage.getProfile().lastQuestRefresh, recent);
+      },
+    );
+  });
+
+  group('QuestRecommendationService secure API key selection', () {
+    late StorageService storage;
+
+    setUp(() async {
+      storage = await createTestStorage();
+    });
+
+    test(
+      'with no source override and no stored API key, the local engine is used and no HTTP request is made',
+      () async {
+        var requested = false;
+        final client = MockClient((request) async {
+          requested = true;
+          return http.Response('unused', 200);
+        });
+        final service = QuestRecommendationService(
+          storage: storage,
+          claudeHttpClient: client,
+        );
+
+        await service.refreshIfNeeded();
+
+        expect(requested, isFalse);
+        expect(
+          storage
+              .getQuests()
+              .where((q) => q.status == QuestStatus.suggested)
+              .isNotEmpty,
+          isTrue,
+        );
+      },
+    );
+
+    test(
+      'with no source override and a stored API key, Claude is used with that key and its result is saved',
+      () async {
+        await storage.saveClaudeApiKey('sk-ant-from-secure-storage');
+        String? capturedApiKeyHeader;
+        final client = MockClient((request) async {
+          capturedApiKeyHeader = request.headers['x-api-key'];
+          return http.Response(
+            '{"content": [{"type": "text", "text": '
+            '"[{\\"title\\": \\"Claude Generated Suggestion\\", \\"description\\": \\"d\\", '
+            '\\"statId\\": \\"health\\", \\"difficulty\\": \\"easy\\", \\"xp\\": 10}]"}]}',
+            200,
+          );
+        });
+        final service = QuestRecommendationService(
+          storage: storage,
+          claudeHttpClient: client,
+        );
+
+        await service.refreshIfNeeded();
+
+        expect(capturedApiKeyHeader, 'sk-ant-from-secure-storage');
+        final suggestions = storage
+            .getQuests()
+            .where((q) => q.status == QuestStatus.suggested)
+            .toList();
+        expect(suggestions, hasLength(1));
+        expect(suggestions.first.title, 'Claude Generated Suggestion');
+      },
+    );
+
+    test(
+      'a Claude HTTP failure with a stored API key still falls back to the local engine',
+      () async {
+        await storage.saveClaudeApiKey('sk-ant-broken');
+        final client = MockClient(
+          (request) async => http.Response('server error', 500),
+        );
+        final service = QuestRecommendationService(
+          storage: storage,
+          claudeHttpClient: client,
+        );
+
+        await service.refreshIfNeeded();
+
+        expect(
+          storage
+              .getQuests()
+              .where((q) => q.status == QuestStatus.suggested)
+              .isNotEmpty,
+          isTrue,
+        );
       },
     );
   });

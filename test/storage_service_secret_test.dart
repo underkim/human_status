@@ -233,4 +233,160 @@ void main() {
   test('UserProfile() constructed fresh has no claudeApiKey', () {
     expect(UserProfile().claudeApiKey, isNull);
   });
+
+  group('legacy-only fallback delete/save regression (Codex review)', () {
+    test(
+      'legacy-only fallback -> recovery -> delete -> re-init: key stays absent (does not resurrect)',
+      () async {
+        final secretStore = FakeSecretStore()..failWrite = true;
+        final storage = StorageService(
+          inMemory: true,
+          secretStore: secretStore,
+        );
+        await storage.init();
+        final profile = storage.getProfile();
+        profile.claudeApiKey = 'sk-legacy-only';
+        await storage.saveProfile(profile);
+
+        // Re-init while secure storage is still broken: migration fails,
+        // legacy field remains the only copy.
+        await storage.init();
+        expect(storage.claudeApiKey, 'sk-legacy-only');
+        expect(storage.getProfile().claudeApiKey, 'sk-legacy-only');
+        expect(secretStore.values.containsKey('claude_api_key'), isFalse);
+
+        // Secure storage recovers, and a later init migrates the key.
+        secretStore.failWrite = false;
+        await storage.init();
+        expect(storage.claudeApiKey, 'sk-legacy-only');
+        expect(storage.getProfile().claudeApiKey, isNull);
+        expect(secretStore.values['claude_api_key'], 'sk-legacy-only');
+
+        // Now delete it.
+        await storage.deleteClaudeApiKey();
+        expect(storage.claudeApiKey, isNull);
+        expect(storage.getProfile().claudeApiKey, isNull);
+        expect(secretStore.values.containsKey('claude_api_key'), isFalse);
+
+        // Re-init must not resurrect the deleted key from any leftover
+        // legacy remnant.
+        await storage.init();
+        expect(storage.claudeApiKey, isNull);
+        expect(storage.getProfile().claudeApiKey, isNull);
+        expect(secretStore.values.containsKey('claude_api_key'), isFalse);
+      },
+    );
+
+    test(
+      'deleteClaudeApiKey while still in legacy-only fallback clears both the (empty) secure slot and the legacy field',
+      () async {
+        final secretStore = FakeSecretStore()..failWrite = true;
+        final storage = StorageService(
+          inMemory: true,
+          secretStore: secretStore,
+        );
+        await storage.init();
+        final profile = storage.getProfile();
+        profile.claudeApiKey = 'sk-legacy-only';
+        await storage.saveProfile(profile);
+        await storage.init();
+        expect(storage.claudeApiKey, 'sk-legacy-only');
+
+        await storage.deleteClaudeApiKey();
+
+        expect(storage.claudeApiKey, isNull);
+        expect(storage.getProfile().claudeApiKey, isNull);
+
+        await storage.init();
+        expect(storage.claudeApiKey, isNull);
+      },
+    );
+
+    test(
+      'a delete that fails while in legacy-only fallback leaves the only copy completely untouched',
+      () async {
+        final secretStore = FakeSecretStore()
+          ..failWrite = true
+          ..failDelete = true;
+        final storage = StorageService(
+          inMemory: true,
+          secretStore: secretStore,
+        );
+        await storage.init();
+        final profile = storage.getProfile();
+        profile.claudeApiKey = 'sk-legacy-only';
+        await storage.saveProfile(profile);
+        await storage.init();
+        expect(storage.claudeApiKey, 'sk-legacy-only');
+
+        await expectLater(
+          storage.deleteClaudeApiKey(),
+          throwsA(isA<Exception>()),
+        );
+
+        expect(storage.claudeApiKey, 'sk-legacy-only');
+        expect(storage.getProfile().claudeApiKey, 'sk-legacy-only');
+
+        await storage.init();
+        expect(storage.claudeApiKey, 'sk-legacy-only');
+      },
+    );
+
+    test(
+      'saveClaudeApiKey while in legacy-only fallback scrubs the stale legacy field so it cannot later override the new key',
+      () async {
+        final secretStore = FakeSecretStore()..failWrite = true;
+        final storage = StorageService(
+          inMemory: true,
+          secretStore: secretStore,
+        );
+        await storage.init();
+        final profile = storage.getProfile();
+        profile.claudeApiKey = 'sk-old-legacy';
+        await storage.saveProfile(profile);
+        await storage.init();
+        expect(storage.claudeApiKey, 'sk-old-legacy');
+
+        // Secure storage recovers just as the user saves a brand new key.
+        secretStore.failWrite = false;
+        await storage.saveClaudeApiKey('sk-brand-new');
+
+        expect(storage.claudeApiKey, 'sk-brand-new');
+        expect(storage.getProfile().claudeApiKey, isNull);
+        expect(secretStore.values['claude_api_key'], 'sk-brand-new');
+
+        // Re-init must load the new secure value, not resurrect the old
+        // legacy one.
+        await storage.init();
+        expect(storage.claudeApiKey, 'sk-brand-new');
+      },
+    );
+
+    test(
+      'a stale legacy duplicate cannot resurrect an old key after a normal (non-fallback) delete',
+      () async {
+        // Secure storage already holds the current key; a stale legacy
+        // duplicate also happens to be present (e.g. a previous scrub that
+        // didn't complete for some other reason).
+        final secretStore = FakeSecretStore()
+          ..values['claude_api_key'] = 'sk-current';
+        final storage = StorageService(
+          inMemory: true,
+          secretStore: secretStore,
+        );
+        await storage.init();
+        expect(storage.claudeApiKey, 'sk-current');
+        expect(storage.getProfile().claudeApiKey, isNull);
+
+        await storage.deleteClaudeApiKey();
+
+        expect(storage.claudeApiKey, isNull);
+        expect(storage.getProfile().claudeApiKey, isNull);
+        expect(secretStore.values.containsKey('claude_api_key'), isFalse);
+
+        await storage.init();
+        expect(storage.claudeApiKey, isNull);
+      },
+    );
+  });
 }

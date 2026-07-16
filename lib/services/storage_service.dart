@@ -55,6 +55,13 @@ class StorageService {
   /// synchronously once [init] has completed.
   String? _claudeApiKey;
 
+  /// True when [_claudeApiKey] is sourced only from the legacy [UserProfile]
+  /// field because secure storage has never durably accepted it this
+  /// session (a read or write failed). While true, the legacy field is the
+  /// *only* copy of the key, so delete/save must not clear it until the
+  /// secure store has actually taken over.
+  bool _usingLegacyFallback = false;
+
   /// Effective Claude API key. `null` when none is configured.
   String? get claudeApiKey => _claudeApiKey;
 
@@ -131,6 +138,7 @@ class StorageService {
       // Secure storage unavailable this run: fall back to the legacy value
       // (if any) without touching the profile, so a later init can retry.
       _claudeApiKey = hasLegacyValue ? legacyValue : null;
+      _usingLegacyFallback = hasLegacyValue;
       return;
     }
 
@@ -138,6 +146,7 @@ class StorageService {
       // Secure storage already holds the current key; it wins over any
       // stale legacy duplicate, which is scrubbed now that it's redundant.
       _claudeApiKey = secureValue;
+      _usingLegacyFallback = false;
       if (hasLegacyValue) {
         profile.claudeApiKey = null;
         try {
@@ -151,6 +160,7 @@ class StorageService {
 
     if (!hasLegacyValue) {
       _claudeApiKey = null;
+      _usingLegacyFallback = false;
       return;
     }
 
@@ -160,10 +170,12 @@ class StorageService {
       profile.claudeApiKey = null;
       await saveProfile(profile);
       _claudeApiKey = legacyValue;
+      _usingLegacyFallback = false;
     } catch (_) {
       // Migration failed — keep the only copy (the legacy field) intact and
       // usable; the next init() will retry the migration.
       _claudeApiKey = legacyValue;
+      _usingLegacyFallback = true;
     }
   }
 
@@ -173,11 +185,52 @@ class StorageService {
   Future<void> saveClaudeApiKey(String key) async {
     await secretStore.write(_claudeApiKeySecretKey, key);
     _claudeApiKey = key;
+    _usingLegacyFallback = false;
+    // Best-effort: scrub any stale legacy duplicate now that secure storage
+    // is authoritative for the new value. A failure here is harmless —
+    // secure storage already holds the current key and always wins over any
+    // leftover legacy value on the next init.
+    try {
+      final profile = getProfile();
+      if (profile.claudeApiKey != null) {
+        profile.claudeApiKey = null;
+        await saveProfile(profile);
+      }
+    } catch (_) {
+      // Not fatal; see comment above.
+    }
   }
 
   /// Removes the Claude API key from secure storage and clears the cached
-  /// value. Throws on failure without changing the cached value.
+  /// value. Throws on failure without changing the cached value, and never
+  /// erases the only remaining copy of the key.
   Future<void> deleteClaudeApiKey() async {
+    if (_usingLegacyFallback) {
+      // The legacy profile field is currently the *only* copy (secure
+      // storage has never durably accepted a write this session). Delete
+      // from secure storage first — usually a no-op there — and only clear
+      // the legacy field once that succeeds, so a failure leaves the only
+      // copy completely untouched.
+      await secretStore.delete(_claudeApiKeySecretKey);
+      final profile = getProfile();
+      profile.claudeApiKey = null;
+      await saveProfile(profile);
+      _claudeApiKey = null;
+      _usingLegacyFallback = false;
+      return;
+    }
+
+    // Secure storage is (or should already be) authoritative. Scrub any
+    // stale legacy duplicate first: if that fails, abort before touching
+    // secure storage at all, so the old key stays fully effective
+    // everywhere. If it succeeds but the secure delete that follows fails,
+    // the still-intact secure copy remains authoritative on the next read,
+    // so nothing is lost either way.
+    final profile = getProfile();
+    if (profile.claudeApiKey != null) {
+      profile.claudeApiKey = null;
+      await saveProfile(profile);
+    }
     await secretStore.delete(_claudeApiKeySecretKey);
     _claudeApiKey = null;
   }

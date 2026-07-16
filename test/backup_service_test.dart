@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:hive/hive.dart';
 import 'package:human_status/models/asset_snapshot.dart';
 import 'package:human_status/models/financial_plan.dart';
 import 'package:human_status/models/goal.dart';
@@ -12,6 +13,7 @@ import 'package:human_status/services/backup_service.dart';
 import 'package:human_status/services/onboarding_gate.dart';
 import 'package:human_status/services/storage_service.dart';
 
+import 'helpers/fake_secret_store.dart';
 import 'helpers/test_app.dart';
 
 Future<StorageService> _seededStorage() async {
@@ -461,5 +463,85 @@ void main() {
     expect(failure.toString(), contains('injected apply failure'));
     expect(failure.toString(), contains('injected rollback failure'));
     expect(failure.toString(), contains('partial'));
+  });
+
+  test('보안 저장소가 사용 불가능해 API 키가 프로필의 유일한 복사본인 상태에서, '
+      'restore 도중 실패해도 rollback이 그 유일한 복사본을 지우지 않는다', () async {
+    final secretStore = FakeSecretStore()..failWrite = true;
+    final storage = StorageService(inMemory: true, secretStore: secretStore);
+    await storage.init();
+    addTearDown(Hive.close);
+    final health = storage.getStat('health')!;
+    health.level = 4;
+    await storage.saveStat(health);
+    await storage.saveQuest(
+      Quest(
+        id: 'q1',
+        title: '아침 운동',
+        description: '',
+        statRewards: {'health': 30},
+        createdAt: DateTime(2026, 6, 1),
+      ),
+    );
+    final profile = storage.getProfile();
+    profile.claudeApiKey = 'sk-legacy-only-copy';
+    await storage.saveProfile(profile);
+    // 마이그레이션이 실패한 채로 유지되도록 재초기화한다.
+    await storage.init();
+    expect(storage.claudeApiKey, 'sk-legacy-only-copy');
+
+    final service = BackupService(storage: storage);
+    final incoming = jsonEncode({
+      'schemaVersion': 1,
+      'stats': [Stat(id: 'health', name: '건강', icon: '💪', level: 9).toJson()],
+      'quests': <Map<String, dynamic>>[],
+    });
+    service.debugApplyFaultInjector = () {
+      throw StateError('injected apply failure');
+    };
+
+    await expectLater(
+      service.restore(incoming),
+      throwsA(isA<BackupRestoreException>()),
+    );
+
+    // rollback 이후에도 유일한 복사본(레거시 필드)과 유효 키가 그대로다.
+    expect(storage.claudeApiKey, 'sk-legacy-only-copy');
+    expect(storage.getProfile().claudeApiKey, 'sk-legacy-only-copy');
+
+    // 재초기화해도 사라지지 않는다.
+    await storage.init();
+    expect(storage.claudeApiKey, 'sk-legacy-only-copy');
+  });
+
+  test('보안 저장소가 사용 불가능해 API 키가 프로필의 유일한 복사본인 상태에서, '
+      '성공적인 restore도 그 유일한 복사본을 보존한다', () async {
+    final secretStore = FakeSecretStore()..failWrite = true;
+    final storage = StorageService(inMemory: true, secretStore: secretStore);
+    await storage.init();
+    addTearDown(Hive.close);
+    await storage.saveQuest(
+      Quest(
+        id: 'q1',
+        title: '아침 운동',
+        description: '',
+        statRewards: {'health': 30},
+        createdAt: DateTime(2026, 6, 1),
+      ),
+    );
+    final profile = storage.getProfile();
+    profile.claudeApiKey = 'sk-legacy-only-copy';
+    await storage.saveProfile(profile);
+    await storage.init();
+    expect(storage.claudeApiKey, 'sk-legacy-only-copy');
+
+    final service = BackupService(storage: storage);
+    final backup = service.encode();
+    expect(backup, isNot(contains('sk-legacy-only-copy')));
+
+    await service.restore(backup);
+
+    expect(storage.claudeApiKey, 'sk-legacy-only-copy');
+    expect(storage.getProfile().claudeApiKey, 'sk-legacy-only-copy');
   });
 }

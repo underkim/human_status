@@ -3,6 +3,8 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hive/hive.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:human_status/models/asset_snapshot.dart';
 import 'package:human_status/models/goal.dart';
 import 'package:human_status/models/transaction.dart';
@@ -206,6 +208,75 @@ void main() {
 
         expect(advice, hasLength(1));
         expect(advice.first.message, 'old advice');
+      },
+    );
+  });
+
+  group('FinancialAdvisorService secure API key selection', () {
+    test(
+      'with no source override and no stored API key, the local engine is used and no HTTP request is made',
+      () async {
+        final storage = await createTestStorage();
+        var requested = false;
+        final client = MockClient((request) async {
+          requested = true;
+          return http.Response('unused', 200);
+        });
+        final service = FinancialAdvisorService(
+          storage: storage,
+          claudeHttpClient: client,
+        );
+
+        final advice = await service.refreshIfNeeded();
+
+        expect(requested, isFalse);
+        expect(advice, isNotEmpty);
+      },
+    );
+
+    test(
+      'with no source override and a stored API key, Claude is used with that key and its result is cached',
+      () async {
+        final storage = await createTestStorage();
+        await storage.saveClaudeApiKey('sk-ant-from-secure-storage');
+        String? capturedApiKeyHeader;
+        final client = MockClient((request) async {
+          capturedApiKeyHeader = request.headers['x-api-key'];
+          return http.Response(
+            '{"content": [{"type": "text", "text": '
+            '"[{\\"category\\": \\"spending\\", \\"message\\": \\"Claude generated advice\\"}]"}]}',
+            200,
+          );
+        });
+        final service = FinancialAdvisorService(
+          storage: storage,
+          claudeHttpClient: client,
+        );
+
+        final advice = await service.refreshIfNeeded();
+
+        expect(capturedApiKeyHeader, 'sk-ant-from-secure-storage');
+        expect(advice, hasLength(1));
+        expect(advice.first.message, 'Claude generated advice');
+      },
+    );
+
+    test(
+      'a Claude HTTP failure with a stored API key still falls back to the local engine',
+      () async {
+        final storage = await createTestStorage();
+        await storage.saveClaudeApiKey('sk-ant-broken');
+        final client = MockClient(
+          (request) async => http.Response('server error', 500),
+        );
+        final service = FinancialAdvisorService(
+          storage: storage,
+          claudeHttpClient: client,
+        );
+
+        final advice = await service.refreshIfNeeded();
+
+        expect(advice, isNotEmpty);
       },
     );
   });
