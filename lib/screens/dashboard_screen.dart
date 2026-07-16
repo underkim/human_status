@@ -12,6 +12,7 @@ import '../widgets/achievement_dialog.dart';
 import '../widgets/action_hub_card.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/level_up_dialog.dart';
+import '../widgets/page_content_bounds.dart';
 import '../widgets/progression_journey_card.dart';
 import '../widgets/quest_card.dart';
 import '../widgets/stat_bar.dart';
@@ -47,131 +48,139 @@ class DashboardScreen extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(title: const Text('Human Status')),
-      body: ListView(
-        padding: const EdgeInsets.all(AppSpacing.lg),
-        children: [
-          if (isFirstRun) ...[
+      body: PageContentBounds(
+        maxWidth: PageContentBounds.wide,
+        child: ListView(
+          padding: const EdgeInsets.all(AppSpacing.lg),
+          children: [
+            if (isFirstRun) ...[
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(AppSpacing.lg),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '시작해볼까요?',
+                        style: Theme.of(context).textTheme.titleLarge,
+                      ),
+                      const SizedBox(height: AppSpacing.xs),
+                      Text(
+                        '첫 목표를 만들면 AI가 실행할 작은 퀘스트로 나눠드려요. 퀘스트를 완료할 때마다 스텟이 자라요.',
+                        style: Theme.of(context).textTheme.bodyMedium,
+                      ),
+                      const SizedBox(height: AppSpacing.md),
+                      FilledButton.icon(
+                        onPressed: () => Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => const GoalFormScreen(),
+                          ),
+                        ),
+                        icon: const Icon(Icons.flag),
+                        label: const Text('첫 목표 만들기'),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: AppSpacing.lg),
+            ] else ...[
+              ActionHubCard(onViewAllQuests: onViewAllQuests),
+              const SizedBox(height: AppSpacing.lg),
+              const ProgressionJourneyCard(),
+              const SizedBox(height: AppSpacing.lg),
+            ],
             Card(
               child: Padding(
                 padding: const EdgeInsets.all(AppSpacing.lg),
                 child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      '시작해볼까요?',
-                      style: Theme.of(context).textTheme.titleLarge,
+                      '종합 레벨',
+                      style: Theme.of(context).textTheme.titleMedium,
                     ),
                     const SizedBox(height: AppSpacing.xs),
                     Text(
-                      '첫 목표를 만들면 AI가 실행할 작은 퀘스트로 나눠드려요. 퀘스트를 완료할 때마다 스텟이 자라요.',
-                      style: Theme.of(context).textTheme.bodyMedium,
-                    ),
-                    const SizedBox(height: AppSpacing.md),
-                    FilledButton.icon(
-                      onPressed: () => Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (_) => const GoalFormScreen(),
-                        ),
-                      ),
-                      icon: const Icon(Icons.flag),
-                      label: const Text('첫 목표 만들기'),
+                      'Lv.$overallLevel',
+                      style: Theme.of(context).textTheme.displaySmall,
                     ),
                   ],
                 ),
               ),
             ),
             const SizedBox(height: AppSpacing.lg),
-          ] else ...[
-            ActionHubCard(onViewAllQuests: onViewAllQuests),
+            Text('스텟', style: Theme.of(context).textTheme.titleLarge),
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: AppSpacing.lg,
+                  vertical: AppSpacing.sm,
+                ),
+                child: Column(
+                  children: stats.map((s) => StatBar(stat: s)).toList(),
+                ),
+              ),
+            ),
             const SizedBox(height: AppSpacing.lg),
-            const ProgressionJourneyCard(),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text('진행중인 퀘스트', style: Theme.of(context).textTheme.titleLarge),
+                Text('${activeQuests.length}개'),
+              ],
+            ),
+            if (remainingActiveQuests.isEmpty)
+              EmptyState(
+                icon: Icons.checklist_outlined,
+                message: activeQuests.isEmpty
+                    ? '진행중인 퀘스트가 없어요.\n퀘스트 탭에서 추가해보세요.'
+                    : '위 오늘의 행동에서 다음 퀘스트를 완료해보세요.',
+              )
+            else
+              _RemainingActiveQuests(
+                quests: remainingActiveQuests.take(3).toList(),
+                stats: stats,
+                goals: goals,
+              ),
             const SizedBox(height: AppSpacing.lg),
-          ],
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(AppSpacing.lg),
-              child: Column(
-                children: [
-                  Text('종합 레벨', style: Theme.of(context).textTheme.titleMedium),
-                  const SizedBox(height: AppSpacing.xs),
-                  Text(
-                    'Lv.$overallLevel',
-                    style: Theme.of(context).textTheme.displaySmall,
-                  ),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: AppSpacing.lg),
-          Text('스텟', style: Theme.of(context).textTheme.titleLarge),
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(
-                horizontal: AppSpacing.lg,
-                vertical: AppSpacing.sm,
-              ),
-              child: Column(
-                children: stats.map((s) => StatBar(stat: s)).toList(),
-              ),
-            ),
-          ),
-          const SizedBox(height: AppSpacing.lg),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text('진행중인 퀘스트', style: Theme.of(context).textTheme.titleLarge),
-              Text('${activeQuests.length}개'),
-            ],
-          ),
-          if (remainingActiveQuests.isEmpty)
-            EmptyState(
-              icon: Icons.checklist_outlined,
-              message: activeQuests.isEmpty
-                  ? '진행중인 퀘스트가 없어요.\n퀘스트 탭에서 추가해보세요.'
-                  : '위 오늘의 행동에서 다음 퀘스트를 완료해보세요.',
-            )
-          else
-            _RemainingActiveQuests(
-              quests: remainingActiveQuests.take(3).toList(),
-              stats: stats,
-              goals: goals,
-            ),
-          const SizedBox(height: AppSpacing.lg),
-          Text('진행중인 목표', style: Theme.of(context).textTheme.titleLarge),
-          if (activeGoals.isEmpty)
-            const EmptyState(
-              icon: Icons.flag_outlined,
-              message: '설정된 목표가 없어요.\n목표 탭에서 추가해보세요.',
-            )
-          else
-            ...activeGoals
-                .take(3)
-                .map(
-                  (g) => Card(
-                    margin: const EdgeInsets.symmetric(vertical: AppSpacing.xs),
-                    child: Padding(
-                      padding: const EdgeInsets.all(AppSpacing.md),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            g.title,
-                            style: Theme.of(context).textTheme.titleMedium,
-                          ),
-                          const SizedBox(height: AppSpacing.xs),
-                          ClipRRect(
-                            borderRadius: BorderRadius.circular(AppRadius.sm),
-                            child: LinearProgressIndicator(
-                              value: goalProgress[g.id] ?? 0,
-                              minHeight: 6,
+            Text('진행중인 목표', style: Theme.of(context).textTheme.titleLarge),
+            if (activeGoals.isEmpty)
+              const EmptyState(
+                icon: Icons.flag_outlined,
+                message: '설정된 목표가 없어요.\n목표 탭에서 추가해보세요.',
+              )
+            else
+              ...activeGoals
+                  .take(3)
+                  .map(
+                    (g) => Card(
+                      margin: const EdgeInsets.symmetric(
+                        vertical: AppSpacing.xs,
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.all(AppSpacing.md),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              g.title,
+                              style: Theme.of(context).textTheme.titleMedium,
                             ),
-                          ),
-                        ],
+                            const SizedBox(height: AppSpacing.xs),
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(AppRadius.sm),
+                              child: LinearProgressIndicator(
+                                value: goalProgress[g.id] ?? 0,
+                                minHeight: 6,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   ),
-                ),
-        ],
+          ],
+        ),
       ),
     );
   }

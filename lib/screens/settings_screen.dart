@@ -17,6 +17,7 @@ import '../providers/quest_provider.dart';
 import '../services/backup_service.dart';
 import '../services/storage_service.dart';
 import '../theme/app_colors.dart';
+import '../widgets/page_content_bounds.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({
@@ -620,89 +621,150 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
     return Scaffold(
       appBar: AppBar(title: const Text('설정')),
-      body: ListView(
-        children: [
-          ListTile(
-            leading: const Icon(Icons.smart_toy_outlined),
-            title: const Text('Claude API 키'),
-            subtitle: Text(
-              apiKeySet ? '설정됨 — AI 추천 사용 중' : '설정 안 됨 — 로컬 규칙 기반 추천 사용 중',
+      body: PageContentBounds(
+        maxWidth: PageContentBounds.wide,
+        child: ListView(
+          children: [
+            ListTile(
+              leading: const Icon(Icons.smart_toy_outlined),
+              title: const Text('Claude API 키'),
+              subtitle: Text(
+                apiKeySet ? '설정됨 — AI 추천 사용 중' : '설정 안 됨 — 로컬 규칙 기반 추천 사용 중',
+              ),
+              onTap: () => _editApiKey(context, ref),
             ),
-            onTap: () => _editApiKey(context, ref),
-          ),
-          ListTile(
-            leading: const Icon(Icons.notifications_outlined),
-            title: const Text('알림 시간'),
-            // 알림이 켜져 있어도 OS 권한이 거부돼 있으면 실제로는 오지 않으므로,
-            // 설정 화면 표시와 실제 동작이 항상 일치하도록 권한 상태를 함께 보여준다.
-            subtitle: reminderMinutes != null && !kIsWeb
-                ? FutureBuilder<bool?>(
-                    future: ref
-                        .read(notificationServiceProvider)
-                        .areNotificationsEnabled(),
-                    builder: (context, snap) {
-                      if (snap.hasData && snap.data == false) {
-                        return Text(
-                          '$reminderSubtitle · 권한 꺼짐 — 기기 설정에서 허용해주세요',
-                          style: TextStyle(color: context.appColors.warning),
-                        );
-                      }
-                      return Text(reminderSubtitle);
-                    },
-                  )
-                : Text(reminderSubtitle),
-            onTap: () => _editReminder(context, ref),
-          ),
-          SwitchListTile(
-            secondary: const Icon(Icons.summarize_outlined),
-            title: const Text('주간 리포트 알림'),
-            subtitle: Text(
-              kIsWeb ? '이 플랫폼(웹)에서는 지원되지 않아요' : '일요일 20:00에 한 주 활동 요약을 알려드려요',
+            ListTile(
+              leading: const Icon(Icons.notifications_outlined),
+              title: const Text('알림 시간'),
+              // 알림이 켜져 있어도 OS 권한이 거부돼 있으면 실제로는 오지 않으므로,
+              // 설정 화면 표시와 실제 동작이 항상 일치하도록 권한 상태를 함께 보여준다.
+              subtitle: reminderMinutes != null && !kIsWeb
+                  ? FutureBuilder<bool?>(
+                      future: ref
+                          .read(notificationServiceProvider)
+                          .areNotificationsEnabled(),
+                      builder: (context, snap) {
+                        if (snap.hasData && snap.data == false) {
+                          return Text(
+                            '$reminderSubtitle · 권한 꺼짐 — 기기 설정에서 허용해주세요',
+                            style: TextStyle(color: context.appColors.warning),
+                          );
+                        }
+                        return Text(reminderSubtitle);
+                      },
+                    )
+                  : Text(reminderSubtitle),
+              onTap: () => _editReminder(context, ref),
             ),
-            value: profile.weeklyReportReminderEnabled && !kIsWeb,
-            onChanged: kIsWeb
-                ? null
-                : (v) => _toggleWeeklyReport(context, ref, v),
-          ),
-          ListTile(
-            leading: const Icon(Icons.refresh),
-            title: const Text('추천 퀘스트 새로고침'),
-            subtitle: const Text('보통 24시간마다 자동 갱신돼요. 지금 바로 새로고침할 수 있어요.'),
-            onTap: () async {
-              await ref.read(questsProvider.notifier).refreshSuggestions();
-              if (context.mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('추천 퀘스트를 새로고침했습니다.')),
-                );
-              }
-            },
-          ),
-          ListTile(
-            leading: const Icon(Icons.upload_file),
-            title: const Text('백업 내보내기'),
-            // 확인 대화상자를 띄우는 동안까지 애니메이션이 도는 스피너를
-            // 계속 보여주면 오해를 주므로(사용자 입력을 기다리는 중일 뿐
-            // 실제로 바쁜 게 아니다), 정적인 텍스트/비활성화로만 진행 중임을
-            // 알린다.
-            subtitle: _exportInProgress ? const Text('저장하는 중...') : null,
-            enabled: !_exportInProgress,
-            onTap: _exportInProgress ? null : () => _exportBackup(context, ref),
-          ),
-          ListTile(
-            leading: const Icon(Icons.download),
-            title: const Text('백업 가져오기'),
-            subtitle: _importInProgress ? const Text('가져오는 중...') : null,
-            enabled: !_importInProgress,
-            onTap: _importInProgress ? null : () => _importBackup(context, ref),
-          ),
-          const Divider(),
-          ListTile(
-            leading: Icon(Icons.delete_forever, color: context.appColors.error),
-            title: Text(
-              '데이터 초기화',
-              style: TextStyle(color: context.appColors.error),
+            SwitchListTile(
+              secondary: const Icon(Icons.summarize_outlined),
+              title: const Text('주간 리포트 알림'),
+              subtitle: Text(
+                kIsWeb ? '이 플랫폼(웹)에서는 지원되지 않아요' : '일요일 20:00에 한 주 활동 요약을 알려드려요',
+              ),
+              value: profile.weeklyReportReminderEnabled && !kIsWeb,
+              onChanged: kIsWeb
+                  ? null
+                  : (v) => _toggleWeeklyReport(context, ref, v),
             ),
-            onTap: () => _confirmReset(context, ref),
+            ListTile(
+              leading: const Icon(Icons.refresh),
+              title: const Text('추천 퀘스트 새로고침'),
+              subtitle: const Text('보통 24시간마다 자동 갱신돼요. 지금 바로 새로고침할 수 있어요.'),
+              onTap: () async {
+                await ref.read(questsProvider.notifier).refreshSuggestions();
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('추천 퀘스트를 새로고침했습니다.')),
+                  );
+                }
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.upload_file),
+              title: const Text('백업 내보내기'),
+              // 확인 대화상자를 띄우는 동안까지 애니메이션이 도는 스피너를
+              // 계속 보여주면 오해를 주므로(사용자 입력을 기다리는 중일 뿐
+              // 실제로 바쁜 게 아니다), 정적인 텍스트/비활성화로만 진행 중임을
+              // 알린다.
+              subtitle: _exportInProgress ? const Text('저장하는 중...') : null,
+              enabled: !_exportInProgress,
+              onTap: _exportInProgress
+                  ? null
+                  : () => _exportBackup(context, ref),
+            ),
+            ListTile(
+              leading: const Icon(Icons.download),
+              title: const Text('백업 가져오기'),
+              subtitle: _importInProgress ? const Text('가져오는 중...') : null,
+              enabled: !_importInProgress,
+              onTap: _importInProgress
+                  ? null
+                  : () => _importBackup(context, ref),
+            ),
+            ListTile(
+              leading: const Icon(Icons.privacy_tip_outlined),
+              title: const Text('데이터 및 개인정보'),
+              subtitle: const Text('기기에 저장 · API 키는 백업에서 제외'),
+              onTap: () => _showDataPrivacyDialog(context),
+            ),
+            const Divider(),
+            ListTile(
+              leading: Icon(
+                Icons.delete_forever,
+                color: context.appColors.error,
+              ),
+              title: Text(
+                '데이터 초기화',
+                style: TextStyle(color: context.appColors.error),
+              ),
+              onTap: () => _confirmReset(context, ref),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Read-only informational dialog — no storage or provider access, so it
+  /// cannot mutate app state no matter how it's dismissed.
+  Future<void> _showDataPrivacyDialog(BuildContext context) async {
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('데이터 및 개인정보'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: const [
+              Text(
+                '모든 게임 데이터(스텟·퀘스트·목표·거래 등)는 계정이나 서버 동기화 없이 이 '
+                '기기에만 로컬로 저장돼요.',
+              ),
+              SizedBox(height: 12),
+              Text(
+                'Claude API 키는 지원되는 플랫폼에서는 보안 저장소(Android Keystore, '
+                'iOS/macOS Keychain, Windows DPAPI, Linux libsecret)에 저장되고, '
+                '백업 파일에는 포함되지 않아요.',
+              ),
+              SizedBox(height: 12),
+              Text(
+                '기기를 바꾸거나 데이터를 초기화하기 전에는 설정의 "백업 내보내기"로 먼저 '
+                '내보내두는 걸 권장해요.',
+              ),
+              SizedBox(height: 12),
+              Text(
+                '웹에서는 API 키 보호 수준이 다른 플랫폼보다 낮아요. 신뢰할 수 있는 기기의 '
+                'HTTPS 환경에서만 사용해주세요.',
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('닫기'),
           ),
         ],
       ),

@@ -52,6 +52,8 @@ void main() {
     await pumpApp(tester, storage, const SettingsScreen());
     expect(find.text('설정됨 — AI 추천 사용 중'), findsOneWidget);
 
+    await tester.ensureVisible(find.text('데이터 초기화'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('데이터 초기화'));
     await tester.pumpAndSettle();
 
@@ -61,6 +63,8 @@ void main() {
     await tester.pumpAndSettle();
     expect(storage.getQuests(), isNotEmpty);
 
+    await tester.ensureVisible(find.text('데이터 초기화'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('데이터 초기화'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('초기화'));
@@ -120,6 +124,8 @@ void main() {
     );
     await tester.pumpAndSettle();
     await tester.tap(find.text('설정'));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('데이터 초기화'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('데이터 초기화'));
     await tester.pumpAndSettle();
@@ -242,6 +248,8 @@ void main() {
       await pumpApp(tester, storage, const SettingsScreen());
       expect(find.text('설정됨 — AI 추천 사용 중'), findsOneWidget);
 
+      await tester.ensureVisible(find.text('데이터 초기화'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('데이터 초기화'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('초기화'));

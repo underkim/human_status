@@ -9,6 +9,7 @@ import '../providers/goal_provider.dart';
 import '../providers/profile_provider.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_spacing.dart';
+import '../widgets/page_content_bounds.dart';
 
 /// 완전한 신규 설치의 첫 화면. 게임 루프(퀘스트=현실 행동, 완료=XP/스탯
 /// 성장, 목표=퀘스트 묶음)를 짧게 안내하고, 우선 성장 스탯 선택 → 스타터
@@ -101,26 +102,29 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
         ],
       ),
       body: SafeArea(
-        child: switch (_step) {
-          _OnboardingStep.intro => _IntroStep(
-            onNext: () => setState(() => _step = _OnboardingStep.chooseStat),
-          ),
-          _OnboardingStep.chooseStat => _ChooseStatStep(
-            stats: ref.watch(statsProvider),
-            selectedStatId: _selectedStatId,
-            onSelect: _selectStat,
-          ),
-          _OnboardingStep.chooseGoal => _ChooseGoalStep(
-            statId: _selectedStatId!,
-            isSubmitting: _isSubmitting,
-            errorMessage: _errorMessage,
-            onStart: _startGoal,
-            onBack: () => setState(() {
-              _step = _OnboardingStep.chooseStat;
-              _errorMessage = null;
-            }),
-          ),
-        },
+        child: PageContentBounds(
+          maxWidth: PageContentBounds.narrow,
+          child: switch (_step) {
+            _OnboardingStep.intro => _IntroStep(
+              onNext: () => setState(() => _step = _OnboardingStep.chooseStat),
+            ),
+            _OnboardingStep.chooseStat => _ChooseStatStep(
+              stats: ref.watch(statsProvider),
+              selectedStatId: _selectedStatId,
+              onSelect: _selectStat,
+            ),
+            _OnboardingStep.chooseGoal => _ChooseGoalStep(
+              statId: _selectedStatId!,
+              isSubmitting: _isSubmitting,
+              errorMessage: _errorMessage,
+              onStart: _startGoal,
+              onBack: () => setState(() {
+                _step = _OnboardingStep.chooseStat;
+                _errorMessage = null;
+              }),
+            ),
+          },
+        ),
       ),
     );
   }

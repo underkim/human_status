@@ -10,6 +10,7 @@ import '../providers/quest_provider.dart';
 import '../widgets/achievement_dialog.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/level_up_dialog.dart';
+import '../widgets/page_content_bounds.dart';
 import '../widgets/quest_card.dart';
 import 'quest_form_screen.dart';
 
@@ -56,13 +57,16 @@ class _QuestsScreenState extends ConsumerState<QuestsScreen>
           ],
         ),
       ),
-      body: TabBarView(
-        controller: _tabController,
-        children: [
-          _ActiveTab(quests: active, stats: stats, goals: goals),
-          _SuggestedTab(quests: suggested, stats: stats, goals: goals),
-          _CompletedTab(quests: completed, stats: stats, goals: goals),
-        ],
+      body: PageContentBounds(
+        maxWidth: PageContentBounds.wide,
+        child: TabBarView(
+          controller: _tabController,
+          children: [
+            _ActiveTab(quests: active, stats: stats, goals: goals),
+            _SuggestedTab(quests: suggested, stats: stats, goals: goals),
+            _CompletedTab(quests: completed, stats: stats, goals: goals),
+          ],
+        ),
       ),
       floatingActionButton: FloatingActionButton(
         // HomeShell의 IndexedStack은 모든 탭을 동시에 마운트해두므로, 기본

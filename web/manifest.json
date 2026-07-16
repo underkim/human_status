@@ -1,11 +1,11 @@
 {
-    "name": "human_status",
-    "short_name": "human_status",
+    "name": "Human Status",
+    "short_name": "Human Status",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "background_color": "#F6F4EE",
+    "theme_color": "#2E6F5C",
+    "description": "Turn real-life actions into quests and grow every day.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

@@ -62,8 +62,11 @@ flutter build windows --release
 flutter build web --release
 ```
 
-Android는 로컬에 `ANDROID_HOME`/SDK가 없어 빌드를 확인하지 못했습니다. CI가
-`flutter build apk --debug`로 Android 빌드 가능 여부를 대신 검증합니다.
+Windows·Web 릴리즈 빌드는 2026-07-16에 로컬에서 검증되었습니다. Android는
+로컬에 `ANDROID_HOME`/SDK가 없어 여전히 빌드를 확인하지 못했습니다(CI가
+`flutter build apk --debug`로 Android 빌드 가능 여부를 대신 검증합니다).
+애플리케이션/번들 ID, 서명 구성, 최종 아이콘은 아직 확정되지 않았고, 실제
+배포 전 명시적으로 채워야 할 릴리즈 게이트로 남아 있습니다.
 
 ### CI
 

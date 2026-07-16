@@ -11,4 +11,4 @@ PRODUCT_NAME = human_status
 PRODUCT_BUNDLE_IDENTIFIER = com.example.humanStatus
 
 // The copyright displayed in application information
-PRODUCT_COPYRIGHT = Copyright © 2026 com.example. All rights reserved.
+PRODUCT_COPYRIGHT = Copyright © 2026 Human Status contributors. All rights reserved.

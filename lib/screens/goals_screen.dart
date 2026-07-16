@@ -10,6 +10,7 @@ import '../widgets/achievement_dialog.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/goal_progress_card.dart';
 import '../widgets/level_up_dialog.dart';
+import '../widgets/page_content_bounds.dart';
 import 'goal_form_screen.dart';
 
 /// Top-level 목표 destination — Scaffold chrome around [GoalsListView].
@@ -20,7 +21,10 @@ class GoalsScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('목표')),
-      body: const GoalsListView(),
+      body: const PageContentBounds(
+        maxWidth: PageContentBounds.wide,
+        child: GoalsListView(),
+      ),
       floatingActionButton: FloatingActionButton(
         // 탭마다 고유 heroTag — quests_screen.dart의 FAB 주석 참고.
         heroTag: 'goals_fab',
@@ -51,7 +55,9 @@ class _GoalsListViewState extends ConsumerState<GoalsListView> {
     if (_completingGoals.contains(goal.id)) return;
     setState(() => _completingGoals.add(goal.id));
     try {
-      final result = await ref.read(goalsProvider.notifier).completeGoal(goal.id);
+      final result = await ref
+          .read(goalsProvider.notifier)
+          .completeGoal(goal.id);
       if (!mounted) return;
       final messenger = ScaffoldMessenger.of(context);
       messenger.showSnackBar(
