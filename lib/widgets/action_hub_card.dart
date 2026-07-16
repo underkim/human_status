@@ -30,14 +30,23 @@ class ActionHubCard extends ConsumerStatefulWidget {
 }
 
 class _ActionHubCardState extends ConsumerState<ActionHubCard> {
-  bool _completing = false;
+  // 강조 퀘스트가 완료 처리 도중 바뀔 수 있으므로(다른 화면에서 먼저
+  // 완료/삭제하는 등), pending 상태를 전역 bool이 아니라 액션이 시작된
+  // 퀘스트 id에 묶어둔다 — 그래야 예전 강조 퀘스트의 완료가 아직 진행중인
+  // 채로 강조 퀘스트가 바뀌어도, 새로 강조된(별개 id의) 퀘스트 버튼까지
+  // 엉뚱하게 잠기지 않는다.
+  final Set<String> _completingIds = {};
+  final Set<String> _adoptingIds = {};
 
   Future<void> _completeHighlighted(String id, String title) async {
-    if (_completing) return;
-    setState(() => _completing = true);
+    if (_completingIds.contains(id)) return;
+    setState(() => _completingIds.add(id));
     try {
       final result = await ref.read(questsProvider.notifier).completeQuest(id);
       if (!mounted) return;
+      // didComplete가 false라는 건 다른 화면이 먼저 이 퀘스트를 완료/삭제해
+      // 이 호출은 조용한 무결과였다는 뜻 — 성공 UI도 에러 UI도 띄우지 않는다.
+      if (!result.didComplete) return;
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('"$title" 완료!')));
@@ -60,7 +69,28 @@ class _ActionHubCardState extends ConsumerState<ActionHubCard> {
         ),
       );
     } finally {
-      if (mounted) setState(() => _completing = false);
+      if (mounted) setState(() => _completingIds.remove(id));
+    }
+  }
+
+  Future<void> _adoptSuggested(String id) async {
+    if (_adoptingIds.contains(id)) return;
+    setState(() => _adoptingIds.add(id));
+    try {
+      await ref.read(questsProvider.notifier).adoptSuggestion(id);
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('퀘스트를 채택하지 못했어요. 다시 시도해주세요.'),
+          action: SnackBarAction(
+            label: '재시도',
+            onPressed: () => _adoptSuggested(id),
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _adoptingIds.remove(id));
     }
   }
 
@@ -92,6 +122,7 @@ class _ActionHubCardState extends ConsumerState<ActionHubCard> {
 
     Widget body;
     if (nextQuest != null) {
+      final completing = _completingIds.contains(nextQuest.id);
       body = Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -102,10 +133,10 @@ class _ActionHubCardState extends ConsumerState<ActionHubCard> {
             goals: goals,
             actions: [
               FilledButton(
-                onPressed: _completing
+                onPressed: completing
                     ? null
                     : () => _completeHighlighted(nextQuest.id, nextQuest.title),
-                child: _completing
+                child: completing
                     ? const SizedBox(
                         width: 16,
                         height: 16,
@@ -119,6 +150,7 @@ class _ActionHubCardState extends ConsumerState<ActionHubCard> {
       );
     } else if (suggested.isNotEmpty) {
       final top = suggested.first;
+      final adopting = _adoptingIds.contains(top.id);
       body = Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -129,9 +161,14 @@ class _ActionHubCardState extends ConsumerState<ActionHubCard> {
             goals: goals,
             actions: [
               FilledButton(
-                onPressed: () =>
-                    ref.read(questsProvider.notifier).adoptSuggestion(top.id),
-                child: const Text('채택하고 시작'),
+                onPressed: adopting ? null : () => _adoptSuggested(top.id),
+                child: adopting
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Text('채택하고 시작'),
               ),
             ],
           ),

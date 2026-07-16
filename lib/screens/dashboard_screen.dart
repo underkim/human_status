@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../models/goal.dart';
+import '../models/quest.dart';
+import '../models/stat.dart';
 import '../providers/goal_provider.dart';
 import '../providers/profile_provider.dart';
 import '../providers/quest_provider.dart';
@@ -21,27 +24,6 @@ class DashboardScreen extends ConsumerWidget {
   final VoidCallback? onViewAllQuests;
 
   const DashboardScreen({super.key, this.onViewAllQuests});
-
-  /// 홈의 성공 기준은 "화면을 벗어나지 않고 퀘스트 하나를 완료"할 수 있는 것 —
-  /// 퀘스트 탭과 동일한 완료 처리(스낵바 + 레벨업/업적 다이얼로그)를 그대로 쓴다.
-  Future<void> _completeQuest(
-    BuildContext context,
-    WidgetRef ref,
-    String id,
-  ) async {
-    final matches = ref.read(questsProvider).where((q) => q.id == id);
-    final quest = matches.isNotEmpty ? matches.first : null;
-    final result = await ref.read(questsProvider.notifier).completeQuest(id);
-    if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(quest != null ? '"${quest.title}" 완료!' : '퀘스트를 완료했어요!'),
-      ),
-    );
-    await showLevelUpDialog(context, ref.read(statsProvider), result.levelUps);
-    if (!context.mounted) return;
-    await showAchievementDialog(context, result.newAchievements);
-  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -149,21 +131,11 @@ class DashboardScreen extends ConsumerWidget {
                   : '위 오늘의 행동에서 다음 퀘스트를 완료해보세요.',
             )
           else
-            ...remainingActiveQuests
-                .take(3)
-                .map(
-                  (q) => QuestCard(
-                    quest: q,
-                    stats: stats,
-                    goals: goals,
-                    actions: [
-                      FilledButton(
-                        onPressed: () => _completeQuest(context, ref, q.id),
-                        child: const Text('완료'),
-                      ),
-                    ],
-                  ),
-                ),
+            _RemainingActiveQuests(
+              quests: remainingActiveQuests.take(3).toList(),
+              stats: stats,
+              goals: goals,
+            ),
           const SizedBox(height: AppSpacing.lg),
           Text('진행중인 목표', style: Theme.of(context).textTheme.titleLarge),
           if (activeGoals.isEmpty)
@@ -201,6 +173,96 @@ class DashboardScreen extends ConsumerWidget {
                 ),
         ],
       ),
+    );
+  }
+}
+
+/// 허브 아래 "진행중인 퀘스트" 목록의 남은 카드들 — 퀘스트별 완료 가드는
+/// 재빌드 이전(첫 await 이전)에 동기적으로 세팅되어 연타를 막고, 완료
+/// 처리 중인 카드만 스피너로 잠근다(나머지 행은 그대로 조작 가능).
+/// quests_screen.dart의 `_ActiveTab`과 같은 패턴 — 홈의 성공 기준은
+/// "화면을 벗어나지 않고 퀘스트 하나를 완료"할 수 있는 것이므로, 완료
+/// 피드백(스낵바 + 레벨업/업적 다이얼로그)도 퀘스트 탭과 동일하게 쓴다.
+class _RemainingActiveQuests extends ConsumerStatefulWidget {
+  final List<Quest> quests;
+  final List<Stat> stats;
+  final List<Goal> goals;
+
+  const _RemainingActiveQuests({
+    required this.quests,
+    required this.stats,
+    required this.goals,
+  });
+
+  @override
+  ConsumerState<_RemainingActiveQuests> createState() =>
+      _RemainingActiveQuestsState();
+}
+
+class _RemainingActiveQuestsState
+    extends ConsumerState<_RemainingActiveQuests> {
+  final Set<String> _completingIds = {};
+
+  Future<void> _completeQuest(Quest quest) async {
+    if (_completingIds.contains(quest.id)) return;
+    setState(() => _completingIds.add(quest.id));
+    try {
+      final result = await ref
+          .read(questsProvider.notifier)
+          .completeQuest(quest.id);
+      if (!mounted) return;
+      // 다른 화면이 먼저 완료/삭제해 이 호출이 조용한 무결과였다면
+      // (didComplete == false) 성공 UI도 에러 UI도 띄우지 않는다.
+      if (!result.didComplete) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('"${quest.title}" 완료!')));
+      await showLevelUpDialog(
+        context,
+        ref.read(statsProvider),
+        result.levelUps,
+      );
+      if (!mounted) return;
+      await showAchievementDialog(context, result.newAchievements);
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('퀘스트 완료 처리에 실패했어요. 잠시 후 다시 시도해주세요.'),
+          action: SnackBarAction(
+            label: '재시도',
+            onPressed: () => _completeQuest(quest),
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _completingIds.remove(quest.id));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: widget.quests.map((q) {
+        final completing = _completingIds.contains(q.id);
+        return QuestCard(
+          quest: q,
+          stats: widget.stats,
+          goals: widget.goals,
+          actions: [
+            FilledButton(
+              onPressed: completing ? null : () => _completeQuest(q),
+              child: completing
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Text('완료'),
+            ),
+          ],
+        );
+      }).toList(),
     );
   }
 }

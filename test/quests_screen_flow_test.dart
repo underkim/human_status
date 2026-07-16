@@ -10,14 +10,21 @@ import 'package:human_status/widgets/quest_card.dart';
 
 import 'helpers/test_app.dart';
 
-Quest _quest(String id, String title, {QuestStatus status = QuestStatus.active, double xp = 30}) {
+Quest _quest(
+  String id,
+  String title, {
+  QuestStatus status = QuestStatus.active,
+  double xp = 30,
+}) {
   return Quest(
     id: id,
     title: title,
     description: '',
     statRewards: {'health': xp},
     status: status,
-    source: status == QuestStatus.suggested ? QuestSource.suggested : QuestSource.manual,
+    source: status == QuestStatus.suggested
+        ? QuestSource.suggested
+        : QuestSource.manual,
     createdAt: DateTime(2026, 7, 1),
   );
 }
@@ -69,7 +76,52 @@ class _GatedQuestsListNotifier extends QuestsNotifier {
   }
 }
 
+/// completeQuest가 항상 didComplete: false인 안전한 무결과를 돌려주는
+/// QuestsNotifier — 다른 화면이 먼저 완료/삭제해서 이 호출이 조용한 stale
+/// no-op이 된 상황을 재현한다.
+class _StaleNoOpQuestsNotifier extends QuestsNotifier {
+  _StaleNoOpQuestsNotifier(super.storage, super.ref);
+
+  @override
+  Future<QuestCompletionResult> completeQuest(String id) async {
+    return const QuestCompletionResult(
+      didComplete: false,
+      levelUps: {},
+      newAchievements: [],
+    );
+  }
+}
+
 void main() {
+  testWidgets('didComplete가 false면(다른 화면이 먼저 완료/삭제) 완료 스낵바나 다이얼로그를 띄우지 않는다', (
+    tester,
+  ) async {
+    final storage = await createTestStorage();
+    await storage.saveQuest(_quest('q1', '물 마시기'));
+
+    await pumpApp(
+      tester,
+      storage,
+      const QuestsScreen(),
+      overrides: [
+        questsProvider.overrideWith(
+          (ref) =>
+              _StaleNoOpQuestsNotifier(ref.watch(storageServiceProvider), ref),
+        ),
+      ],
+    );
+
+    await tester.tap(find.text('완료'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('완료!'), findsNothing);
+    expect(find.text('🏆 업적 달성!'), findsNothing);
+    expect(find.text('🎉 레벨업!'), findsNothing);
+    expect(find.textContaining('실패'), findsNothing);
+    // 진행중 탭에도 그대로 남는다 — 무결과이므로 상태가 바뀌지 않는다.
+    expect(find.text('진행중 (1)'), findsOneWidget);
+  });
+
   testWidgets('완료 버튼은 XP를 적립하고 스낵바·업적 다이얼로그를 띄운 뒤 완료 탭으로 옮긴다', (tester) async {
     final storage = await createTestStorage();
     await storage.saveQuest(_quest('q1', '물 마시기'));
@@ -168,8 +220,12 @@ void main() {
 
   testWidgets('추천 퀘스트는 채택하면 진행중으로, 무시하면 목록에서 사라진다', (tester) async {
     final storage = await createTestStorage();
-    await storage.saveQuest(_quest('s1', '아침 산책', status: QuestStatus.suggested));
-    await storage.saveQuest(_quest('s2', '독서 10분', status: QuestStatus.suggested));
+    await storage.saveQuest(
+      _quest('s1', '아침 산책', status: QuestStatus.suggested),
+    );
+    await storage.saveQuest(
+      _quest('s2', '독서 10분', status: QuestStatus.suggested),
+    );
 
     await pumpApp(tester, storage, const QuestsScreen());
     await tester.tap(find.text('추천 (2)'));
@@ -198,13 +254,18 @@ void main() {
       const QuestsScreen(),
       overrides: [
         questsProvider.overrideWith((ref) {
-          notifier = _GatedQuestsListNotifier(ref.watch(storageServiceProvider), ref);
+          notifier = _GatedQuestsListNotifier(
+            ref.watch(storageServiceProvider),
+            ref,
+          );
           return notifier;
         }),
       ],
     );
 
-    final button = tester.widget<FilledButton>(find.widgetWithText(FilledButton, '완료'));
+    final button = tester.widget<FilledButton>(
+      find.widgetWithText(FilledButton, '완료'),
+    );
     button.onPressed!();
     button.onPressed!();
 
@@ -223,7 +284,9 @@ void main() {
     expect(storage.getQuest('q1')!.status, QuestStatus.completed);
   });
 
-  testWidgets('완료가 실패하면 일반 오류 메시지만 보여주고 퀘스트는 진행중으로 남으며, 재시도는 성공한다', (tester) async {
+  testWidgets('완료가 실패하면 일반 오류 메시지만 보여주고 퀘스트는 진행중으로 남으며, 재시도는 성공한다', (
+    tester,
+  ) async {
     final storage = await createTestStorage();
     await storage.saveQuest(_quest('q1', '완료할 퀘스트'));
     late _GatedQuestsListNotifier notifier;
@@ -233,7 +296,10 @@ void main() {
       const QuestsScreen(),
       overrides: [
         questsProvider.overrideWith((ref) {
-          notifier = _GatedQuestsListNotifier(ref.watch(storageServiceProvider), ref);
+          notifier = _GatedQuestsListNotifier(
+            ref.watch(storageServiceProvider),
+            ref,
+          );
           notifier.shouldThrow = true;
           return notifier;
         }),
@@ -262,7 +328,9 @@ void main() {
     expect(storage.getQuest('q1')!.status, QuestStatus.completed);
   });
 
-  testWidgets('삭제 확인창이 뜨기 전에 같은 퀘스트를 빠르게 두 번 눌러도 확인창은 하나만 뜨고 삭제는 한 번만 반영된다', (tester) async {
+  testWidgets('삭제 확인창이 뜨기 전에 같은 퀘스트를 빠르게 두 번 눌러도 확인창은 하나만 뜨고 삭제는 한 번만 반영된다', (
+    tester,
+  ) async {
     final storage = await createTestStorage();
     await storage.saveQuest(_quest('q1', '지울 퀘스트'));
     late _GatedQuestsListNotifier notifier;
@@ -272,7 +340,10 @@ void main() {
       const QuestsScreen(),
       overrides: [
         questsProvider.overrideWith((ref) {
-          notifier = _GatedQuestsListNotifier(ref.watch(storageServiceProvider), ref);
+          notifier = _GatedQuestsListNotifier(
+            ref.watch(storageServiceProvider),
+            ref,
+          );
           return notifier;
         }),
       ],
@@ -296,7 +367,9 @@ void main() {
     expect(storage.getQuests(), isEmpty);
   });
 
-  testWidgets('삭제가 실패하면 일반 오류 메시지만 보여주고 목록은 그대로 남으며, 재시도는 성공한다', (tester) async {
+  testWidgets('삭제가 실패하면 일반 오류 메시지만 보여주고 목록은 그대로 남으며, 재시도는 성공한다', (
+    tester,
+  ) async {
     final storage = await createTestStorage();
     await storage.saveQuest(_quest('q1', '지울 퀘스트'));
     late _GatedQuestsListNotifier notifier;
@@ -306,7 +379,10 @@ void main() {
       const QuestsScreen(),
       overrides: [
         questsProvider.overrideWith((ref) {
-          notifier = _GatedQuestsListNotifier(ref.watch(storageServiceProvider), ref);
+          notifier = _GatedQuestsListNotifier(
+            ref.watch(storageServiceProvider),
+            ref,
+          );
           notifier.shouldThrow = true;
           return notifier;
         }),
@@ -341,9 +417,13 @@ void main() {
     expect(storage.getQuests(), isEmpty);
   });
 
-  testWidgets('추천 퀘스트의 채택/무시를 연타해도 각각 한 번만 반영되고, 실패는 일반 오류 후 재시도할 수 있다', (tester) async {
+  testWidgets('추천 퀘스트의 채택/무시를 연타해도 각각 한 번만 반영되고, 실패는 일반 오류 후 재시도할 수 있다', (
+    tester,
+  ) async {
     final storage = await createTestStorage();
-    await storage.saveQuest(_quest('s1', '추천 퀘스트', status: QuestStatus.suggested));
+    await storage.saveQuest(
+      _quest('s1', '추천 퀘스트', status: QuestStatus.suggested),
+    );
     late _GatedQuestsListNotifier notifier;
     await pumpApp(
       tester,
@@ -351,7 +431,10 @@ void main() {
       const QuestsScreen(),
       overrides: [
         questsProvider.overrideWith((ref) {
-          notifier = _GatedQuestsListNotifier(ref.watch(storageServiceProvider), ref);
+          notifier = _GatedQuestsListNotifier(
+            ref.watch(storageServiceProvider),
+            ref,
+          );
           return notifier;
         }),
       ],
@@ -360,7 +443,9 @@ void main() {
     await tester.tap(find.text('추천 (1)'));
     await tester.pumpAndSettle();
 
-    final adoptButton = tester.widget<FilledButton>(find.widgetWithText(FilledButton, '채택'));
+    final adoptButton = tester.widget<FilledButton>(
+      find.widgetWithText(FilledButton, '채택'),
+    );
     adoptButton.onPressed!();
     adoptButton.onPressed!();
     expect(notifier.adoptCalls, 1);
@@ -371,9 +456,13 @@ void main() {
     expect(storage.getQuest('s1')!.status, QuestStatus.active);
   });
 
-  testWidgets('추천 퀘스트 채택이 실패하면 일반 오류 메시지만 보여주고 여전히 추천 상태로 남으며, 재시도는 성공한다', (tester) async {
+  testWidgets('추천 퀘스트 채택이 실패하면 일반 오류 메시지만 보여주고 여전히 추천 상태로 남으며, 재시도는 성공한다', (
+    tester,
+  ) async {
     final storage = await createTestStorage();
-    await storage.saveQuest(_quest('s1', '추천 퀘스트', status: QuestStatus.suggested));
+    await storage.saveQuest(
+      _quest('s1', '추천 퀘스트', status: QuestStatus.suggested),
+    );
     late _GatedQuestsListNotifier notifier;
     await pumpApp(
       tester,
@@ -381,7 +470,10 @@ void main() {
       const QuestsScreen(),
       overrides: [
         questsProvider.overrideWith((ref) {
-          notifier = _GatedQuestsListNotifier(ref.watch(storageServiceProvider), ref);
+          notifier = _GatedQuestsListNotifier(
+            ref.watch(storageServiceProvider),
+            ref,
+          );
           notifier.shouldThrow = true;
           return notifier;
         }),
@@ -409,9 +501,13 @@ void main() {
     expect(storage.getQuest('s1')!.status, QuestStatus.active);
   });
 
-  testWidgets('추천 퀘스트 무시가 실패하면 일반 오류 메시지만 보여주고 여전히 목록에 남으며, 재시도는 성공한다', (tester) async {
+  testWidgets('추천 퀘스트 무시가 실패하면 일반 오류 메시지만 보여주고 여전히 목록에 남으며, 재시도는 성공한다', (
+    tester,
+  ) async {
     final storage = await createTestStorage();
-    await storage.saveQuest(_quest('s1', '추천 퀘스트', status: QuestStatus.suggested));
+    await storage.saveQuest(
+      _quest('s1', '추천 퀘스트', status: QuestStatus.suggested),
+    );
     late _GatedQuestsListNotifier notifier;
     await pumpApp(
       tester,
@@ -419,7 +515,10 @@ void main() {
       const QuestsScreen(),
       overrides: [
         questsProvider.overrideWith((ref) {
-          notifier = _GatedQuestsListNotifier(ref.watch(storageServiceProvider), ref);
+          notifier = _GatedQuestsListNotifier(
+            ref.watch(storageServiceProvider),
+            ref,
+          );
           notifier.shouldThrow = true;
           return notifier;
         }),

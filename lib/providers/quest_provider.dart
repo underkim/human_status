@@ -47,11 +47,19 @@ class QuestNotFoundException implements Exception {
 }
 
 class QuestCompletionResult {
+  /// True only when this call actually transitioned the quest from active to
+  /// completed and awarded its reward. False for the safe no-op returned
+  /// when the quest was already missing/non-active (e.g. a stale queued
+  /// call that lost a race to another screen's completion/deletion) — UI
+  /// callers must treat a false result as a quiet no-op, never as a success
+  /// or an error.
+  final bool didComplete;
   final Map<String, LevelUpResult> levelUps;
   final List<AchievementDefinition> newAchievements;
   final GoalCompletionResult? goalCompletion;
 
   const QuestCompletionResult({
+    required this.didComplete,
     required this.levelUps,
     required this.newAchievements,
     this.goalCompletion,
@@ -372,7 +380,11 @@ class QuestsNotifier extends StateNotifier<List<Quest>> {
     // 잠금 안에서 storage를 다시 읽으므로, 동시에 들어온 두 번째 호출은
     // 첫 번째가 커밋한 completed 상태를 정확히 관찰한다.
     if (quest == null || quest.status != QuestStatus.active) {
-      return const QuestCompletionResult(levelUps: {}, newAchievements: []);
+      return const QuestCompletionResult(
+        didComplete: false,
+        levelUps: {},
+        newAchievements: [],
+      );
     }
 
     // 이 트랜잭션 전체에서 쓸 "지금"을 여기서 딱 한 번 확정한다 — nowProvider
@@ -452,6 +464,7 @@ class QuestsNotifier extends StateNotifier<List<Quest>> {
     ];
 
     return QuestCompletionResult(
+      didComplete: true,
       levelUps: levelUps,
       newAchievements: allNewAchievements,
       goalCompletion: goalCompletion,

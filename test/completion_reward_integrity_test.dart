@@ -161,6 +161,11 @@ void main() {
 
       final awarded = results.where((r) => r.levelUps.isNotEmpty).length;
       expect(awarded, 1);
+      // Exactly one call actually transitioned the quest (didComplete:
+      // true); the other lost the race and observed it already completed,
+      // so it must report didComplete: false rather than a second success.
+      expect(results.where((r) => r.didComplete).length, 1);
+      expect(results.where((r) => !r.didComplete).length, 1);
       expect(storage.getStat('health')!.currentXp, 20);
       expect(
         storage

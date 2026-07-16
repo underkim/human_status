@@ -113,10 +113,17 @@ class _ActiveTabState extends ConsumerState<_ActiveTab> {
           .read(questsProvider.notifier)
           .completeQuest(quest.id);
       if (!mounted) return;
+      // 다른 화면이 먼저 완료/삭제해 이 호출이 조용한 무결과였다면
+      // (didComplete == false) 성공 UI를 띄우지 않는다.
+      if (!result.didComplete) return;
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('"${quest.title}" 완료!')));
-      await showLevelUpDialog(context, ref.read(statsProvider), result.levelUps);
+      await showLevelUpDialog(
+        context,
+        ref.read(statsProvider),
+        result.levelUps,
+      );
       if (!mounted) return;
       await showAchievementDialog(context, result.newAchievements);
     } catch (_) {
@@ -188,7 +195,9 @@ class _ActiveTabState extends ConsumerState<_ActiveTab> {
           onEdit: busy
               ? null
               : () => Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => QuestFormScreen(existing: q)),
+                  MaterialPageRoute(
+                    builder: (_) => QuestFormScreen(existing: q),
+                  ),
                 ),
           onDelete: busy ? null : () => _confirmDelete(q),
           actions: [
