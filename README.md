@@ -57,7 +57,7 @@ flutter run           # 연결된 기기/에뮬레이터에서 실행
 
 ```sh
 flutter analyze              # 클린 (이슈 없음)
-flutter test                 # 368개 테스트 통과
+flutter test                 # 전체 테스트 통과
 flutter build windows --release
 flutter build web --release
 ```

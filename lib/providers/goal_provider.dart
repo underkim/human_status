@@ -185,15 +185,22 @@ class GoalsNotifier extends StateNotifier<List<Goal>> {
   /// Marks [goalId] completed, awards a lump-sum XP bonus to its linked
   /// stat, and checks for newly-unlocked achievements.
   ///
+  /// The completion XP bonus is lifetime-once per goal (see
+  /// [Goal.completionRewardClaimed]): a financial goal that was completed,
+  /// then reopened by deleting the contributing transaction, then completed
+  /// again by a new one, transitions status back to completed here but is
+  /// not paid the bonus (or re-checked for achievements) a second time.
+  ///
   /// Runs inside the shared [rewardLockProvider] critical section so a
   /// concurrent [completeGoal] or [QuestsNotifier.completeQuest] call (e.g.
   /// this goal auto-completing via its last linked quest, racing a manual
   /// tap) can never interleave with this one — whichever acquires the lock
   /// first completes the goal; the other observes it already completed and
   /// no-ops. If any step fails, everything this call changed (goal
-  /// status/completedAt, stat level/XP, any achievement newly unlocked
-  /// during this call) is rolled back before the error is rethrown, so a
-  /// retry after a genuine failure can never double-award.
+  /// status/completedAt/completionRewardClaimed, stat level/XP, any
+  /// achievement newly unlocked during this call) is rolled back before the
+  /// error is rethrown, so a retry after a genuine failure can never
+  /// double-award.
   Future<GoalCompletionResult> completeGoal(String goalId) {
     return ref.read(rewardLockProvider).synchronized(() async {
       final rollback = RollbackScope();
@@ -224,18 +231,33 @@ class GoalsNotifier extends StateNotifier<List<Goal>> {
       );
     }
 
+    final alreadyClaimed = goal.completionRewardClaimed;
     final prevStatus = goal.status;
     final prevCompletedAt = goal.completedAt;
+    final prevClaimed = goal.completionRewardClaimed;
     rollback.addUndo(() async {
       goal.status = prevStatus;
       goal.completedAt = prevCompletedAt;
+      goal.completionRewardClaimed = prevClaimed;
       await storage.saveGoal(goal);
       reload();
     });
     goal.status = GoalStatus.completed;
     goal.completedAt = DateTime.now();
+    goal.completionRewardClaimed = true;
     await storage.saveGoal(goal);
     reload();
+
+    if (alreadyClaimed) {
+      // Re-completing a goal whose bonus was already paid out (see the doc
+      // comment above): status/completedAt still updates, but no second XP
+      // bonus or achievement re-check runs.
+      final stat = storage.getStat(goal.statId);
+      return GoalCompletionResult(
+        levelUp: LevelUpResult(levelsGained: 0, newLevel: stat?.level ?? 0),
+        newAchievements: const [],
+      );
+    }
 
     final statsNotifier = ref.read(statsProvider.notifier);
     final statBefore = storage.getStat(goal.statId);

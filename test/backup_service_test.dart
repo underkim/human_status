@@ -649,4 +649,34 @@ void main() {
       );
     });
   });
+
+  test(
+    '완료+claimed 상태인 재무 목표도 백업 encode → restore 왕복에서 completionRewardClaimed가 보존된다',
+    () async {
+      final storage = await createTestStorage();
+      await storage.saveGoal(
+        Goal(
+          id: 'g1',
+          title: '비상금',
+          description: '',
+          statId: 'wealth',
+          targetAmount: 100000,
+          currentAmount: 100000,
+          status: GoalStatus.completed,
+          createdAt: DateTime(2026, 6, 1),
+          completedAt: DateTime(2026, 6, 15),
+          completionRewardClaimed: true,
+        ),
+      );
+      final service = BackupService(storage: storage);
+      final backup = service.encode();
+
+      await storage.goalsBox.clear();
+      await service.restore(backup);
+
+      final goal = storage.getGoal('g1')!;
+      expect(goal.status, GoalStatus.completed);
+      expect(goal.completionRewardClaimed, isTrue);
+    },
+  );
 }
