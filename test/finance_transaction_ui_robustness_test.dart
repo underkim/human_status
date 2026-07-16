@@ -183,6 +183,61 @@ void main() {
       expect(storage.getTransactions(), isEmpty);
     });
 
+    testWidgets(
+      '확인창이 뜨기 전에 삭제 아이콘을 빠르게 두 번 눌러도 확인창은 하나만 뜨고, 확인 후 삭제는 한 번만 실행된다',
+      (tester) async {
+        setScreenSize(tester, const Size(800, 2000));
+        final storage = await createTestStorage();
+        await seedOneTransaction(storage);
+        late _GatedTransactionsNotifier notifier;
+        await pumpApp(
+          tester,
+          storage,
+          const Scaffold(body: FinanceListView()),
+          overrides: [
+            transactionsProvider.overrideWith((ref) {
+              notifier = _GatedTransactionsNotifier(
+                ref.watch(storageServiceProvider),
+                ref,
+              );
+              return notifier;
+            }),
+          ],
+        );
+        await tester.pumpAndSettle();
+
+        // Invoke the row's onPressed callback directly, twice in a row with no
+        // await/pump between the calls — this is the actual reproduction of
+        // "확인창이 뜨기도 전에 두 번 누른" (both calls happen before
+        // showDialog's Future for the first call has resolved). A raw
+        // tester.tap() x2 doesn't work here: Flutter's hit-testing considers
+        // the second tap a miss once the first tap is mid-flight (verified
+        // empirically — it logs "would not hit test"), so it never reaches
+        // onPressed at all and the test would pass vacuously regardless of the
+        // guard. Calling onPressed directly reproduces the real race without
+        // depending on tap-hit-testing timing.
+        final iconButton = tester.widget<IconButton>(
+          find.ancestor(
+            of: find.byIcon(Icons.delete_outline),
+            matching: find.byType(IconButton),
+          ),
+        );
+        iconButton.onPressed!();
+        iconButton.onPressed!();
+        await tester.pumpAndSettle();
+
+        expect(find.text('거래 삭제'), findsOneWidget);
+
+        await tester.tap(find.widgetWithText(FilledButton, '삭제'));
+        await tester.pump();
+        notifier.gate.complete();
+        await tester.pumpAndSettle();
+
+        expect(notifier.deleteCalls, 1);
+        expect(storage.getTransactions(), isEmpty);
+      },
+    );
+
     testWidgets('삭제에 실패하면 데이터가 복원된 채로 일반 오류 문구만 보여준다', (tester) async {
       setScreenSize(tester, const Size(800, 2000));
       final storage = await createTestStorage();

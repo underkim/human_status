@@ -43,30 +43,36 @@ class _FinanceListViewState extends ConsumerState<FinanceListView> {
   final Set<String> _pendingDeletes = {};
 
   Future<void> _confirmDeleteTransaction(BuildContext context, WidgetRef ref, String id, String category) async {
+    // 확인창이 뜨기도 전에 같은 행을 빠르게 두 번 눌러도 확인창이 하나만
+    // 뜨도록, 다이얼로그를 열기 직전에 바로 pending 집합에 넣는다 — 이
+    // await 이전에 동기적으로 실행되므로 두 번째 탭은 여기서 곧장 막힌다.
     if (_pendingDeletes.contains(id)) return;
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('거래 삭제'),
-        content: Text('"$category" 거래 기록을 삭제할까요? 되돌릴 수 없어요.'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('취소')),
-          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('삭제')),
-        ],
-      ),
-    );
-    if (confirmed != true || !mounted || _pendingDeletes.contains(id)) return;
     setState(() => _pendingDeletes.add(id));
     try {
-      await ref.read(transactionsProvider.notifier).deleteTransaction(id);
-    } catch (_) {
-      // 실패 시 롤백된 데이터가 그대로 보이고, 원인은 노출하지 않는다.
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('거래를 삭제하지 못했습니다. 잠시 후 다시 시도해주세요.')),
-        );
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('거래 삭제'),
+          content: Text('"$category" 거래 기록을 삭제할까요? 되돌릴 수 없어요.'),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('취소')),
+            FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('삭제')),
+          ],
+        ),
+      );
+      if (confirmed != true || !mounted) return;
+      try {
+        await ref.read(transactionsProvider.notifier).deleteTransaction(id);
+      } catch (_) {
+        // 실패 시 롤백된 데이터가 그대로 보이고, 원인은 노출하지 않는다.
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('거래를 삭제하지 못했습니다. 잠시 후 다시 시도해주세요.')),
+          );
+        }
       }
     } finally {
+      // 취소·성공·실패 어느 경로든 pending 상태를 반드시 해제한다.
       if (mounted) setState(() => _pendingDeletes.remove(id));
     }
   }
