@@ -3,20 +3,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../data/achievement_definitions.dart';
 import '../services/achievement_progress_service.dart';
 import '../services/progression_service.dart';
+import 'clock_provider.dart';
 import 'goal_provider.dart';
 import 'profile_provider.dart';
 import 'quest_provider.dart';
 
-/// The instant "now" is evaluated at for every progression calculation.
-/// Like any Riverpod [Provider], the value this computes is cached until
-/// invalidated — it does NOT call [DateTime.now] again on every read, so a
-/// session left open across midnight would otherwise keep reporting
-/// yesterday's snapshot forever. `HumanStatusApp` invalidates this provider
-/// whenever the app resumes from the background (alongside
-/// `DailyRefreshController.refreshIfDue`, see main.dart), which is enough to
-/// pick up the new day without a timer of its own. Overridden with a fixed
-/// value (or a mutable closure) in widget tests for determinism.
-final nowProvider = Provider<DateTime>((ref) => DateTime.now());
+export 'clock_provider.dart';
 
 /// Reactive [ProgressionSnapshot] — rebuilds whenever quests change (a
 /// completion, an edit, a deletion) or [nowProvider] moves.

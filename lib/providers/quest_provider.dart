@@ -9,6 +9,7 @@ import '../services/quest_recommendation_service.dart';
 import '../services/reward_transaction.dart';
 import '../services/storage_service.dart';
 import '../services/xp_service.dart';
+import 'clock_provider.dart';
 import 'goal_provider.dart';
 import 'profile_provider.dart';
 
@@ -158,6 +159,17 @@ class QuestsNotifier extends StateNotifier<List<Quest>> {
       return const QuestCompletionResult(levelUps: {}, newAchievements: []);
     }
 
+    // 이 트랜잭션 전체에서 쓸 "지금"을 여기서 딱 한 번 확정한다 — nowProvider
+    // 는 다른 Provider와 마찬가지로 무효화 전까지 값을 캐시해 두므로, 앱을
+    // 켜 둔 채 자정을 넘긴 뒤 resume 없이 바로 완료하더라도 캐시된 어제
+    // 인스턴스가 아니라 실제 현재 시각이 잡히도록 먼저 invalidate한다.
+    // completedAt에 DateTime.now()를 직접 쓰지 않는 이유: 성장 여정 스냅샷
+    // (progressionSnapshotProvider)이 같은 nowProvider를 기준으로 "오늘"을
+    // 판단하므로, 서로 다른 시계로 계산하면 방금 완료한 퀘스트가 "오늘"로
+    // 집계되지 않는 분리가 생길 수 있다.
+    ref.invalidate(nowProvider);
+    final now = ref.read(nowProvider);
+
     final statsNotifier = ref.read(statsProvider.notifier);
     final levelUps = <String, LevelUpResult>{};
     for (final entry in XpService.effectiveRewards(quest).entries) {
@@ -182,7 +194,7 @@ class QuestsNotifier extends StateNotifier<List<Quest>> {
       reload();
     });
     quest.status = QuestStatus.completed;
-    quest.completedAt = DateTime.now();
+    quest.completedAt = now;
     await storage.saveQuest(quest);
     reload();
 
