@@ -139,13 +139,11 @@ dart run tool/generate_app_icons.dart
 알려주며 **빌드 전에** 즉시 실패합니다 — 절대 debug 키로 대체되거나 서명 없이
 조용히 아티팩트를 만들지 않습니다.
 
-다만 실제 배포를 위해서는 여전히: (1) `com.example` 애플리케이션 ID를 실제
-소유한 도메인으로 바꾸고, (2) 진짜 release keystore를 생성해 로컬
-`android/key.properties` 또는 CI 시크릿으로 주입하고, (3) 실기기에서 검증해야
-합니다. 이 저장소는 진짜 keystore나 영구 ID를 포함하지 않으므로,
-`tool/check_release_readiness.dart`는 여전히 "not ready"를 보고합니다 —
-다만 서명 이슈의 성격이 "여전히 debug 서명을 씀"에서 "자격 증명이 없음"으로
-바뀌었습니다. 자세한 절차는
+배포용 영구 ID는 저장소 소유자 네임스페이스를 사용한
+`io.github.underkim.humanstatus`로 모든 플랫폼에 통일되어 있습니다. 로컬 Android
+release keystore와 `android/key.properties`도 생성되어 있으며 둘 다 Git에서
+제외됩니다. 다른 개발 환경이나 CI에서는 별도로 보관한 keystore와 CI 시크릿을
+주입해야 하고, 실제 출시 전에는 반드시 실기기에서 검증해야 합니다. 자세한 절차는
 [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md)를 참고하세요.
 
 로컬 데이터는 [hive](https://pub.dev/packages/hive)에 저장되며 서버가 없습니다.

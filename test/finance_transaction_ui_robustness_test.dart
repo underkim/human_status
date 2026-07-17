@@ -109,7 +109,7 @@ void main() {
 
       // Dialog stays open so the user can retry without re-entering data.
       expect(find.text('거래 추가'), findsOneWidget);
-      expect(find.text('거래를 저장하지 못했습니다. 잠시 후 다시 시도해주세요.'), findsOneWidget);
+      expect(find.text('거래를 저장하지 못했어요. 잠시 후 다시 시도해주세요.'), findsOneWidget);
       // No raw exception detail (type name / message) reaches the UI.
       expect(find.textContaining('StateError'), findsNothing);
       expect(find.textContaining('simulated'), findsNothing);
@@ -317,7 +317,7 @@ void main() {
       notifier.gate.complete();
       await tester.pumpAndSettle();
 
-      expect(find.text('거래를 삭제하지 못했습니다. 잠시 후 다시 시도해주세요.'), findsOneWidget);
+      expect(find.text('거래를 삭제하지 못했어요. 잠시 후 다시 시도해주세요.'), findsOneWidget);
       expect(find.textContaining('StateError'), findsNothing);
       expect(find.textContaining('simulated'), findsNothing);
       // The transaction is still present (rollback restored it upstream;

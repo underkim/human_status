@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:hive/hive.dart';
+import 'package:human_status/models/user_profile.dart';
 import 'package:human_status/providers/profile_provider.dart';
 import 'package:human_status/screens/settings_screen.dart';
 import 'package:human_status/services/notification_service.dart';
@@ -12,9 +14,10 @@ import 'helpers/test_app.dart';
 /// 실제 플러그인은 테스트 바인딩에 없으므로 스케줄/취소 호출만 기록한다.
 /// [granted]를 false로 주면 예외 없이 권한 거부(false) 결과를 돌려준다.
 class _FakeNotificationService extends NotificationService {
-  _FakeNotificationService({this.granted = true});
+  _FakeNotificationService({this.granted = true, this.weeklyScheduled = false});
 
   final bool granted;
+  bool weeklyScheduled;
 
   int scheduleWeeklyCalls = 0;
   int cancelWeeklyCalls = 0;
@@ -22,13 +25,37 @@ class _FakeNotificationService extends NotificationService {
   @override
   Future<bool> scheduleWeeklyReportReminder() async {
     scheduleWeeklyCalls++;
+    weeklyScheduled = true;
     return granted;
   }
 
   @override
   Future<void> cancelWeeklyReportReminder() async {
     cancelWeeklyCalls++;
+    weeklyScheduled = false;
   }
+}
+
+class _FailingProfileStorage extends StorageService {
+  _FailingProfileStorage() : super(inMemory: true);
+
+  bool failNextProfileSave = false;
+
+  @override
+  Future<void> saveProfile(UserProfile profile) {
+    if (failNextProfileSave) {
+      failNextProfileSave = false;
+      throw StateError('SENTINEL_PROFILE_SAVE_FAILURE');
+    }
+    return super.saveProfile(profile);
+  }
+}
+
+Future<_FailingProfileStorage> _createFailingStorage() async {
+  final storage = _FailingProfileStorage();
+  await storage.init();
+  addTearDown(Hive.close);
+  return storage;
 }
 
 /// 플랫폼/타임존 예외가 스케줄·취소 도중 발생하는 경로를 검증하기 위한 fake.
@@ -134,7 +161,7 @@ void main() {
       tester.widget<SwitchListTile>(find.byType(SwitchListTile)).value,
       isFalse,
     );
-    expect(find.text('알림 설정을 변경하지 못했습니다. 잠시 후 다시 시도해주세요.'), findsOneWidget);
+    expect(find.text('알림 설정을 변경하지 못했어요. 잠시 후 다시 시도해주세요.'), findsOneWidget);
     expect(find.text('일요일 20:00에 주간 리포트를 알려드릴게요.'), findsNothing);
   });
 
@@ -157,7 +184,7 @@ void main() {
       tester.widget<SwitchListTile>(find.byType(SwitchListTile)).value,
       isTrue,
     );
-    expect(find.text('알림 설정을 변경하지 못했습니다. 잠시 후 다시 시도해주세요.'), findsOneWidget);
+    expect(find.text('알림 설정을 변경하지 못했어요. 잠시 후 다시 시도해주세요.'), findsOneWidget);
   });
 
   testWidgets('주간 리포트 알림 권한이 거부되어도(예외 없이 false) 설정은 저장되고 권한 경고가 표시된다', (
@@ -183,5 +210,57 @@ void main() {
       find.text('설정은 저장됐지만 알림 권한이 꺼져 있어요 — 기기 설정에서 허용해주세요.'),
       findsOneWidget,
     );
+  });
+
+  testWidgets('주간 알림 활성화의 프로필 저장이 실패하면 새 OS 일정을 취소한다', (tester) async {
+    final storage = await _createFailingStorage();
+    final fake = await _pumpSettings(tester, storage);
+    storage.failNextProfileSave = true;
+
+    await tester.tap(find.text('주간 리포트 알림'));
+    await tester.pumpAndSettle();
+
+    expect(storage.getProfile().weeklyReportReminderEnabled, isFalse);
+    expect(fake.scheduleWeeklyCalls, 1);
+    expect(fake.cancelWeeklyCalls, 1);
+    expect(fake.weeklyScheduled, isFalse);
+    expect(
+      tester.widget<SwitchListTile>(find.byType(SwitchListTile)).value,
+      isFalse,
+    );
+    expect(find.text('알림 설정을 변경하지 못했어요. 잠시 후 다시 시도해주세요.'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('주간 알림 비활성화의 프로필 저장이 실패하면 이전 OS 일정을 복원한다', (tester) async {
+    final storage = await _createFailingStorage();
+    final profile = storage.getProfile();
+    profile.weeklyReportReminderEnabled = true;
+    await storage.saveProfile(profile);
+    final fake = _FakeNotificationService(weeklyScheduled: true);
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          storageServiceProvider.overrideWithValue(storage),
+          notificationServiceProvider.overrideWithValue(fake),
+        ],
+        child: MaterialApp(theme: AppTheme.light, home: const SettingsScreen()),
+      ),
+    );
+    storage.failNextProfileSave = true;
+
+    await tester.tap(find.text('주간 리포트 알림'));
+    await tester.pumpAndSettle();
+
+    expect(storage.getProfile().weeklyReportReminderEnabled, isTrue);
+    expect(fake.cancelWeeklyCalls, 1);
+    expect(fake.scheduleWeeklyCalls, 1);
+    expect(fake.weeklyScheduled, isTrue);
+    expect(
+      tester.widget<SwitchListTile>(find.byType(SwitchListTile)).value,
+      isTrue,
+    );
+    expect(find.text('알림 설정을 변경하지 못했어요. 잠시 후 다시 시도해주세요.'), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 }

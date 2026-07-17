@@ -137,7 +137,7 @@ tasks.configureEach {
 }
 
 android {
-    namespace = "com.example.human_status"
+    namespace = "io.github.underkim.humanstatus"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -148,8 +148,7 @@ android {
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId = "com.example.human_status"
+        applicationId = "io.github.underkim.humanstatus"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion

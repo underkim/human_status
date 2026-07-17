@@ -50,7 +50,9 @@ void main() {
         expect(appInfo, contains('PRODUCT_NAME = human_status'));
         expect(
           appInfo,
-          contains('PRODUCT_BUNDLE_IDENTIFIER = com.example.humanStatus'),
+          contains(
+            'PRODUCT_BUNDLE_IDENTIFIER = io.github.underkim.humanstatus',
+          ),
         );
       },
     );
@@ -67,7 +69,7 @@ void main() {
     });
 
     test(
-      'Linux GTK window/header title, BINARY_NAME and APPLICATION_ID unchanged',
+      'Linux GTK window/header title, BINARY_NAME and release APPLICATION_ID',
       () {
         final app = read('linux/runner/my_application.cc');
         expect(
@@ -79,7 +81,7 @@ void main() {
         expect(cmake, contains('set(BINARY_NAME "human_status")'));
         expect(
           cmake,
-          contains('set(APPLICATION_ID "com.example.human_status")'),
+          contains('set(APPLICATION_ID "io.github.underkim.humanstatus")'),
         );
       },
     );
@@ -145,7 +147,7 @@ void main() {
     );
   });
 
-  group('com.example 플레이스홀더 제거 (사용자에게 보이는 필드만)', () {
+  group('배포 메타데이터 플레이스홀더 제거', () {
     test('Windows CompanyName/LegalCopyright no longer say com.example', () {
       final rc = read('windows/runner/Runner.rc');
       expect(rc, contains('VALUE "CompanyName", "Human Status"'));
@@ -162,17 +164,20 @@ void main() {
       );
     });
 
-    test(
-      'undecided internal IDs are explicitly still allowed (release gate, not a regression)',
-      () {
-        // Android applicationId/namespace and Linux APPLICATION_ID intentionally
-        // still carry com.example — these are release gates the task says not
-        // to touch, not something this test should flag.
-        final gradle = read('android/app/build.gradle.kts');
-        expect(gradle, contains('com.example.human_status'));
-        final cmake = read('linux/CMakeLists.txt');
-        expect(cmake, contains('com.example.human_status'));
-      },
-    );
+    test('all platform release identifiers use the repository namespace', () {
+      const releaseId = 'io.github.underkim.humanstatus';
+      final gradle = read('android/app/build.gradle.kts');
+      expect(gradle, contains('namespace = "$releaseId"'));
+      expect(gradle, contains('applicationId = "$releaseId"'));
+      expect(read('ios/Runner.xcodeproj/project.pbxproj'), contains(releaseId));
+      expect(
+        read('macos/Runner/Configs/AppInfo.xcconfig'),
+        contains('PRODUCT_BUNDLE_IDENTIFIER = $releaseId'),
+      );
+      expect(
+        read('linux/CMakeLists.txt'),
+        contains('set(APPLICATION_ID "$releaseId")'),
+      );
+    });
   });
 }

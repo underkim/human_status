@@ -103,25 +103,24 @@ sha256sum -c human_status-web-<버전>.zip.sha256
 ## 4. 영구 ID 이전 체크리스트 (모바일 스토어 출시 전 필수)
 
 아래 ID들은 **한 번 스토어에 등록하면 사실상 바꿀 수 없는 영구 식별자**입니다.
-지금은 모두 Flutter 기본 템플릿 placeholder(`com.example.*`)로 남아 있습니다.
-실제로 발급받은 도메인/조직 이름을 기반으로 최종 확정한 뒤 아래를 전부
-바꿔야 합니다.
+현재 모든 플랫폼은 저장소 소유자 네임스페이스 기반의
+`io.github.underkim.humanstatus`로 통일되어 있습니다.
 
-- [ ] **Android** — `android/app/build.gradle.kts`의 `namespace`와
+- [x] **Android** — `android/app/build.gradle.kts`의 `namespace`와
       `applicationId`를 변경한다. Kotlin/Java 소스의 패키지 경로/디렉터리
       (`android/app/src/main/kotlin/` 아래, `MainActivity.kt`)는
       **applicationId가 아니라 namespace**를 따라야 하므로, namespace를
       바꿨다면 그 경로와 `MainActivity.kt`의 `package` 선언을 새 namespace와
       일치하도록 옮긴다. applicationId는 namespace와 달라도 되는 별개의
       값이다(예: 같은 소스에서 유료판 applicationId만 다르게 배포하는 경우).
-- [ ] **iOS** — `ios/Runner.xcodeproj/project.pbxproj`의
+- [x] **iOS** — `ios/Runner.xcodeproj/project.pbxproj`의
       `PRODUCT_BUNDLE_IDENTIFIER`(Runner 타깃)를 변경하고, Apple Developer
       계정에 동일한 Bundle ID로 App ID를 등록한다
-- [ ] **macOS** — `macos/Runner/Configs/AppInfo.xcconfig`의
+- [x] **macOS** — `macos/Runner/Configs/AppInfo.xcconfig`의
       `PRODUCT_BUNDLE_IDENTIFIER`를 변경한다 (배포 대상이라면)
-- [ ] **Linux** — `linux/CMakeLists.txt`의 `APPLICATION_ID`를 변경한다
+- [x] **Linux** — `linux/CMakeLists.txt`의 `APPLICATION_ID`를 변경한다
       (배포 대상이라면)
-- [ ] **버전** — `pubspec.yaml`의 `version`이 `MAJOR.MINOR.PATCH+빌드번호`
+- [x] **버전** — `pubspec.yaml`의 `version`이 `MAJOR.MINOR.PATCH+빌드번호`
       형식이고 빌드 번호가 1 이상의 양의 정수인지 확인한다. `1.0.0+1`은
       `flutter create` 기본값이면서 동시에 정당한 첫 릴리즈 버전이므로 그
       자체로는 문제가 아니다 — 빌드 번호가 아예 없거나 0 이하일 때만
@@ -173,6 +172,11 @@ placeholder ID, debug 서명, 그리고(5절의) Android 릴리즈 서명 배관
       새 앱으로 처음부터 다시 등록해야 한다.
 
 ### 5.1 로컬에서 release keystore 만들고 연결하기
+
+현재 이 작업 환경에는 `android/app/human-status-upload.jks`와
+`android/key.properties`가 생성·연결되어 있습니다. 두 파일은 Git에서 제외되며,
+분실하면 기존 앱의 업데이트 배포가 불가능할 수 있으므로 암호화된 별도 저장소에
+즉시 백업해야 합니다. 새 개발 환경에서는 아래 절차로 복원하거나 다시 구성하세요.
 
 이미 발급받은 keystore가 있다면 아래 1~2단계는 건너뛰고 3단계부터 진행하세요.
 

@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/stat.dart';
+import '../models/user_profile.dart';
 import '../providers/asset_snapshot_provider.dart';
 import '../providers/backup_provider.dart';
 import '../providers/finance_provider.dart';
@@ -49,6 +50,52 @@ class SettingsScreen extends ConsumerStatefulWidget {
 class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   bool _exportInProgress = false;
   bool _importInProgress = false;
+  bool _notificationChangeInProgress = false;
+
+  UserProfile _copyProfile(UserProfile source) => UserProfile(
+    lastQuestRefresh: source.lastQuestRefresh,
+    claudeApiKey: source.claudeApiKey,
+    reminderMinutesSinceMidnight: source.reminderMinutesSinceMidnight,
+    lastAdviceRefresh: source.lastAdviceRefresh,
+    cachedAdvice: source.cachedAdvice
+        .map((entry) => Map<String, dynamic>.from(entry))
+        .toList(),
+    weeklyReportReminderEnabled: source.weeklyReportReminderEnabled,
+    onboardingCompleted: source.onboardingCompleted,
+    preferredStatId: source.preferredStatId,
+  );
+
+  Future<({bool saved, bool restored})> _saveNotificationProfile({
+    required WidgetRef ref,
+    required UserProfile candidate,
+    required Future<void> Function() compensate,
+  }) async {
+    final storage = ref.read(storageServiceProvider);
+    // Captured before the first await: this screen can be popped (disposed)
+    // while storage.saveProfile is in flight, and a disposed ConsumerState's
+    // `ref` throws on any further read. The notifier itself is a plain
+    // object independent of this widget's lifecycle, so calling .reload()
+    // on the captured reference still safely refreshes the *global*
+    // profileProvider state for every other still-mounted screen — skipping
+    // the reload via a `mounted` check here would wrongly leave that global
+    // state stale just because this particular screen closed first.
+    final profileNotifier = ref.read(profileProvider.notifier);
+    try {
+      await storage.saveProfile(candidate);
+    } catch (_) {
+      var restored = false;
+      try {
+        await compensate();
+        restored = true;
+      } catch (_) {
+        // A stronger warning below tells the user when even compensation
+        // failed; the persistence error never escapes as an unhandled future.
+      }
+      return (saved: false, restored: restored);
+    }
+    profileNotifier.reload();
+    return (saved: true, restored: true);
+  }
 
   Future<void> _editApiKey(BuildContext context, WidgetRef ref) async {
     final storage = ref.read(storageServiceProvider);
@@ -106,7 +153,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     } catch (_) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('API 키를 저장하지 못했습니다. 잠시 후 다시 시도해주세요.')),
+          const SnackBar(content: Text('API 키를 저장하지 못했어요. 잠시 후 다시 시도해주세요.')),
         );
       }
       return;
@@ -115,13 +162,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(result.isEmpty ? 'API 키가 삭제되었습니다.' : 'API 키가 저장되었습니다.'),
+          content: Text(result.isEmpty ? 'API 키를 삭제했어요.' : 'API 키를 저장했어요.'),
         ),
       );
     }
   }
 
   Future<void> _editReminder(BuildContext context, WidgetRef ref) async {
+    if (_notificationChangeInProgress) return;
     if (kIsWeb) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('알림은 이 플랫폼(웹)에서는 지원되지 않아요.')),
@@ -129,94 +177,145 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       return;
     }
 
-    final storage = ref.read(storageServiceProvider);
-    final profile = ref.read(profileProvider);
-    final current = profile.reminderMinutesSinceMidnight;
+    setState(() => _notificationChangeInProgress = true);
+    try {
+      final originalProfile = _copyProfile(ref.read(profileProvider));
+      final current = originalProfile.reminderMinutesSinceMidnight;
 
-    final action = await showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('알림 시간'),
-        content: Text(
-          current != null
-              ? '매일 ${(current ~/ 60).toString().padLeft(2, '0')}:${(current % 60).toString().padLeft(2, '0')}에 알림을 보내드려요. (기기 상태에 따라 몇 분 늦을 수 있어요)'
-              : '진행중인 퀘스트를 알려주는 매일 알림을 설정할 수 있어요. (기기 상태에 따라 몇 분 늦을 수 있어요)',
-        ),
-        actions: [
-          if (current != null)
+      final action = await showDialog<String>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('알림 시간'),
+          content: Text(
+            current != null
+                ? '매일 ${(current ~/ 60).toString().padLeft(2, '0')}:${(current % 60).toString().padLeft(2, '0')}에 알림을 보내드려요. (기기 상태에 따라 몇 분 늦을 수 있어요)'
+                : '진행중인 퀘스트를 알려주는 매일 알림을 설정할 수 있어요. (기기 상태에 따라 몇 분 늦을 수 있어요)',
+          ),
+          actions: [
+            if (current != null)
+              TextButton(
+                onPressed: () => Navigator.pop(context, 'off'),
+                child: const Text('끄기'),
+              ),
             TextButton(
-              onPressed: () => Navigator.pop(context, 'off'),
-              child: const Text('끄기'),
+              onPressed: () => Navigator.pop(context),
+              child: const Text('취소'),
             ),
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('취소'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, 'set'),
-            child: const Text('시간 설정'),
-          ),
-        ],
-      ),
-    );
-    if (action == null) return;
+            FilledButton(
+              onPressed: () => Navigator.pop(context, 'set'),
+              child: const Text('시간 설정'),
+            ),
+          ],
+        ),
+      );
+      if (action == null) return;
 
-    final notificationService = ref.read(notificationServiceProvider);
+      final notificationService = ref.read(notificationServiceProvider);
+      final activeQuestCount = ref.read(activeQuestsProvider).length;
 
-    if (action == 'off') {
+      if (action == 'off') {
+        try {
+          await notificationService.cancelReminder();
+        } catch (_) {
+          if (context.mounted) _showGenericNotificationError(context);
+          return;
+        }
+        final candidate = _copyProfile(originalProfile)
+          ..reminderMinutesSinceMidnight = null;
+        final outcome = await _saveNotificationProfile(
+          ref: ref,
+          candidate: candidate,
+          compensate: () async {
+            await notificationService.scheduleDailyReminder(
+              hour: current! ~/ 60,
+              minute: current % 60,
+              activeQuestCount: activeQuestCount,
+            );
+          },
+        );
+        if (!outcome.saved && context.mounted) {
+          _showGenericNotificationError(context, restored: outcome.restored);
+        }
+        return;
+      }
+
+      if (!context.mounted) return;
+      final initial = current != null
+          ? TimeOfDay(hour: current ~/ 60, minute: current % 60)
+          : TimeOfDay.now();
+      final picked = await showTimePicker(
+        context: context,
+        initialTime: initial,
+      );
+      if (picked == null) return;
+
+      final bool granted;
       try {
-        await notificationService.cancelReminder();
+        granted = await notificationService.scheduleDailyReminder(
+          hour: picked.hour,
+          minute: picked.minute,
+          activeQuestCount: activeQuestCount,
+        );
       } catch (_) {
         if (context.mounted) _showGenericNotificationError(context);
         return;
       }
-      profile.reminderMinutesSinceMidnight = null;
-      await storage.saveProfile(profile);
-      ref.read(profileProvider.notifier).reload();
-      return;
-    }
 
-    if (!context.mounted) return;
-    final initial = current != null
-        ? TimeOfDay(hour: current ~/ 60, minute: current % 60)
-        : TimeOfDay.now();
-    final picked = await showTimePicker(context: context, initialTime: initial);
-    if (picked == null) return;
-
-    final bool granted;
-    try {
-      granted = await notificationService.scheduleDailyReminder(
-        hour: picked.hour,
-        minute: picked.minute,
-        activeQuestCount: ref.read(activeQuestsProvider).length,
+      final candidate = _copyProfile(originalProfile)
+        ..reminderMinutesSinceMidnight = picked.hour * 60 + picked.minute;
+      final outcome = await _saveNotificationProfile(
+        ref: ref,
+        candidate: candidate,
+        compensate: () async {
+          if (current == null) {
+            await notificationService.cancelReminder();
+          } else {
+            await notificationService.scheduleDailyReminder(
+              hour: current ~/ 60,
+              minute: current % 60,
+              activeQuestCount: activeQuestCount,
+            );
+          }
+        },
       );
-    } catch (_) {
-      if (context.mounted) _showGenericNotificationError(context);
-      return;
-    }
+      if (!outcome.saved) {
+        if (context.mounted) {
+          _showGenericNotificationError(context, restored: outcome.restored);
+        }
+        return;
+      }
 
-    profile.reminderMinutesSinceMidnight = picked.hour * 60 + picked.minute;
-    await storage.saveProfile(profile);
-    ref.read(profileProvider.notifier).reload();
-    if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            granted
-                ? '알림 시간이 저장되었습니다.'
-                : '시간은 저장됐지만 알림 권한이 꺼져 있어요 — 기기 설정에서 허용해주세요.',
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              granted
+                  ? '알림 시간이 저장됐어요.'
+                  : '시간은 저장됐지만 알림 권한이 꺼져 있어요 — 기기 설정에서 허용해주세요.',
+            ),
           ),
-        ),
-      );
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _notificationChangeInProgress = false);
     }
   }
 
   /// Shown when scheduling/cancelling a reminder throws (e.g. a platform or
   /// timezone-resolution exception) — never leaks raw exception details,
   /// and the caller is expected to leave the prior profile value untouched.
-  void _showGenericNotificationError(BuildContext context) {
+  void _showGenericNotificationError(
+    BuildContext context, {
+    bool restored = true,
+  }) {
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('알림 설정을 변경하지 못했습니다. 잠시 후 다시 시도해주세요.')),
+      SnackBar(
+        content: Text(
+          restored
+              ? '알림 설정을 변경하지 못했어요. 잠시 후 다시 시도해주세요.'
+              : '알림 설정을 저장하지 못했고 이전 알림도 복원하지 못했어요. 기기 알림 설정을 확인해주세요.',
+        ),
+      ),
     );
   }
 
@@ -225,36 +324,57 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     WidgetRef ref,
     bool enabled,
   ) async {
-    final storage = ref.read(storageServiceProvider);
-    final profile = ref.read(profileProvider);
+    if (_notificationChangeInProgress) return;
+    setState(() => _notificationChangeInProgress = true);
+    final originalProfile = _copyProfile(ref.read(profileProvider));
     final notificationService = ref.read(notificationServiceProvider);
 
-    var granted = true;
     try {
-      if (enabled) {
-        granted = await notificationService.scheduleWeeklyReportReminder();
-      } else {
-        await notificationService.cancelWeeklyReportReminder();
+      var granted = true;
+      try {
+        if (enabled) {
+          granted = await notificationService.scheduleWeeklyReportReminder();
+        } else {
+          await notificationService.cancelWeeklyReportReminder();
+        }
+      } catch (_) {
+        if (context.mounted) _showGenericNotificationError(context);
+        return;
       }
-    } catch (_) {
-      if (context.mounted) _showGenericNotificationError(context);
-      return;
-    }
 
-    profile.weeklyReportReminderEnabled = enabled;
-    await storage.saveProfile(profile);
-    ref.read(profileProvider.notifier).reload();
-
-    if (context.mounted && enabled) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            granted
-                ? '일요일 20:00에 주간 리포트를 알려드릴게요.'
-                : '설정은 저장됐지만 알림 권한이 꺼져 있어요 — 기기 설정에서 허용해주세요.',
-          ),
-        ),
+      final candidate = _copyProfile(originalProfile)
+        ..weeklyReportReminderEnabled = enabled;
+      final outcome = await _saveNotificationProfile(
+        ref: ref,
+        candidate: candidate,
+        compensate: () async {
+          if (enabled) {
+            await notificationService.cancelWeeklyReportReminder();
+          } else {
+            await notificationService.scheduleWeeklyReportReminder();
+          }
+        },
       );
+      if (!outcome.saved) {
+        if (context.mounted) {
+          _showGenericNotificationError(context, restored: outcome.restored);
+        }
+        return;
+      }
+
+      if (context.mounted && enabled) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              granted
+                  ? '일요일 20:00에 주간 리포트를 알려드릴게요.'
+                  : '설정은 저장됐지만 알림 권한이 꺼져 있어요 — 기기 설정에서 허용해주세요.',
+            ),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _notificationChangeInProgress = false);
     }
   }
 
@@ -317,7 +437,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     if (context.mounted) {
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('초기화되었습니다.')));
+      ).showSnackBar(const SnackBar(content: Text('초기화됐어요.')));
     }
   }
 
@@ -352,7 +472,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     await Clipboard.setData(ClipboardData(text: jsonStr));
                     if (context.mounted) {
                       ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('클립보드에 복사되었습니다.')),
+                        const SnackBar(content: Text('클립보드에 복사했어요.')),
                       );
                     }
                   } catch (_) {
@@ -380,7 +500,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           if (context.mounted) {
             ScaffoldMessenger.of(
               context,
-            ).showSnackBar(const SnackBar(content: Text('백업 파일을 저장했습니다.')));
+            ).showSnackBar(const SnackBar(content: Text('백업 파일을 저장했어요.')));
           }
         } catch (_) {
           if (context.mounted) _showGenericExportError(context);
@@ -407,7 +527,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         if (context.mounted) {
           ScaffoldMessenger.of(
             context,
-          ).showSnackBar(const SnackBar(content: Text('백업 파일을 저장했습니다.')));
+          ).showSnackBar(const SnackBar(content: Text('백업 파일을 저장했어요.')));
         }
       } catch (_) {
         if (context.mounted) _showGenericExportError(context);
@@ -419,7 +539,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
   void _showGenericExportError(BuildContext context) {
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('백업 저장에 실패했습니다. 잠시 후 다시 시도해주세요.')),
+      const SnackBar(content: Text('백업 저장에 실패했어요. 잠시 후 다시 시도해주세요.')),
     );
   }
 
@@ -493,7 +613,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       } catch (_) {
         if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('파일을 읽을 수 없습니다. 다시 시도해주세요.')),
+            const SnackBar(content: Text('파일을 읽을 수 없어요. 다시 시도해주세요.')),
           );
         }
         return;
@@ -552,7 +672,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         if (context.mounted) {
           ScaffoldMessenger.of(
             context,
-          ).showSnackBar(const SnackBar(content: Text('가져오기가 완료되었습니다.')));
+          ).showSnackBar(const SnackBar(content: Text('가져오기가 완료됐어요.')));
         }
       } on BackupRestoreRollbackFailedException catch (_) {
         // apply와 rollback이 모두 실패해 저장소가 부분 상태일 수 있다 — 화면
@@ -565,7 +685,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             builder: (context) => AlertDialog(
               title: const Text('가져오기 실패'),
               content: const Text(
-                '가져오기 도중 오류가 발생했고, 이전 상태로 되돌리는 것도 완료되지 못했습니다. '
+                '가져오기 도중 오류가 발생했고, 이전 상태로 되돌리는 것도 완료되지 못했어요. '
                 '데이터 상태가 불완전할 수 있어요. 백업 파일로 다시 가져오기를 시도하거나 '
                 '데이터를 직접 확인해주세요.',
               ),
@@ -585,14 +705,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text('가져오기에 실패해 기존 데이터로 되돌렸습니다. 다시 시도할 수 있어요.'),
+              content: Text('가져오기에 실패해 기존 데이터로 되돌렸어요. 다시 시도할 수 있어요.'),
             ),
           );
         }
       } catch (_) {
         if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('가져오기에 실패했습니다. 잠시 후 다시 시도해주세요.')),
+            const SnackBar(content: Text('가져오기에 실패했어요. 잠시 후 다시 시도해주세요.')),
           );
         }
       }
@@ -603,7 +723,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
   void _showGenericImportError(BuildContext context) {
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('백업 파일 형식을 확인할 수 없습니다. 다른 파일을 선택해주세요.')),
+      const SnackBar(content: Text('백업 파일 형식을 확인할 수 없어요. 다른 파일을 선택해주세요.')),
     );
   }
 
@@ -654,7 +774,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       },
                     )
                   : Text(reminderSubtitle),
-              onTap: () => _editReminder(context, ref),
+              enabled: !_notificationChangeInProgress,
+              onTap: _notificationChangeInProgress
+                  ? null
+                  : () => _editReminder(context, ref),
             ),
             SwitchListTile(
               secondary: const Icon(Icons.summarize_outlined),
@@ -663,7 +786,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 kIsWeb ? '이 플랫폼(웹)에서는 지원되지 않아요' : '일요일 20:00에 한 주 활동 요약을 알려드려요',
               ),
               value: profile.weeklyReportReminderEnabled && !kIsWeb,
-              onChanged: kIsWeb
+              onChanged: kIsWeb || _notificationChangeInProgress
                   ? null
                   : (v) => _toggleWeeklyReport(context, ref, v),
             ),
@@ -675,7 +798,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 await ref.read(questsProvider.notifier).refreshSuggestions();
                 if (context.mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('추천 퀘스트를 새로고침했습니다.')),
+                    const SnackBar(content: Text('추천 퀘스트를 새로고침했어요.')),
                   );
                 }
               },

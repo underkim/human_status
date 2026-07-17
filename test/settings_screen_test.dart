@@ -70,7 +70,7 @@ void main() {
     await tester.tap(find.text('초기화'));
     await tester.pumpAndSettle();
 
-    expect(find.text('초기화되었습니다.'), findsOneWidget);
+    expect(find.text('초기화됐어요.'), findsOneWidget);
     expect(storage.getQuests(), isEmpty);
     expect(storage.getStats().length, StorageService.defaultStats.length);
     expect(storage.getStat('health')!.level, 1);
@@ -152,7 +152,7 @@ void main() {
       await tester.tap(find.text('저장'));
       await tester.pumpAndSettle();
 
-      expect(find.text('API 키가 저장되었습니다.'), findsOneWidget);
+      expect(find.text('API 키를 저장했어요.'), findsOneWidget);
       expect(find.text('설정됨 — AI 추천 사용 중'), findsOneWidget);
       expect(storage.claudeApiKey, 'sk-ant-new-key');
     });
@@ -168,7 +168,7 @@ void main() {
       await tester.tap(find.text('키 삭제'));
       await tester.pumpAndSettle();
 
-      expect(find.text('API 키가 삭제되었습니다.'), findsOneWidget);
+      expect(find.text('API 키를 삭제했어요.'), findsOneWidget);
       expect(find.text('설정 안 됨 — 로컬 규칙 기반 추천 사용 중'), findsOneWidget);
       expect(storage.claudeApiKey, isNull);
     });
@@ -190,7 +190,7 @@ void main() {
       await tester.tap(find.text('저장'));
       await tester.pumpAndSettle();
 
-      expect(find.text('API 키를 저장하지 못했습니다. 잠시 후 다시 시도해주세요.'), findsOneWidget);
+      expect(find.text('API 키를 저장하지 못했어요. 잠시 후 다시 시도해주세요.'), findsOneWidget);
       // 예외 문자열이나 키 원문이 그대로 노출되지 않는다.
       expect(find.textContaining('simulated write failure'), findsNothing);
       expect(find.textContaining('sk-ant-should-not-save'), findsNothing);
@@ -214,7 +214,7 @@ void main() {
       await tester.tap(find.text('키 삭제'));
       await tester.pumpAndSettle();
 
-      expect(find.text('API 키를 저장하지 못했습니다. 잠시 후 다시 시도해주세요.'), findsOneWidget);
+      expect(find.text('API 키를 저장하지 못했어요. 잠시 후 다시 시도해주세요.'), findsOneWidget);
       expect(find.text('설정됨 — AI 추천 사용 중'), findsOneWidget);
       expect(storage.claudeApiKey, 'sk-ant-existing');
     });
@@ -255,7 +255,7 @@ void main() {
       await tester.tap(find.text('초기화'));
       await tester.pumpAndSettle();
 
-      expect(find.text('초기화되었습니다.'), findsOneWidget);
+      expect(find.text('초기화됐어요.'), findsOneWidget);
       expect(storage.getQuests(), isEmpty);
       // 유효 키(캐시)와 레거시 유일 복사본이 모두 살아남는다.
       expect(storage.claudeApiKey, 'sk-legacy-only-survives-reset');
@@ -309,7 +309,7 @@ void main() {
       await tester.tap(find.text('교체'));
       await tester.pumpAndSettle();
 
-      expect(find.text('가져오기가 완료되었습니다.'), findsOneWidget);
+      expect(find.text('가져오기가 완료됐어요.'), findsOneWidget);
       expect(storage.getQuests().single.title, '가져온 퀘스트');
     });
 
@@ -334,7 +334,7 @@ void main() {
       await tester.tap(find.text('백업 가져오기'));
       await tester.pumpAndSettle();
 
-      expect(find.text('백업 파일 형식을 확인할 수 없습니다. 다른 파일을 선택해주세요.'), findsOneWidget);
+      expect(find.text('백업 파일 형식을 확인할 수 없어요. 다른 파일을 선택해주세요.'), findsOneWidget);
       expect(find.text('교체'), findsNothing);
       expect(storage.getQuests().single.title, '원래 퀘스트');
     });
@@ -356,7 +356,7 @@ void main() {
       await tester.tap(find.text('백업 가져오기'));
       await tester.pumpAndSettle();
 
-      expect(find.text('백업 파일 형식을 확인할 수 없습니다. 다른 파일을 선택해주세요.'), findsOneWidget);
+      expect(find.text('백업 파일 형식을 확인할 수 없어요. 다른 파일을 선택해주세요.'), findsOneWidget);
       expect(find.text('교체'), findsNothing);
     });
 
@@ -372,7 +372,7 @@ void main() {
       await tester.tap(find.text('백업 가져오기'));
       await tester.pumpAndSettle();
 
-      expect(find.text('백업 파일 형식을 확인할 수 없습니다. 다른 파일을 선택해주세요.'), findsOneWidget);
+      expect(find.text('백업 파일 형식을 확인할 수 없어요. 다른 파일을 선택해주세요.'), findsOneWidget);
       expect(find.text('교체'), findsNothing);
     });
 
@@ -429,7 +429,7 @@ void main() {
 
       completer.complete();
       await tester.pumpAndSettle();
-      expect(find.text('백업 파일을 저장했습니다.'), findsOneWidget);
+      expect(find.text('백업 파일을 저장했어요.'), findsOneWidget);
     });
 
     testWidgets(
@@ -477,7 +477,7 @@ void main() {
         await tester.pumpAndSettle();
 
         expect(
-          find.text('가져오기에 실패해 기존 데이터로 되돌렸습니다. 다시 시도할 수 있어요.'),
+          find.text('가져오기에 실패해 기존 데이터로 되돌렸어요. 다시 시도할 수 있어요.'),
           findsOneWidget,
         );
         // 원인 예외 문자열이 그대로 노출되지 않는다.
@@ -579,7 +579,7 @@ void main() {
       await tester.tap(find.text('백업 가져오기'));
       await tester.pumpAndSettle();
 
-      expect(find.text('파일을 읽을 수 없습니다. 다시 시도해주세요.'), findsOneWidget);
+      expect(find.text('파일을 읽을 수 없어요. 다시 시도해주세요.'), findsOneWidget);
       expect(find.textContaining('SENTINEL_PICK_FAILURE'), findsNothing);
       expect(find.text('교체'), findsNothing);
       // 취소와 동일하게 아무것도 바뀌지 않아야 한다.
@@ -611,7 +611,7 @@ void main() {
       await tester.tap(find.text('백업 내보내기'));
       await tester.pumpAndSettle();
 
-      expect(find.text('백업 저장에 실패했습니다. 잠시 후 다시 시도해주세요.'), findsOneWidget);
+      expect(find.text('백업 저장에 실패했어요. 잠시 후 다시 시도해주세요.'), findsOneWidget);
       expect(find.textContaining('SENTINEL_ENCODE_FAILURE'), findsNothing);
     });
 
@@ -631,7 +631,7 @@ void main() {
       await tester.tap(find.text('백업 내보내기'));
       await tester.pumpAndSettle();
 
-      expect(find.text('백업 저장에 실패했습니다. 잠시 후 다시 시도해주세요.'), findsOneWidget);
+      expect(find.text('백업 저장에 실패했어요. 잠시 후 다시 시도해주세요.'), findsOneWidget);
       expect(find.textContaining('SENTINEL_SAVE_FAILURE'), findsNothing);
     });
 
@@ -686,7 +686,7 @@ void main() {
 
       // financialPlan reload가 던지더라도, 되돌림 경고는 여전히 보여야 한다.
       expect(
-        find.text('가져오기에 실패해 기존 데이터로 되돌렸습니다. 다시 시도할 수 있어요.'),
+        find.text('가져오기에 실패해 기존 데이터로 되돌렸어요. 다시 시도할 수 있어요.'),
         findsOneWidget,
       );
       expect(find.textContaining('SENTINEL_RELOAD_FAILURE'), findsNothing);

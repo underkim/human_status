@@ -21,11 +21,11 @@ import '../widgets/transaction_tile.dart';
 import 'banksalad_import_screen.dart';
 
 String _adviceIcon(String category) => switch (category) {
-      'spending' => '💸',
-      'goal' => '🎯',
-      'networth' => '📈',
-      _ => '💡',
-    };
+  'spending' => '💸',
+  'goal' => '🎯',
+  'networth' => '📈',
+  _ => '💡',
+};
 
 class FinanceListView extends ConsumerStatefulWidget {
   const FinanceListView({super.key});
@@ -42,7 +42,12 @@ class _FinanceListViewState extends ConsumerState<FinanceListView> {
   /// 사이에 같은 행을 다시 눌러도 삭제가 두 번 들어가지 않도록 막는다.
   final Set<String> _pendingDeletes = {};
 
-  Future<void> _confirmDeleteTransaction(BuildContext context, WidgetRef ref, String id, String category) async {
+  Future<void> _confirmDeleteTransaction(
+    BuildContext context,
+    WidgetRef ref,
+    String id,
+    String category,
+  ) async {
     // 확인창이 뜨기도 전에 같은 행을 빠르게 두 번 눌러도 확인창이 하나만
     // 뜨도록, 다이얼로그를 열기 직전에 바로 pending 집합에 넣는다 — 이
     // await 이전에 동기적으로 실행되므로 두 번째 탭은 여기서 곧장 막힌다.
@@ -55,8 +60,14 @@ class _FinanceListViewState extends ConsumerState<FinanceListView> {
           title: const Text('거래 삭제'),
           content: Text('"$category" 거래 기록을 삭제할까요? 되돌릴 수 없어요.'),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('취소')),
-            FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('삭제')),
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('취소'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('삭제'),
+            ),
           ],
         ),
       );
@@ -67,7 +78,7 @@ class _FinanceListViewState extends ConsumerState<FinanceListView> {
         // 실패 시 롤백된 데이터가 그대로 보이고, 원인은 노출하지 않는다.
         if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('거래를 삭제하지 못했습니다. 잠시 후 다시 시도해주세요.')),
+            const SnackBar(content: Text('거래를 삭제하지 못했어요. 잠시 후 다시 시도해주세요.')),
           );
         }
       }
@@ -81,10 +92,14 @@ class _FinanceListViewState extends ConsumerState<FinanceListView> {
   Widget build(BuildContext context) {
     final monthKey = monthKeyOf(DateTime.now());
     final summary = ref.watch(monthlySummaryProvider(monthKey));
-    final transactions = [...ref.watch(transactionsProvider)]..sort((a, b) => b.date.compareTo(a.date));
+    final transactions = [...ref.watch(transactionsProvider)]
+      ..sort((a, b) => b.date.compareTo(a.date));
     final byCategory = FinanceService.expenseByCategory(transactions, monthKey);
     final monthlyExpenses = FinanceService.monthlyExpenses(transactions);
-    final financialGoals = ref.watch(activeGoalsProvider).where((g) => g.targetAmount != null).toList();
+    final financialGoals = ref
+        .watch(activeGoalsProvider)
+        .where((g) => g.targetAmount != null)
+        .toList();
     final progress = ref.watch(goalProgressMapProvider);
     final colors = context.appColors;
     final filteredTransactions = _categoryFilter == null
@@ -107,9 +122,21 @@ class _FinanceListViewState extends ConsumerState<FinanceListView> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceAround,
                   children: [
-                    _SummaryStat(label: '수입', value: summary.income, color: colors.success),
-                    _SummaryStat(label: '지출', value: summary.expense, color: colors.error),
-                    _SummaryStat(label: '순저축', value: summary.net, color: Theme.of(context).colorScheme.primary),
+                    _SummaryStat(
+                      label: '수입',
+                      value: summary.income,
+                      color: colors.success,
+                    ),
+                    _SummaryStat(
+                      label: '지출',
+                      value: summary.expense,
+                      color: colors.error,
+                    ),
+                    _SummaryStat(
+                      label: '순저축',
+                      value: summary.net,
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
                   ],
                 ),
               ],
@@ -120,7 +147,9 @@ class _FinanceListViewState extends ConsumerState<FinanceListView> {
         _BudgetCard(
           spentThisMonth: summary.expense,
           spentByCategory: byCategory,
-          categoryAverages: FinanceService.averageMonthlyExpenseByCategory(transactions),
+          categoryAverages: FinanceService.averageMonthlyExpenseByCategory(
+            transactions,
+          ),
         ),
         if (monthlyExpenses.values.any((v) => v > 0)) ...[
           const SizedBox(height: AppSpacing.lg),
@@ -140,13 +169,18 @@ class _FinanceListViewState extends ConsumerState<FinanceListView> {
           const SizedBox(height: AppSpacing.lg),
           Text('재무 목표', style: Theme.of(context).textTheme.titleLarge),
           const SizedBox(height: AppSpacing.sm),
-          ...financialGoals.map((g) => GoalProgressCard(
-                title: g.title,
-                progress: progress[g.id] ?? 0,
-                trailingInfo: '${formatWon(g.currentAmount)} / ${formatWon(g.targetAmount!)}',
-                targetDateLabel: g.targetDate != null ? formatDday(g.targetDate!) : null,
-                completionHint: '금액이 목표에 도달하면 자동으로 완료돼요',
-              )),
+          ...financialGoals.map(
+            (g) => GoalProgressCard(
+              title: g.title,
+              progress: progress[g.id] ?? 0,
+              trailingInfo:
+                  '${formatWon(g.currentAmount)} / ${formatWon(g.targetAmount!)}',
+              targetDateLabel: g.targetDate != null
+                  ? formatDday(g.targetDate!)
+                  : null,
+              completionHint: '금액이 목표에 도달하면 자동으로 완료돼요',
+            ),
+          ),
         ],
         const SizedBox(height: AppSpacing.lg),
         // 좁은 화면에서는 액션 묶음이 제목 아래 줄로 내려가도록 Wrap을 쓴다 —
@@ -167,7 +201,9 @@ class _FinanceListViewState extends ConsumerState<FinanceListView> {
                 ),
                 TextButton.icon(
                   onPressed: () => Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const BanksaladImportScreen()),
+                    MaterialPageRoute(
+                      builder: (_) => const BanksaladImportScreen(),
+                    ),
                   ),
                   icon: const Icon(Icons.upload_file, size: AppIconSize.sm),
                   label: const Text('뱅크샐러드 파일 가져오기'),
@@ -208,7 +244,11 @@ class _FinanceListViewState extends ConsumerState<FinanceListView> {
 
   /// 거래를 월 구분 헤더("2026년 7월")와 함께 나열한다 — 1년치 가져오기 후
   /// 수백 건이 한 덩어리로 이어지면 스크롤 중 시점을 잃기 쉽다.
-  List<Widget> _groupedTransactionTiles(BuildContext context, WidgetRef ref, List<Transaction> transactions) {
+  List<Widget> _groupedTransactionTiles(
+    BuildContext context,
+    WidgetRef ref,
+    List<Transaction> transactions,
+  ) {
     final colors = context.appColors;
     final widgets = <Widget>[];
     String? currentMonth;
@@ -216,25 +256,36 @@ class _FinanceListViewState extends ConsumerState<FinanceListView> {
       final mk = monthKeyOf(t.date);
       if (mk != currentMonth) {
         currentMonth = mk;
-        widgets.add(Padding(
-          padding: const EdgeInsets.only(top: AppSpacing.md, bottom: AppSpacing.xs, left: 2),
-          child: Text(
-            '${t.date.year}년 ${t.date.month}월',
-            style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                  color: colors.textMuted,
-                  fontWeight: FontWeight.w700,
-                ),
+        widgets.add(
+          Padding(
+            padding: const EdgeInsets.only(
+              top: AppSpacing.md,
+              bottom: AppSpacing.xs,
+              left: 2,
+            ),
+            child: Text(
+              '${t.date.year}년 ${t.date.month}월',
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                color: colors.textMuted,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
           ),
-        ));
+        );
       }
       final isDeleting = _pendingDeletes.contains(t.id);
-      widgets.add(TransactionTile(
-        transaction: t,
-        trailing: IconButton(
-          icon: const Icon(Icons.delete_outline, size: AppIconSize.md),
-          onPressed: isDeleting ? null : () => _confirmDeleteTransaction(context, ref, t.id, t.category),
+      widgets.add(
+        TransactionTile(
+          transaction: t,
+          trailing: IconButton(
+            icon: const Icon(Icons.delete_outline, size: AppIconSize.md),
+            onPressed: isDeleting
+                ? null
+                : () =>
+                      _confirmDeleteTransaction(context, ref, t.id, t.category),
+          ),
         ),
-      ));
+      );
     }
     return widgets;
   }
@@ -263,10 +314,7 @@ class _CategoryBreakdownCard extends StatelessWidget {
     final entries = byCategory.entries.toList();
     final top = entries.take(5).toList();
     final restTotal = entries.skip(5).fold(0.0, (a, e) => a + e.value);
-    final rows = [
-      ...top,
-      if (restTotal > 0) MapEntry('기타', restTotal),
-    ];
+    final rows = [...top, if (restTotal > 0) MapEntry('기타', restTotal)];
     final maxValue = rows.map((e) => e.value).reduce((a, b) => a > b ? a : b);
 
     return Card(
@@ -275,10 +323,15 @@ class _CategoryBreakdownCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('이번 달 카테고리별 지출', style: Theme.of(context).textTheme.titleMedium),
+            Text(
+              '이번 달 카테고리별 지출',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
             Text(
               '항목을 탭하면 해당 거래만 볼 수 있어요',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(color: colors.textMuted),
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(color: colors.textMuted),
             ),
             const SizedBox(height: AppSpacing.md),
             ...rows.map((e) {
@@ -288,7 +341,10 @@ class _CategoryBreakdownCard extends StatelessWidget {
                 onTap: isTappable ? () => onCategoryTap(e.key) : null,
                 borderRadius: BorderRadius.circular(AppRadius.sm),
                 child: Container(
-                  padding: const EdgeInsets.symmetric(vertical: AppSpacing.xs, horizontal: AppSpacing.xs),
+                  padding: const EdgeInsets.symmetric(
+                    vertical: AppSpacing.xs,
+                    horizontal: AppSpacing.xs,
+                  ),
                   decoration: isSelected
                       ? BoxDecoration(
                           color: accent.withValues(alpha: 0.08),
@@ -303,7 +359,8 @@ class _CategoryBreakdownCard extends StatelessWidget {
                           e.key,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(
                                 color: isSelected ? null : colors.textMuted,
                                 fontWeight: isSelected ? FontWeight.w700 : null,
                               ),
@@ -321,8 +378,12 @@ class _CategoryBreakdownCard extends StatelessWidget {
                             widthFactor: (e.value / maxValue).clamp(0.02, 1.0),
                             child: Container(
                               decoration: BoxDecoration(
-                                color: e.key == '기타' ? colors.outlineStrong : accent,
-                                borderRadius: BorderRadius.circular(AppRadius.full),
+                                color: e.key == '기타'
+                                    ? colors.outlineStrong
+                                    : accent,
+                                borderRadius: BorderRadius.circular(
+                                  AppRadius.full,
+                                ),
                               ),
                             ),
                           ),
@@ -362,7 +423,9 @@ class _MonthlyExpenseChartCard extends StatelessWidget {
     final accent = Theme.of(context).colorScheme.primary;
 
     final entries = monthlyExpenses.entries.toList();
-    final maxValue = entries.map((e) => e.value).reduce((a, b) => a > b ? a : b);
+    final maxValue = entries
+        .map((e) => e.value)
+        .reduce((a, b) => a > b ? a : b);
     final maxY = maxValue * 1.15;
 
     String monthLabel(String key) => '${int.parse(key.split('-')[1])}월';
@@ -373,13 +436,21 @@ class _MonthlyExpenseChartCard extends StatelessWidget {
 
     return Card(
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(AppSpacing.sm, AppSpacing.lg, AppSpacing.lg, AppSpacing.sm),
+        padding: const EdgeInsets.fromLTRB(
+          AppSpacing.sm,
+          AppSpacing.lg,
+          AppSpacing.lg,
+          AppSpacing.sm,
+        ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Padding(
               padding: const EdgeInsets.only(left: AppSpacing.sm),
-              child: Text('최근 6개월 지출', style: Theme.of(context).textTheme.titleMedium),
+              child: Text(
+                '최근 6개월 지출',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
             ),
             const SizedBox(height: AppSpacing.md),
             SizedBox(
@@ -392,12 +463,17 @@ class _MonthlyExpenseChartCard extends StatelessWidget {
                     show: true,
                     drawVerticalLine: false,
                     horizontalInterval: maxY / 2,
-                    getDrawingHorizontalLine: (v) => FlLine(color: colors.outline, strokeWidth: 1),
+                    getDrawingHorizontalLine: (v) =>
+                        FlLine(color: colors.outline, strokeWidth: 1),
                   ),
                   borderData: FlBorderData(show: false),
                   titlesData: FlTitlesData(
-                    topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                    rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                    topTitles: const AxisTitles(
+                      sideTitles: SideTitles(showTitles: false),
+                    ),
+                    rightTitles: const AxisTitles(
+                      sideTitles: SideTitles(showTitles: false),
+                    ),
                     leftTitles: AxisTitles(
                       sideTitles: SideTitles(
                         showTitles: true,
@@ -407,7 +483,9 @@ class _MonthlyExpenseChartCard extends StatelessWidget {
                           padding: const EdgeInsets.only(right: 4),
                           child: Text(
                             formatWonCompact(value),
-                            style: AppTypography.dataSmall(color: colors.textMuted),
+                            style: AppTypography.dataSmall(
+                              color: colors.textMuted,
+                            ),
                             textAlign: TextAlign.right,
                           ),
                         ),
@@ -419,12 +497,16 @@ class _MonthlyExpenseChartCard extends StatelessWidget {
                         reservedSize: 24,
                         getTitlesWidget: (value, meta) {
                           final index = value.toInt();
-                          if (index < 0 || index >= entries.length) return const SizedBox.shrink();
+                          if (index < 0 || index >= entries.length) {
+                            return const SizedBox.shrink();
+                          }
                           return Padding(
                             padding: const EdgeInsets.only(top: 6),
                             child: Text(
                               monthLabel(entries[index].key),
-                              style: AppTypography.dataSmall(color: colors.textMuted),
+                              style: AppTypography.dataSmall(
+                                color: colors.textMuted,
+                              ),
                             ),
                           );
                         },
@@ -433,10 +515,16 @@ class _MonthlyExpenseChartCard extends StatelessWidget {
                   ),
                   barTouchData: BarTouchData(
                     touchTooltipData: BarTouchTooltipData(
-                      getTooltipItem: (group, groupIndex, rod, rodIndex) => BarTooltipItem(
-                        '${fullLabel(entries[group.x].key)}\n${formatWon(rod.toY)}',
-                        TextStyle(color: Theme.of(context).colorScheme.onInverseSurface, fontSize: 12),
-                      ),
+                      getTooltipItem: (group, groupIndex, rod, rodIndex) =>
+                          BarTooltipItem(
+                            '${fullLabel(entries[group.x].key)}\n${formatWon(rod.toY)}',
+                            TextStyle(
+                              color: Theme.of(
+                                context,
+                              ).colorScheme.onInverseSurface,
+                              fontSize: 12,
+                            ),
+                          ),
                     ),
                   ),
                   barGroups: [
@@ -448,7 +536,9 @@ class _MonthlyExpenseChartCard extends StatelessWidget {
                             toY: entries[i].value,
                             color: accent,
                             width: 16,
-                            borderRadius: const BorderRadius.vertical(top: Radius.circular(4)),
+                            borderRadius: const BorderRadius.vertical(
+                              top: Radius.circular(4),
+                            ),
                           ),
                         ],
                       ),
@@ -496,7 +586,11 @@ class _BudgetCard extends ConsumerWidget {
   }
 
   /// [category]가 null이면 추가 모드(카테고리 입력 가능), 아니면 수정 모드.
-  Future<void> _editCategoryBudget(BuildContext context, WidgetRef ref, {String? category}) async {
+  Future<void> _editCategoryBudget(
+    BuildContext context,
+    WidgetRef ref, {
+    String? category,
+  }) async {
     final plan = ref.read(financialPlanProvider);
     final result = await showDialog<(String, double)>(
       context: context,
@@ -520,7 +614,10 @@ class _BudgetCard extends ConsumerWidget {
   /// [suggestions]를 미리보기로 띄우고, 적용하면 예산이 없던 카테고리에 한 번에
   /// 채워 넣는다.
   Future<void> _applySuggestions(
-      BuildContext context, WidgetRef ref, Map<String, double> suggestions) async {
+    BuildContext context,
+    WidgetRef ref,
+    Map<String, double> suggestions,
+  ) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -538,15 +635,24 @@ class _BudgetCard extends ConsumerWidget {
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Text(e.key),
-                    Text(formatWon(e.value), style: AppTypography.dataSmall(weight: FontWeight.w600)),
+                    Text(
+                      formatWon(e.value),
+                      style: AppTypography.dataSmall(weight: FontWeight.w600),
+                    ),
                   ],
                 ),
               ),
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('취소')),
-          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('적용')),
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('취소'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('적용'),
+          ),
         ],
       ),
     );
@@ -606,7 +712,10 @@ class _BudgetCard extends ConsumerWidget {
             Align(
               alignment: Alignment.centerLeft,
               child: Padding(
-                padding: const EdgeInsets.only(left: AppSpacing.sm, bottom: AppSpacing.xs),
+                padding: const EdgeInsets.only(
+                  left: AppSpacing.sm,
+                  bottom: AppSpacing.xs,
+                ),
                 child: Wrap(
                   spacing: AppSpacing.xs,
                   children: [addCategoryButton, ?suggestButton],
@@ -620,8 +729,11 @@ class _BudgetCard extends ConsumerWidget {
 
     // 급한 것부터 — 예산 대비 사용률이 높은 카테고리가 위로.
     final categoryEntries = categoryBudgets.entries.toList()
-      ..sort((a, b) => ((spentByCategory[b.key] ?? 0) / b.value)
-          .compareTo((spentByCategory[a.key] ?? 0) / a.value));
+      ..sort(
+        (a, b) => ((spentByCategory[b.key] ?? 0) / b.value).compareTo(
+          (spentByCategory[a.key] ?? 0) / a.value,
+        ),
+      );
 
     return Card(
       child: Padding(
@@ -646,7 +758,8 @@ class _BudgetCard extends ConsumerWidget {
                   ),
               ],
             ),
-            if (budget != null) ..._totalBudgetSection(context, budget, status, colors),
+            if (budget != null)
+              ..._totalBudgetSection(context, budget, status, colors),
             if (categoryEntries.isNotEmpty) ...[
               const SizedBox(height: AppSpacing.md),
               for (final e in categoryEntries)
@@ -654,7 +767,8 @@ class _BudgetCard extends ConsumerWidget {
                   category: e.key,
                   budget: e.value,
                   spent: spentByCategory[e.key] ?? 0,
-                  onTap: () => _editCategoryBudget(context, ref, category: e.key),
+                  onTap: () =>
+                      _editCategoryBudget(context, ref, category: e.key),
                 ),
             ],
             Wrap(
@@ -668,7 +782,11 @@ class _BudgetCard extends ConsumerWidget {
   }
 
   List<Widget> _totalBudgetSection(
-      BuildContext context, double budget, BudgetStatus status, AppColors colors) {
+    BuildContext context,
+    double budget,
+    BudgetStatus status,
+    AppColors colors,
+  ) {
     final ratio = (spentThisMonth / budget).clamp(0.0, 1.0);
     final percent = (spentThisMonth / budget * 100).round();
     final barColor = switch (status) {
@@ -677,15 +795,21 @@ class _BudgetCard extends ConsumerWidget {
       _ => Theme.of(context).colorScheme.primary,
     };
     final statusText = switch (status) {
-      BudgetStatus.exceeded => '예산을 ${formatWon(spentThisMonth - budget)} 초과했어요',
-      BudgetStatus.warning => '남은 예산 ${formatWon(budget - spentThisMonth)} — 거의 다 썼어요',
+      BudgetStatus.exceeded =>
+        '예산을 ${formatWon(spentThisMonth - budget)} 초과했어요',
+      BudgetStatus.warning =>
+        '남은 예산 ${formatWon(budget - spentThisMonth)} — 거의 다 썼어요',
       _ => '남은 예산 ${formatWon(budget - spentThisMonth)}',
     };
 
     return [
       ClipRRect(
         borderRadius: BorderRadius.circular(AppRadius.sm),
-        child: LinearProgressIndicator(value: ratio, minHeight: 8, color: barColor),
+        child: LinearProgressIndicator(
+          value: ratio,
+          minHeight: 8,
+          color: barColor,
+        ),
       ),
       const SizedBox(height: AppSpacing.xs),
       Row(
@@ -695,15 +819,18 @@ class _BudgetCard extends ConsumerWidget {
             '${formatWon(spentThisMonth)} / ${formatWon(budget)}',
             style: AppTypography.dataSmall(),
           ),
-          Text('$percent%', style: AppTypography.dataSmall(weight: FontWeight.w700)),
+          Text(
+            '$percent%',
+            style: AppTypography.dataSmall(weight: FontWeight.w700),
+          ),
         ],
       ),
       const SizedBox(height: AppSpacing.xs),
       Text(
         statusText,
         style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: status == BudgetStatus.ok ? colors.textMuted : barColor,
-            ),
+          color: status == BudgetStatus.ok ? colors.textMuted : barColor,
+        ),
       ),
     ];
   }
@@ -744,11 +871,18 @@ class _CategoryBudgetRow extends StatelessWidget {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Expanded(child: Text(category, style: Theme.of(context).textTheme.bodyMedium)),
+                Expanded(
+                  child: Text(
+                    category,
+                    style: Theme.of(context).textTheme.bodyMedium,
+                  ),
+                ),
                 Text(
                   '${formatWonCompact(spent)} / ${formatWonCompact(budget)}',
                   style: AppTypography.dataSmall(
-                    color: status == BudgetStatus.ok ? colors.textMuted : barColor,
+                    color: status == BudgetStatus.ok
+                        ? colors.textMuted
+                        : barColor,
                     weight: FontWeight.w600,
                   ),
                 ),
@@ -782,8 +916,9 @@ class _BudgetAmountDialog extends StatefulWidget {
 }
 
 class _BudgetAmountDialogState extends State<_BudgetAmountDialog> {
-  late final TextEditingController _controller =
-      TextEditingController(text: widget.initial != null ? widget.initial!.round().toString() : '');
+  late final TextEditingController _controller = TextEditingController(
+    text: widget.initial != null ? widget.initial!.round().toString() : '',
+  );
 
   @override
   void dispose() {
@@ -799,15 +934,26 @@ class _BudgetAmountDialogState extends State<_BudgetAmountDialog> {
         controller: _controller,
         autofocus: true,
         keyboardType: TextInputType.number,
-        decoration: const InputDecoration(labelText: '월 지출 한도(원)', hintText: '예: 1500000'),
+        decoration: const InputDecoration(
+          labelText: '월 지출 한도(원)',
+          hintText: '예: 1500000',
+        ),
       ),
       actions: [
         if (widget.initial != null)
-          TextButton(onPressed: () => Navigator.pop(context, 0.0), child: const Text('예산 삭제')),
-        TextButton(onPressed: () => Navigator.pop(context), child: const Text('취소')),
+          TextButton(
+            onPressed: () => Navigator.pop(context, 0.0),
+            child: const Text('예산 삭제'),
+          ),
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('취소'),
+        ),
         FilledButton(
           onPressed: () {
-            final v = double.tryParse(_controller.text.replaceAll(RegExp(r'[^0-9]'), ''));
+            final v = double.tryParse(
+              _controller.text.replaceAll(RegExp(r'[^0-9]'), ''),
+            );
             if (v != null && v > 0) Navigator.pop(context, v);
           },
           child: const Text('저장'),
@@ -823,17 +969,24 @@ class _CategoryBudgetDialog extends StatefulWidget {
   final String? category;
   final double? initialAmount;
 
-  const _CategoryBudgetDialog({required this.category, required this.initialAmount});
+  const _CategoryBudgetDialog({
+    required this.category,
+    required this.initialAmount,
+  });
 
   @override
   State<_CategoryBudgetDialog> createState() => _CategoryBudgetDialogState();
 }
 
 class _CategoryBudgetDialogState extends State<_CategoryBudgetDialog> {
-  late final TextEditingController _categoryController =
-      TextEditingController(text: widget.category ?? '');
+  late final TextEditingController _categoryController = TextEditingController(
+    text: widget.category ?? '',
+  );
   late final TextEditingController _amountController = TextEditingController(
-      text: widget.initialAmount != null ? widget.initialAmount!.round().toString() : '');
+    text: widget.initialAmount != null
+        ? widget.initialAmount!.round().toString()
+        : '',
+  );
 
   @override
   void dispose() {
@@ -854,14 +1007,20 @@ class _CategoryBudgetDialogState extends State<_CategoryBudgetDialog> {
             controller: _categoryController,
             enabled: !isEditing,
             autofocus: !isEditing,
-            decoration: const InputDecoration(labelText: '카테고리', hintText: '예: 식비'),
+            decoration: const InputDecoration(
+              labelText: '카테고리',
+              hintText: '예: 식비',
+            ),
           ),
           const SizedBox(height: AppSpacing.sm),
           TextField(
             controller: _amountController,
             autofocus: isEditing,
             keyboardType: TextInputType.number,
-            decoration: const InputDecoration(labelText: '월 지출 한도(원)', hintText: '예: 400000'),
+            decoration: const InputDecoration(
+              labelText: '월 지출 한도(원)',
+              hintText: '예: 400000',
+            ),
           ),
         ],
       ),
@@ -871,12 +1030,19 @@ class _CategoryBudgetDialogState extends State<_CategoryBudgetDialog> {
             onPressed: () => Navigator.pop(context, (widget.category!, 0.0)),
             child: const Text('삭제'),
           ),
-        TextButton(onPressed: () => Navigator.pop(context), child: const Text('취소')),
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('취소'),
+        ),
         FilledButton(
           onPressed: () {
             final cat = _categoryController.text.trim();
-            final v = double.tryParse(_amountController.text.replaceAll(RegExp(r'[^0-9]'), ''));
-            if (cat.isNotEmpty && v != null && v > 0) Navigator.pop(context, (cat, v));
+            final v = double.tryParse(
+              _amountController.text.replaceAll(RegExp(r'[^0-9]'), ''),
+            );
+            if (cat.isNotEmpty && v != null && v > 0) {
+              Navigator.pop(context, (cat, v));
+            }
           },
           child: const Text('저장'),
         ),
@@ -926,7 +1092,9 @@ class _CoachingCardState extends ConsumerState<_CoachingCard> {
             ),
             Text(
               '지출 패턴·목표 진도·순자산 추이를 분석해 알려드려요',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(color: context.appColors.textMuted),
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: context.appColors.textMuted,
+              ),
             ),
             const SizedBox(height: AppSpacing.xs),
             if (_isRefreshing)
@@ -937,17 +1105,19 @@ class _CoachingCardState extends ConsumerState<_CoachingCard> {
                 child: Text('아직 코칭 내용이 없어요. 새로고침 버튼을 눌러보세요.'),
               )
             else
-              ...advice.map((a) => Padding(
-                    padding: const EdgeInsets.symmetric(vertical: AppSpacing.xs),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(_adviceIcon(a.category)),
-                        const SizedBox(width: AppSpacing.sm),
-                        Expanded(child: Text(a.message)),
-                      ],
-                    ),
-                  )),
+              ...advice.map(
+                (a) => Padding(
+                  padding: const EdgeInsets.symmetric(vertical: AppSpacing.xs),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(_adviceIcon(a.category)),
+                      const SizedBox(width: AppSpacing.sm),
+                      Expanded(child: Text(a.message)),
+                    ],
+                  ),
+                ),
+              ),
           ],
         ),
       ),
@@ -960,7 +1130,11 @@ class _SummaryStat extends StatelessWidget {
   final double value;
   final Color color;
 
-  const _SummaryStat({required this.label, required this.value, required this.color});
+  const _SummaryStat({
+    required this.label,
+    required this.value,
+    required this.color,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -968,13 +1142,22 @@ class _SummaryStat extends StatelessWidget {
       children: [
         Text(label, style: Theme.of(context).textTheme.bodySmall),
         const SizedBox(height: 2),
-        Text(formatWon(value), style: AppTypography.dataMedium(color: color, weight: FontWeight.bold)),
+        Text(
+          formatWon(value),
+          style: AppTypography.dataMedium(
+            color: color,
+            weight: FontWeight.bold,
+          ),
+        ),
       ],
     );
   }
 }
 
-Future<void> showAddTransactionDialog(BuildContext context, WidgetRef ref) async {
+Future<void> showAddTransactionDialog(
+  BuildContext context,
+  WidgetRef ref,
+) async {
   final categoryController = TextEditingController();
   final memoController = TextEditingController();
   final amountController = TextEditingController();
@@ -984,7 +1167,10 @@ Future<void> showAddTransactionDialog(BuildContext context, WidgetRef ref) async
   bool isSaving = false;
   String? errorText;
 
-  final financialGoals = ref.read(activeGoalsProvider).where((g) => g.targetAmount != null).toList();
+  final financialGoals = ref
+      .read(activeGoalsProvider)
+      .where((g) => g.targetAmount != null)
+      .toList();
 
   await showDialog<void>(
     context: context,
@@ -998,8 +1184,14 @@ Future<void> showAddTransactionDialog(BuildContext context, WidgetRef ref) async
             children: [
               SegmentedButton<TransactionType>(
                 segments: const [
-                  ButtonSegment(value: TransactionType.expense, label: Text('지출')),
-                  ButtonSegment(value: TransactionType.income, label: Text('수입')),
+                  ButtonSegment(
+                    value: TransactionType.expense,
+                    label: Text('지출'),
+                  ),
+                  ButtonSegment(
+                    value: TransactionType.income,
+                    label: Text('수입'),
+                  ),
                 ],
                 selected: {type},
                 onSelectionChanged: (s) => setState(() => type = s.first),
@@ -1011,7 +1203,10 @@ Future<void> showAddTransactionDialog(BuildContext context, WidgetRef ref) async
                 decoration: const InputDecoration(labelText: '카테고리'),
               ),
               const SizedBox(height: AppSpacing.sm),
-              TextField(controller: memoController, decoration: const InputDecoration(labelText: '메모 (선택)')),
+              TextField(
+                controller: memoController,
+                decoration: const InputDecoration(labelText: '메모 (선택)'),
+              ),
               const SizedBox(height: AppSpacing.sm),
               TextField(
                 controller: amountController,
@@ -1028,7 +1223,9 @@ Future<void> showAddTransactionDialog(BuildContext context, WidgetRef ref) async
                   final picked = await showDatePicker(
                     context: dialogContext,
                     initialDate: date,
-                    firstDate: DateTime.now().subtract(const Duration(days: 365)),
+                    firstDate: DateTime.now().subtract(
+                      const Duration(days: 365),
+                    ),
                     lastDate: DateTime.now(),
                   );
                   if (picked != null) setState(() => date = picked);
@@ -1038,17 +1235,32 @@ Future<void> showAddTransactionDialog(BuildContext context, WidgetRef ref) async
                 const SizedBox(height: AppSpacing.sm),
                 DropdownButtonFormField<String?>(
                   initialValue: linkedGoalId,
-                  decoration: const InputDecoration(labelText: '저축 목표에 연결 (선택)'),
+                  decoration: const InputDecoration(
+                    labelText: '저축 목표에 연결 (선택)',
+                  ),
                   items: [
-                    const DropdownMenuItem<String?>(value: null, child: Text('연결 안 함')),
-                    ...financialGoals.map((g) => DropdownMenuItem<String?>(value: g.id, child: Text(g.title))),
+                    const DropdownMenuItem<String?>(
+                      value: null,
+                      child: Text('연결 안 함'),
+                    ),
+                    ...financialGoals.map(
+                      (g) => DropdownMenuItem<String?>(
+                        value: g.id,
+                        child: Text(g.title),
+                      ),
+                    ),
                   ],
                   onChanged: (v) => setState(() => linkedGoalId = v),
                 ),
               ],
               if (errorText != null) ...[
                 const SizedBox(height: AppSpacing.sm),
-                Text(errorText!, style: TextStyle(color: Theme.of(dialogContext).colorScheme.error)),
+                Text(
+                  errorText!,
+                  style: TextStyle(
+                    color: Theme.of(dialogContext).colorScheme.error,
+                  ),
+                ),
               ],
             ],
           ),
@@ -1063,7 +1275,11 @@ Future<void> showAddTransactionDialog(BuildContext context, WidgetRef ref) async
                 ? null
                 : () async {
                     final amount = double.tryParse(amountController.text);
-                    if (amount == null || amount <= 0 || categoryController.text.trim().isEmpty) return;
+                    if (amount == null ||
+                        amount <= 0 ||
+                        categoryController.text.trim().isEmpty) {
+                      return;
+                    }
                     final tx = Transaction(
                       id: const Uuid().v4(),
                       type: type,
@@ -1079,7 +1295,9 @@ Future<void> showAddTransactionDialog(BuildContext context, WidgetRef ref) async
                       errorText = null;
                     });
                     try {
-                      await ref.read(transactionsProvider.notifier).addTransaction(tx);
+                      await ref
+                          .read(transactionsProvider.notifier)
+                          .addTransaction(tx);
                       if (dialogContext.mounted) Navigator.pop(dialogContext);
                     } catch (_) {
                       // 저장이 실패로 끝나기 전에 사용자가 바깥을 탭하거나 뒤로가기로
@@ -1089,7 +1307,7 @@ Future<void> showAddTransactionDialog(BuildContext context, WidgetRef ref) async
                       // 실패 원인은 노출하지 않고 다이얼로그를 열어 둔 채 재시도를 유도한다.
                       setState(() {
                         isSaving = false;
-                        errorText = '거래를 저장하지 못했습니다. 잠시 후 다시 시도해주세요.';
+                        errorText = '거래를 저장하지 못했어요. 잠시 후 다시 시도해주세요.';
                       });
                     }
                   },
