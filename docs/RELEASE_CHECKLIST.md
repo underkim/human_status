@@ -135,8 +135,12 @@ dart run tool/check_release_readiness.dart          # 사람이 읽는 한글 �
 dart run tool/check_release_readiness.dart --json    # 스크립트/CI 연동용 JSON
 ```
 
-placeholder ID나 debug 서명이 하나라도 남아 있으면 0이 아닌 코드로 종료하며,
-어떤 파일의 어떤 값을 왜 바꿔야 하는지 각 항목마다 구체적으로 안내합니다.
+placeholder ID, debug 서명, 그리고(5절의) Android 릴리즈 서명 배관/자격
+증명 문제 중 하나라도 남아 있으면 0이 아닌 코드로 종료하며, 어떤 파일의 어떤
+값을 왜 바꿔야 하는지(또는 어떤 자격 증명이 비어 있는지) 각 항목마다
+구체적으로 안내합니다 — 자격 증명 관련 안내에는 필드 이름과 입력 경로
+(`android/key.properties`의 키 이름 또는 환경변수 이름)만 나오고, 실제 비밀
+값은 절대 출력하지 않습니다.
 
 ## 5. 시크릿을 안전하게 다루는 서명 체크리스트
 
@@ -144,17 +148,98 @@ placeholder ID나 debug 서명이 하나라도 남아 있으면 0이 아닌 코�
       `.gitignore`가 이미 `android/key.properties`, `*.jks`, `*.keystore`를
       막고 있다(`test/gitignore_signing_secrets_test.dart`가 회귀를 잡는다).
       다른 경로/확장자로 키를 보관한다면 그 패턴도 `.gitignore`에 추가하세요.
-- [ ] `android/app/build.gradle.kts`의 `buildTypes.release.signingConfig`가
-      더 이상 `signingConfigs.getByName("debug")`를 참조하지 않고, 로컬에서는
-      `key.properties`(커밋 금지) 파일에서, CI에서는 GitHub Actions
-      암호화된 시크릿에서 키스토어 정보를 읽어오도록 구성한다
+- [x] `android/app/build.gradle.kts`의 `buildTypes.release.signingConfig`가
+      `signingConfigs.getByName("release")`를 가리키도록 구성되어 있다(더 이상
+      `signingConfigs.getByName("debug")`를 참조하지 않음). 로컬에서는
+      `android/key.properties`(커밋 금지) 파일에서, CI에서는 환경변수에서
+      키스토어 정보를 읽어오며, **값이 비어 있지 않은 CI 환경변수가 항상
+      `android/key.properties`보다 우선한다.** `assembleDebug`/`test`/
+      `analyze` 같은 태스크는 자격 증명 없이도 계속 구성되고, 이름에
+      "release"가 들어간 태스크(`assembleRelease`, `bundleRelease` 등, 대소문자
+      구분 없음)만 자격 증명이 없거나 keystore 파일을 찾을 수 없을 때 빌드
+      전에 어떤 항목이 빠졌는지 구체적으로 알려주며 즉시 실패한다. debug
+      키로 조용히 대체되거나 서명 없이 아티팩트가 만들어지는 경로는 없다.
+      (`tool/release_readiness/checker.dart`와
+      `test/android_release_signing_test.dart`가 이 배관 자체와 자격 증명
+      사용 가능 여부를 함께 검증한다.)
 - [ ] 키스토어 비밀번호/별칭 비밀번호를 코드나 워크플로 YAML에 평문으로
       적지 않는다 — 항상 `secrets.*` 컨텍스트로만 참조한다
 - [ ] iOS 배포 인증서/프로비저닝 프로필도 동일하게 저장소 밖(Keychain,
       Apple Developer Portal, 또는 CI 시크릿)에서만 관리한다
 - [ ] 서명에 사용한 키스토어/인증서를 잃어버리지 않도록 안전한 곳(팀
       비밀번호 관리자 등)에 별도 백업해 둔다 — 분실 시 기존 스토어 등록을
-      이어서 업데이트할 방법이 없다
+      이어서 업데이트할 방법이 없다. **키스토어 비밀번호나 별칭을 잃어버리면
+      기존 Play Console 등록을 이어서 업데이트할 방법이 전혀 없다** —
+      새 앱으로 처음부터 다시 등록해야 한다.
+
+### 5.1 로컬에서 release keystore 만들고 연결하기
+
+이미 발급받은 keystore가 있다면 아래 1~2단계는 건너뛰고 3단계부터 진행하세요.
+
+1. JDK에 포함된 `keytool`로 새 release keystore를 생성합니다 (예시일 뿐이며,
+   실제 조직 이름/유효기간은 상황에 맞게 정하세요):
+
+   ```sh
+   keytool -genkeypair -v \
+     -keystore release-keystore.jks \
+     -alias human_status_release \
+     -keyalg RSA -keysize 2048 -validity 10000
+   ```
+
+   실행 중 keystore 비밀번호와 key 비밀번호를 입력하라는 프롬프트가
+   나옵니다 — 이 두 값을 반드시 기억/기록해 두세요(다음 단계에서 씁니다).
+2. 생성된 `release-keystore.jks`를 저장소 **밖**(예: 저장소 상위 폴더나 팀
+   비밀번호 관리자와 동기화되는 안전한 위치)으로 옮깁니다. 저장소 안에
+   두더라도 `.gitignore`가 `*.jks`를 막지만, 실수로 강제 추가(`git add -f`)
+   하는 사고를 피하려면 아예 저장소 밖에 두는 편이 안전합니다.
+3. `android/key.properties.example`을 복사해 `android/key.properties`를
+   만들고, 방금 만든 값으로 채웁니다:
+
+   ```sh
+   # macOS/Linux
+   cp android/key.properties.example android/key.properties
+   # Windows (PowerShell)
+   Copy-Item android/key.properties.example android/key.properties
+   ```
+
+   ```properties
+   # android/key.properties (커밋 금지 -- 이미 .gitignore에 있음)
+   storeFile=C:\Users\me\keys\release-keystore.jks
+   storePassword=여기에_실제_keystore_비밀번호
+   keyAlias=human_status_release
+   keyPassword=여기에_실제_key_비밀번호
+   ```
+
+   `storeFile`은 Windows 절대 경로(`C:\...`)든, `android/` 디렉터리 기준
+   상대 경로든 그대로 동작합니다.
+4. `flutter build apk --release` 또는
+   `flutter build appbundle --release`를 실행합니다. 네 값 중 하나라도
+   비어 있거나 `storeFile`이 가리키는 파일이 없으면, Gradle이 빌드를
+   시작하기 전에 어떤 항목이 문제인지 알려주며 즉시 실패합니다(비밀 값
+   자체는 오류 메시지에 나오지 않습니다).
+
+### 5.2 CI에서 환경변수로 주입하기
+
+CI에서는 `android/key.properties` 파일을 아예 만들지 말고, 아래 네
+환경변수를 (예: GitHub Actions의 암호화된 저장소/환경 시크릿으로) 주입하세요:
+
+| 환경변수 | 대응하는 `key.properties` 필드 |
+| --- | --- |
+| `ANDROID_KEYSTORE_PATH` | `storeFile` |
+| `ANDROID_STORE_PASSWORD` | `storePassword` |
+| `ANDROID_KEY_ALIAS` | `keyAlias` |
+| `ANDROID_KEY_PASSWORD` | `keyPassword` |
+
+keystore 파일 자체는 시크릿 텍스트로 저장할 수 없으므로, base64로 인코딩한
+시크릿을 워크플로 실행 중에 파일로 복원한 뒤 그 경로를
+`ANDROID_KEYSTORE_PATH`로 넘기는 방식이 일반적입니다(예: `echo "$KEYSTORE_BASE64"
+| base64 -d > $RUNNER_TEMP/release.jks`, 그 뒤 `ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/release.jks`).
+값이 비어 있지 않은 이 네 환경변수는 로컬 `android/key.properties`보다 항상
+우선하므로, 실수로 저장소에 로컬 파일이 남아 있어도 CI 결과에는 영향을
+주지 않습니다. 현재 이 저장소의 `.github/workflows/*.yml`은 어떤 저장소
+시크릿도 사용하지 않으며(2절 참고), 위 네 환경변수를 실제로 주입하는 배포용
+워크플로는 아직 이 저장소에 추가되어 있지 않습니다 — 실제 스토어 릴리즈
+파이프라인을 구성할 때 팀 CI 설정에 맞게 추가해야 합니다.
 
 ## 6. Android/iOS 실기기 게이트
 

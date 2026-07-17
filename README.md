@@ -127,10 +127,26 @@ dart run tool/generate_app_icons.dart
 
 ### Android 릴리즈에 대한 참고
 
-Android 릴리즈 빌드는 아직 debug 서명과 `com.example` 애플리케이션 ID를
-그대로 사용합니다. 배포하려면 실제 패키지/번들 ID를 정하고 안전한 서명
-구성(키스토어, CI 시크릿 등)을 별도로 마련해야 합니다. 이 변경에서는
-애플리케이션 ID나 서명 설정을 수정하지 않았습니다.
+`android/app/build.gradle.kts`는 이제 실제 release 서명 구성 배관을
+갖추고 있습니다 — `signingConfigs.release`가 로컬
+`android/key.properties`(git-ignored, `android/key.properties.example` 복사해
+사용) 또는 CI 환경변수(`ANDROID_KEYSTORE_PATH`/`ANDROID_STORE_PASSWORD`/
+`ANDROID_KEY_ALIAS`/`ANDROID_KEY_PASSWORD`)에서 자격 증명을 읽어오며, 값이
+비어 있지 않은 CI 환경변수가 항상 로컬 파일보다 우선합니다.
+`assembleDebug`/`test`/`analyze` 등은 자격 증명 없이도 계속 구성되고,
+`assembleRelease`/`bundleRelease`처럼 이름에 "release"가 들어간 태스크만
+자격 증명이 없거나 keystore 파일을 찾지 못하면 어떤 값이 빠졌는지 구체적으로
+알려주며 **빌드 전에** 즉시 실패합니다 — 절대 debug 키로 대체되거나 서명 없이
+조용히 아티팩트를 만들지 않습니다.
+
+다만 실제 배포를 위해서는 여전히: (1) `com.example` 애플리케이션 ID를 실제
+소유한 도메인으로 바꾸고, (2) 진짜 release keystore를 생성해 로컬
+`android/key.properties` 또는 CI 시크릿으로 주입하고, (3) 실기기에서 검증해야
+합니다. 이 저장소는 진짜 keystore나 영구 ID를 포함하지 않으므로,
+`tool/check_release_readiness.dart`는 여전히 "not ready"를 보고합니다 —
+다만 서명 이슈의 성격이 "여전히 debug 서명을 씀"에서 "자격 증명이 없음"으로
+바뀌었습니다. 자세한 절차는
+[docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md)를 참고하세요.
 
 로컬 데이터는 [hive](https://pub.dev/packages/hive)에 저장되며 서버가 없습니다.
 상태 관리는 Riverpod(`StateNotifierProvider`), 차트는 fl_chart를 사용합니다.

@@ -25,6 +25,24 @@ void main() {
     file.writeAsStringSync(content);
   }
 
+  /// A minimal but fully-wired release signingConfig block: references
+  /// signingConfigs.release (never debug) and mentions all four CI
+  /// environment variable names, matching the contract checked against
+  /// android/app/build.gradle.kts.
+  const wiredGradleSigningBlock = '''
+    signingConfigs {
+        create("release") {
+            // ANDROID_KEYSTORE_PATH ANDROID_STORE_PASSWORD
+            // ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD
+        }
+    }
+    buildTypes {
+        release {
+            signingConfig = signingConfigs.getByName("release")
+        }
+    }
+''';
+
   void writeReadyFixture() {
     writeFile('android/app/build.gradle.kts', '''
 android {
@@ -32,11 +50,7 @@ android {
     defaultConfig {
         applicationId = "com.acme.human_status"
     }
-    buildTypes {
-        release {
-            signingConfig = signingConfigs.getByName("release")
-        }
-    }
+$wiredGradleSigningBlock
 }
 ''');
     writeFile(
@@ -57,18 +71,39 @@ set(APPLICATION_ID "com.acme.human_status")
 name: human_status
 version: 1.2.0+3
 ''');
+    // Fake (non-secret) keystore + credentials so the shared "ready" fixture
+    // also has usable release signing credentials -- tests that are only
+    // about namespace/version/etc. shouldn't incidentally fail on the new
+    // credentials-missing check.
+    writeFile('android/key.properties', '''
+storeFile=fake-release.jks
+storePassword=test-only-store-password
+keyAlias=test-only-alias
+keyPassword=test-only-key-password
+''');
+    writeFile(
+      'android/fake-release.jks',
+      'not a real keystore, test fixture only',
+    );
   }
+
+  /// checkReleaseReadiness with an explicit empty environment by default, so
+  /// these tests never accidentally read the *actual* host/CI environment.
+  ReleaseReadinessReport check(
+    Directory root, {
+    Map<String, String> environment = const {},
+  }) => checkReleaseReadiness(root, environment: environment);
 
   test('모든 ID/서명/버전이 정상이면 통과한다', () {
     writeReadyFixture();
-    final report = checkReleaseReadiness(tempRoot);
+    final report = check(tempRoot);
     expect(report.isReady, isTrue);
     expect(report.issues, isEmpty);
   });
 
   test('JSON 직렬화가 ready=true와 빈 issues를 담는다', () {
     writeReadyFixture();
-    final report = checkReleaseReadiness(tempRoot);
+    final report = check(tempRoot);
     final json = report.toJson();
     expect(json['ready'], isTrue);
     expect(json['issues'], isEmpty);
@@ -93,7 +128,7 @@ android {
       'android/app/src/main/kotlin/com/example/human_status/MainActivity.kt',
       'package com.example.human_status\nclass MainActivity\n',
     );
-    final report = checkReleaseReadiness(tempRoot);
+    final report = check(tempRoot);
     expect(report.isReady, isFalse);
     final ids = report.issues.map((i) => i.id).toSet();
     expect(ids, contains('android_namespace_placeholder'));
@@ -110,14 +145,10 @@ android {
     defaultConfig {
         applicationId = "com.acme.human_status.paid"
     }
-    buildTypes {
-        release {
-            signingConfig = signingConfigs.getByName("release")
-        }
-    }
+$wiredGradleSigningBlock
 }
 ''');
-    final report = checkReleaseReadiness(tempRoot);
+    final report = check(tempRoot);
     expect(report.isReady, isTrue);
     expect(report.issues, isEmpty);
   });
@@ -133,7 +164,7 @@ android {
       'android/app/src/main/kotlin/com/example/human_status/MainActivity.kt',
       'package com.example.human_status\nclass MainActivity\n',
     );
-    final report = checkReleaseReadiness(tempRoot);
+    final report = check(tempRoot);
     expect(report.isReady, isFalse);
     expect(
       report.issues.map((i) => i.id),
@@ -148,7 +179,7 @@ android {
       'android/app/src/main/kotlin/com/acme/human_status/MainActivity.kt',
       'package com.example.human_status\nclass MainActivity\n',
     );
-    final report = checkReleaseReadiness(tempRoot);
+    final report = check(tempRoot);
     expect(report.isReady, isFalse);
     expect(
       report.issues.map((i) => i.id),
@@ -171,7 +202,7 @@ android {
     }
 }
 ''');
-    final report = checkReleaseReadiness(tempRoot);
+    final report = check(tempRoot);
     expect(report.isReady, isFalse);
     expect(
       report.issues.map((i) => i.id),
@@ -185,7 +216,7 @@ android {
 PRODUCT_BUNDLE_IDENTIFIER = com.example.humanStatus;
 PRODUCT_BUNDLE_IDENTIFIER = com.example.humanStatus.RunnerTests;
 ''');
-    final report = checkReleaseReadiness(tempRoot);
+    final report = check(tempRoot);
     expect(report.isReady, isFalse);
     expect(
       report.issues.map((i) => i.id),
@@ -198,7 +229,7 @@ PRODUCT_BUNDLE_IDENTIFIER = com.example.humanStatus.RunnerTests;
     writeFile('macos/Runner/Configs/AppInfo.xcconfig', '''
 PRODUCT_BUNDLE_IDENTIFIER = com.example.humanStatus
 ''');
-    final report = checkReleaseReadiness(tempRoot);
+    final report = check(tempRoot);
     expect(report.isReady, isFalse);
     expect(
       report.issues.map((i) => i.id),
@@ -211,7 +242,7 @@ PRODUCT_BUNDLE_IDENTIFIER = com.example.humanStatus
     writeFile('linux/CMakeLists.txt', '''
 set(APPLICATION_ID "com.example.human_status")
 ''');
-    final report = checkReleaseReadiness(tempRoot);
+    final report = check(tempRoot);
     expect(report.isReady, isFalse);
     expect(
       report.issues.map((i) => i.id),
@@ -228,7 +259,7 @@ set(APPLICATION_ID "com.example.human_status")
 name: human_status
 version: 1.0.0+1
 ''');
-    final report = checkReleaseReadiness(tempRoot);
+    final report = check(tempRoot);
     expect(report.isReady, isTrue);
     expect(report.issues, isEmpty);
   });
@@ -239,7 +270,7 @@ version: 1.0.0+1
 name: human_status
 version: 1.2.0
 ''');
-    final report = checkReleaseReadiness(tempRoot);
+    final report = check(tempRoot);
     expect(report.isReady, isFalse);
     expect(
       report.issues.map((i) => i.id),
@@ -253,7 +284,7 @@ version: 1.2.0
 name: human_status
 version: 1.2.0+0
 ''');
-    final report = checkReleaseReadiness(tempRoot);
+    final report = check(tempRoot);
     expect(report.isReady, isFalse);
     expect(
       report.issues.map((i) => i.id),
@@ -267,7 +298,7 @@ version: 1.2.0+0
 name: human_status
 version: not-a-version
 ''');
-    final report = checkReleaseReadiness(tempRoot);
+    final report = check(tempRoot);
     expect(report.isReady, isFalse);
     expect(report.issues.map((i) => i.id), contains('version_invalid'));
   });
@@ -278,7 +309,7 @@ version: not-a-version
 name: human_status
 version: 2.0.0-beta.1+7
 ''');
-    final report = checkReleaseReadiness(tempRoot);
+    final report = check(tempRoot);
     expect(report.isReady, isTrue);
     expect(report.issues, isEmpty);
   });
@@ -286,8 +317,8 @@ version: 2.0.0-beta.1+7
   test('필수 플랫폼 파일이 없으면 누락 이슈를 보고한다', () {
     // Completely empty fixture directory: every check should degrade to a
     // "file missing" issue instead of throwing.
-    expect(() => checkReleaseReadiness(tempRoot), returnsNormally);
-    final report = checkReleaseReadiness(tempRoot);
+    expect(() => check(tempRoot), returnsNormally);
+    final report = check(tempRoot);
     expect(report.isReady, isFalse);
     final ids = report.issues.map((i) => i.id).toSet();
     expect(ids, contains('android_build_gradle_missing'));

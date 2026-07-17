@@ -60,9 +60,17 @@ String? _firstMatch(String content, RegExp pattern) {
 /// and returns the combined report. Never throws for expected "file
 /// missing"/"pattern not found" situations -- those become issues instead,
 /// so a partially-set-up checkout still produces actionable output.
-ReleaseReadinessReport checkReleaseReadiness(Directory root) {
+///
+/// [environment] is injectable so tests can simulate CI credential
+/// environment variables without touching the real process environment; it
+/// defaults to [Platform.environment].
+ReleaseReadinessReport checkReleaseReadiness(
+  Directory root, {
+  Map<String, String>? environment,
+}) {
+  final env = environment ?? Platform.environment;
   final issues = <ReleaseReadinessIssue>[
-    ..._checkAndroid(root),
+    ..._checkAndroid(root, env),
     ..._checkIosBundleId(root),
     ..._checkMacosBundleId(root),
     ..._checkLinuxApplicationId(root),
@@ -74,7 +82,21 @@ ReleaseReadinessReport checkReleaseReadiness(Directory root) {
 File _file(Directory root, String relativePath) =>
     File('${root.path}/$relativePath');
 
-List<ReleaseReadinessIssue> _checkAndroid(Directory root) {
+/// CI environment variable names accepted for release signing credentials.
+/// Kept as a `propertyKey -> envVar` map so the same names drive both the
+/// android/key.properties lookup and the CI environment lookup, matching
+/// android/app/build.gradle.kts.
+const _releaseSigningEnvVars = {
+  'storeFile': 'ANDROID_KEYSTORE_PATH',
+  'storePassword': 'ANDROID_STORE_PASSWORD',
+  'keyAlias': 'ANDROID_KEY_ALIAS',
+  'keyPassword': 'ANDROID_KEY_PASSWORD',
+};
+
+List<ReleaseReadinessIssue> _checkAndroid(
+  Directory root,
+  Map<String, String> environment,
+) {
   final issues = <ReleaseReadinessIssue>[];
   const gradlePath = 'android/app/build.gradle.kts';
   final gradleFile = _file(root, gradlePath);
@@ -204,9 +226,133 @@ List<ReleaseReadinessIssue> _checkAndroid(Directory root) {
         filePath: gradlePath,
       ),
     );
+  } else {
+    final usesReleaseSigningConfig = RegExp(
+      r'signingConfig\s*=\s*signingConfigs\.(?:getByName|named)\(\s*"release"\s*\)',
+    ).hasMatch(releaseBlock);
+    if (!usesReleaseSigningConfig) {
+      issues.add(
+        ReleaseReadinessIssue(
+          id: 'android_release_signing_not_wired',
+          category: 'android',
+          message:
+              '$gradlePath 의 release 빌드 타입이 signingConfigs.release를 '
+              '사용하도록 연결되어 있지 않습니다. buildTypes.release.signingConfig가 '
+              'signingConfigs.getByName("release")를 가리키도록 구성하세요.',
+          filePath: gradlePath,
+        ),
+      );
+    } else {
+      final missingEnvNames = _releaseSigningEnvVars.values
+          .where((envVar) => !content.contains(envVar))
+          .toList();
+      if (missingEnvNames.isNotEmpty) {
+        issues.add(
+          ReleaseReadinessIssue(
+            id: 'android_release_signing_env_not_wired',
+            category: 'android',
+            message:
+                '$gradlePath 가 CI 환경변수(${missingEnvNames.join(', ')})를 통한 '
+                '서명 구성을 지원하지 않는 것으로 보입니다. 로컬 '
+                'android/key.properties 뿐 아니라 CI 환경변수로도 서명 정보를 '
+                '주입할 수 있도록 구성하세요.',
+            filePath: gradlePath,
+          ),
+        );
+      } else {
+        issues.addAll(_checkAndroidSigningCredentials(root, environment));
+      }
+    }
   }
 
   return issues;
+}
+
+/// Checks whether Android release signing credentials are *currently
+/// usable*, applying the same precedence as android/app/build.gradle.kts:
+/// a non-empty CI environment value overrides android/key.properties, which
+/// in turn is only consulted when the environment value is absent/blank.
+///
+/// This never reads or serializes secret *values* -- only whether each
+/// field/channel is present, and (for the keystore) whether the file it
+/// names exists on disk.
+List<ReleaseReadinessIssue> _checkAndroidSigningCredentials(
+  Directory root,
+  Map<String, String> environment,
+) {
+  final keyPropertiesFile = _file(root, 'android/key.properties');
+  final localProperties = <String, String>{};
+  if (keyPropertiesFile.existsSync()) {
+    for (final line in keyPropertiesFile.readAsLinesSync()) {
+      final trimmed = line.trim();
+      if (trimmed.isEmpty || trimmed.startsWith('#')) continue;
+      final separator = trimmed.indexOf('=');
+      if (separator <= 0) continue;
+      localProperties[trimmed.substring(0, separator).trim()] = trimmed
+          .substring(separator + 1)
+          .trim();
+    }
+  }
+
+  String? resolve(String propertyKey) {
+    final envVar = _releaseSigningEnvVars[propertyKey]!;
+    final envValue = environment[envVar];
+    if (envValue != null && envValue.trim().isNotEmpty) return envValue;
+    final localValue = localProperties[propertyKey];
+    if (localValue != null && localValue.trim().isNotEmpty) return localValue;
+    return null;
+  }
+
+  final resolved = {
+    for (final propertyKey in _releaseSigningEnvVars.keys)
+      propertyKey: resolve(propertyKey),
+  };
+
+  final missing = _releaseSigningEnvVars.keys
+      .where((propertyKey) => resolved[propertyKey] == null)
+      .map(
+        (propertyKey) =>
+            "$propertyKey(android/key.properties의 '$propertyKey' 또는 "
+            '환경변수 \$${_releaseSigningEnvVars[propertyKey]})',
+      )
+      .toList();
+
+  if (missing.isNotEmpty) {
+    return [
+      ReleaseReadinessIssue(
+        id: 'android_release_signing_credentials_missing',
+        category: 'android',
+        message:
+            'Android 릴리즈 서명에 필요한 값이 아직 없습니다: ${missing.join(', ')}. '
+            'android/key.properties.example를 복사해 android/key.properties를 '
+            '채우거나(로컬 전용, 커밋 금지), CI에서는 위 환경변수로 주입하세요. '
+            '실제 비밀 값은 이 리포트에 절대 포함되지 않습니다.',
+        filePath: 'android/key.properties',
+      ),
+    ];
+  }
+
+  final storeFilePath = resolved['storeFile']!;
+  final storeFile = File(storeFilePath);
+  final keystoreFile = storeFile.isAbsolute
+      ? storeFile
+      : _file(root, 'android/$storeFilePath');
+  if (!keystoreFile.existsSync()) {
+    return [
+      ReleaseReadinessIssue(
+        id: 'android_release_signing_keystore_missing',
+        category: 'android',
+        message:
+            'storeFile이 가리키는 keystore 파일을 찾을 수 없습니다. '
+            "android/key.properties의 'storeFile' 값 또는 환경변수 "
+            r'$ANDROID_KEYSTORE_PATH가 실제로 존재하는 keystore 파일을 '
+            '가리키는지 확인하세요.',
+        filePath: 'android/key.properties',
+      ),
+    ];
+  }
+
+  return [];
 }
 
 List<ReleaseReadinessIssue> _checkIosBundleId(Directory root) {
