@@ -93,6 +93,69 @@ const _releaseSigningEnvVars = {
   'keyPassword': 'ANDROID_KEY_PASSWORD',
 };
 
+/// Strips `//` line comments and `/* ... */` block comments from Kotlin
+/// source text before the env-wiring checks run, so wiring that only
+/// exists inside a comment (including a comment that fakes a whole
+/// `System.getenv("ANDROID_...")` line/block, not just the bare name) can
+/// never be mistaken for real code.
+///
+/// This is string-literal-aware (single-pass scan, not a regex): a `"..."`
+/// double-quoted string is copied through verbatim, honoring `\"`
+/// backslash-escapes, so a `//` or `/*` *inside* a string is never
+/// mistaken for a comment delimiter. This matters in both directions --
+/// naive regex stripping would (a) wrongly truncate a real, live line
+/// after a string containing "//" (e.g. a URL), hiding real wiring code
+/// that follows and misreporting it as unwired, and (b) let a string
+/// containing "*/" prematurely close a block comment, resurrecting
+/// commented-out fake wiring as if it were live code -- reopening the very
+/// bypass this function exists to close. Kotlin triple-quoted (`"""`) raw
+/// strings are not specially handled; this remains a simplified check, not
+/// a full Kotlin lexer, and this repo's build.gradle.kts does not use them.
+String _stripKotlinComments(String content) {
+  final buffer = StringBuffer();
+  final len = content.length;
+  var i = 0;
+  while (i < len) {
+    final char = content[i];
+    if (char == '"') {
+      // Copy the whole string literal verbatim (escapes included) so
+      // nothing inside it is mistaken for a comment delimiter.
+      buffer.write(char);
+      i++;
+      while (i < len) {
+        final c = content[i];
+        if (c == '\\' && i + 1 < len) {
+          buffer.write(c);
+          buffer.write(content[i + 1]);
+          i += 2;
+          continue;
+        }
+        buffer.write(c);
+        i++;
+        if (c == '"') break;
+      }
+      continue;
+    }
+    if (char == '/' && i + 1 < len && content[i + 1] == '/') {
+      while (i < len && content[i] != '\n') {
+        i++;
+      }
+      continue;
+    }
+    if (char == '/' && i + 1 < len && content[i + 1] == '*') {
+      i += 2;
+      while (i + 1 < len && !(content[i] == '*' && content[i + 1] == '/')) {
+        i++;
+      }
+      i = (i + 1 < len) ? i + 2 : len;
+      continue;
+    }
+    buffer.write(char);
+    i++;
+  }
+  return buffer.toString();
+}
+
 List<ReleaseReadinessIssue> _checkAndroid(
   Directory root,
   Map<String, String> environment,
@@ -243,19 +306,40 @@ List<ReleaseReadinessIssue> _checkAndroid(
         ),
       );
     } else {
+      // Require *recognizable executable* wiring, not just the env var
+      // names appearing anywhere (e.g. in a comment). Each name must show
+      // up as an actual Kotlin string literal ("ANDROID_..."), and the
+      // file must call System.getenv( somewhere -- together those two
+      // signals are what a real System.getenv("ANDROID_...") (or a
+      // data-driven equivalent, e.g. System.getenv(field.envVar) alongside
+      // a literal "ANDROID_..." entry) leaves behind. Comments are
+      // stripped first (both `//` line and `/* */` block comments), so a
+      // comment -- even one that fakes a whole `System.getenv("ANDROID_...")`
+      // line/block, not just the bare name -- can never satisfy this.
+      final codeOnly = _stripKotlinComments(content);
+      final hasGetenvCall = RegExp(r'System\.getenv\s*\(').hasMatch(codeOnly);
       final missingEnvNames = _releaseSigningEnvVars.values
-          .where((envVar) => !content.contains(envVar))
+          .where(
+            (envVar) =>
+                !RegExp('"${RegExp.escape(envVar)}"').hasMatch(codeOnly),
+          )
           .toList();
-      if (missingEnvNames.isNotEmpty) {
+      if (!hasGetenvCall || missingEnvNames.isNotEmpty) {
+        final problems = [
+          if (!hasGetenvCall) 'System.getenv(...) 호출을 찾지 못함',
+          if (missingEnvNames.isNotEmpty)
+            '문자열 리터럴로 등장하지 않는 환경변수: ${missingEnvNames.join(', ')}',
+        ];
         issues.add(
           ReleaseReadinessIssue(
             id: 'android_release_signing_env_not_wired',
             category: 'android',
             message:
-                '$gradlePath 가 CI 환경변수(${missingEnvNames.join(', ')})를 통한 '
-                '서명 구성을 지원하지 않는 것으로 보입니다. 로컬 '
-                'android/key.properties 뿐 아니라 CI 환경변수로도 서명 정보를 '
-                '주입할 수 있도록 구성하세요.',
+                '$gradlePath 가 CI 환경변수를 통한 서명 구성을 실제로 지원하는지 '
+                '확인하지 못했습니다(${problems.join('; ')}). 환경변수 이름이 주석에만 '
+                '있는 것으로는 충분하지 않습니다 -- System.getenv(...)로 실제로 읽어와야 '
+                '합니다. 로컬 android/key.properties 뿐 아니라 CI 환경변수로도 서명 '
+                '정보를 주입할 수 있도록 구성하세요.',
             filePath: gradlePath,
           ),
         );
@@ -266,6 +350,47 @@ List<ReleaseReadinessIssue> _checkAndroid(
   }
 
   return issues;
+}
+
+/// Unescapes a single Java `Properties`-file value, mirroring
+/// `java.util.Properties.load()` (which android/app/build.gradle.kts uses
+/// via `Properties().load(...)`): "\" is an escape character, so "\\"
+/// becomes a single "\" and "\" followed by any other character is that
+/// character literally (the backslash itself is dropped). This matters on
+/// Windows, where a real key.properties must either use forward slashes
+/// (`C:/keys/release.jks`) or escaped backslashes (`C:\\keys\\release.jks`)
+/// for `storeFile` -- a single, unescaped backslash would silently lose
+/// path separators under real Properties parsing. `\t`/`\n`/`\r`/`\f` are
+/// also recognized, matching the Properties spec; `\uXXXX` unicode escapes
+/// are intentionally not supported here (not needed for these fields).
+String _unescapePropertiesValue(String raw) {
+  final buffer = StringBuffer();
+  for (var i = 0; i < raw.length; i++) {
+    final char = raw[i];
+    if (char == '\\' && i + 1 < raw.length) {
+      final next = raw[i + 1];
+      switch (next) {
+        case 't':
+          buffer.write('\t');
+          break;
+        case 'n':
+          buffer.write('\n');
+          break;
+        case 'r':
+          buffer.write('\r');
+          break;
+        case 'f':
+          buffer.write('\f');
+          break;
+        default:
+          buffer.write(next);
+      }
+      i++;
+    } else {
+      buffer.write(char);
+    }
+  }
+  return buffer.toString();
 }
 
 /// Checks whether Android release signing credentials are *currently
@@ -288,9 +413,8 @@ List<ReleaseReadinessIssue> _checkAndroidSigningCredentials(
       if (trimmed.isEmpty || trimmed.startsWith('#')) continue;
       final separator = trimmed.indexOf('=');
       if (separator <= 0) continue;
-      localProperties[trimmed.substring(0, separator).trim()] = trimmed
-          .substring(separator + 1)
-          .trim();
+      localProperties[trimmed.substring(0, separator).trim()] =
+          _unescapePropertiesValue(trimmed.substring(separator + 1).trim());
     }
   }
 

@@ -32,7 +32,37 @@ void main() {
     file.writeAsStringSync(content);
   }
 
+  // Executable-looking wiring (quoted env-var literals + a real
+  // System.getenv(...) call) -- this is what checker.dart now requires to
+  // recognize CI wiring as real, as opposed to the names merely being
+  // mentioned in a comment (see commentOnlyEnvWiringGradle below).
   const wiredGradle = '''
+android {
+    namespace = "com.acme.human_status"
+    defaultConfig {
+        applicationId = "com.acme.human_status"
+    }
+    signingConfigs {
+        create("release") {
+            val envKeystorePath = System.getenv("ANDROID_KEYSTORE_PATH")
+            val envStorePassword = System.getenv("ANDROID_STORE_PASSWORD")
+            val envKeyAlias = System.getenv("ANDROID_KEY_ALIAS")
+            val envKeyPassword = System.getenv("ANDROID_KEY_PASSWORD")
+        }
+    }
+    buildTypes {
+        release {
+            signingConfig = signingConfigs.getByName("release")
+        }
+    }
+}
+''';
+
+  // Same signingConfigs.release wiring, but the four env var names only
+  // ever appear inside a comment -- no System.getenv(...) call anywhere.
+  // A real Gradle script would never pick these up; the checker must not
+  // be fooled into treating this as wired.
+  const commentOnlyEnvWiringGradle = '''
 android {
     namespace = "com.acme.human_status"
     defaultConfig {
@@ -42,6 +72,59 @@ android {
         create("release") {
             // ANDROID_KEYSTORE_PATH ANDROID_STORE_PASSWORD
             // ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD
+        }
+    }
+    buildTypes {
+        release {
+            signingConfig = signingConfigs.getByName("release")
+        }
+    }
+}
+''';
+
+  // Adversarial counterexample: the exact wiring code from wiredGradle
+  // above, but every line is `//`-commented out. Before checker.dart
+  // stripped comments, this fooled it: the text `System.getenv(` and every
+  // quoted "ANDROID_..." literal were present verbatim, just inside `//`
+  // comments that no Kotlin compiler would ever execute.
+  const lineCommentFakeWiringGradle = '''
+android {
+    namespace = "com.acme.human_status"
+    defaultConfig {
+        applicationId = "com.acme.human_status"
+    }
+    signingConfigs {
+        create("release") {
+            // val envKeystorePath = System.getenv("ANDROID_KEYSTORE_PATH")
+            // val envStorePassword = System.getenv("ANDROID_STORE_PASSWORD")
+            // val envKeyAlias = System.getenv("ANDROID_KEY_ALIAS")
+            // val envKeyPassword = System.getenv("ANDROID_KEY_PASSWORD")
+        }
+    }
+    buildTypes {
+        release {
+            signingConfig = signingConfigs.getByName("release")
+        }
+    }
+}
+''';
+
+  // Same adversarial counterexample, but using a `/* ... */` block comment
+  // instead of `//` line comments.
+  const blockCommentFakeWiringGradle = '''
+android {
+    namespace = "com.acme.human_status"
+    defaultConfig {
+        applicationId = "com.acme.human_status"
+    }
+    signingConfigs {
+        create("release") {
+            /*
+            val envKeystorePath = System.getenv("ANDROID_KEYSTORE_PATH")
+            val envStorePassword = System.getenv("ANDROID_STORE_PASSWORD")
+            val envKeyAlias = System.getenv("ANDROID_KEY_ALIAS")
+            val envKeyPassword = System.getenv("ANDROID_KEY_PASSWORD")
+            */
         }
     }
     buildTypes {
@@ -139,14 +222,19 @@ keyPassword=local-key-password
       );
     });
 
-    test('storeFile이 절대 경로여도 동작한다', () {
+    test('storeFile이 Java Properties 이스케이프 형식의 절대 경로면 동작한다', () {
       writeFile('android/app/build.gradle.kts', wiredGradle);
       writeNonAndroidFixtures();
       final absoluteKeystore = File('${tempRoot.path}/outside/release.jks');
       absoluteKeystore.parent.createSync(recursive: true);
       absoluteKeystore.writeAsStringSync('not a real keystore');
+      // android/key.properties is parsed as a Java Properties file, which
+      // treats "\" as an escape character -- a real file must double any
+      // backslash (as done here) to survive parsing intact. This mirrors
+      // java.util.Properties.load() in android/app/build.gradle.kts.
+      final escapedPath = absoluteKeystore.path.replaceAll(r'\', r'\\');
       writeFile('android/key.properties', '''
-storeFile=${absoluteKeystore.path}
+storeFile=$escapedPath
 storePassword=local-store-password
 keyAlias=local-alias
 keyPassword=local-key-password
@@ -156,6 +244,166 @@ keyPassword=local-key-password
       expect(
         androidIssueIds(report),
         isNot(contains('android_release_signing_keystore_missing')),
+      );
+    });
+
+    test('이스케이프하지 않은 단일 백슬래시 경로는 Properties 의미론상 깨진다', () {
+      writeFile('android/app/build.gradle.kts', wiredGradle);
+      writeNonAndroidFixtures();
+      // This documents/tests the supported form: real java.util.Properties
+      // parsing drops an unescaped backslash and keeps the following
+      // character literally, so "C:\keys\release.jks" becomes
+      // "C:keysrelease.jks" -- a path that does not exist. This is exactly
+      // why docs/RELEASE_CHECKLIST.md and android/key.properties.example
+      // tell users to use forward slashes or doubled backslashes for
+      // storeFile inside this file specifically (unlike the
+      // ANDROID_KEYSTORE_PATH env var, which is not Properties-parsed).
+      writeFile('android/key.properties', r'''
+storeFile=C:\keys\release.jks
+storePassword=local-store-password
+keyAlias=local-alias
+keyPassword=local-key-password
+''');
+
+      final report = checkReleaseReadiness(tempRoot, environment: const {});
+      expect(
+        androidIssueIds(report),
+        contains('android_release_signing_keystore_missing'),
+      );
+    });
+  });
+
+  group('CI 환경변수 배관은 주석만으로는 인정되지 않는다', () {
+    test('환경변수 이름이 주석에만 있으면 env_not_wired 이슈를 보고한다', () {
+      writeFile('android/app/build.gradle.kts', commentOnlyEnvWiringGradle);
+      writeNonAndroidFixtures();
+
+      final report = checkReleaseReadiness(tempRoot, environment: const {});
+      expect(
+        androidIssueIds(report),
+        contains('android_release_signing_env_not_wired'),
+      );
+      // A comment-only file has no usable wiring, so credential resolution
+      // must never even be attempted/reported as the (wrong) problem.
+      expect(
+        androidIssueIds(report),
+        isNot(contains('android_release_signing_credentials_missing')),
+      );
+    });
+
+    test('`//` 줄 주석 안에 완전한 System.getenv(...) 코드를 흉내내도 통과하지 않는다', () {
+      // Exact counterexample: every line of real wiring code, `//`-commented
+      // out. Both "System.getenv(" and every quoted "ANDROID_..." literal
+      // are present verbatim in the raw file text -- if checker.dart didn't
+      // strip comments first, this would have been (and previously was)
+      // mistaken for real wiring.
+      writeFile('android/app/build.gradle.kts', lineCommentFakeWiringGradle);
+      writeNonAndroidFixtures();
+
+      final report = checkReleaseReadiness(tempRoot, environment: const {});
+      expect(
+        androidIssueIds(report),
+        contains('android_release_signing_env_not_wired'),
+      );
+    });
+
+    test('`/* */` 블록 주석 안에 완전한 System.getenv(...) 코드를 흉내내도 통과하지 않는다', () {
+      writeFile('android/app/build.gradle.kts', blockCommentFakeWiringGradle);
+      writeNonAndroidFixtures();
+
+      final report = checkReleaseReadiness(tempRoot, environment: const {});
+      expect(
+        androidIssueIds(report),
+        contains('android_release_signing_env_not_wired'),
+      );
+    });
+
+    test('주석을 제거한 실제 코드에는 여전히 정상적으로 배관을 인식한다 (code-only recognition)', () {
+      // Positive control for the two counterexamples above: the exact same
+      // wiring, without being commented out, must still be recognized.
+      writeFile('android/app/build.gradle.kts', wiredGradle);
+      writeNonAndroidFixtures();
+      writeFile('android/key.properties', '''
+storeFile=fake-release.jks
+storePassword=local-store-password
+keyAlias=local-alias
+keyPassword=local-key-password
+''');
+      writeFile('android/fake-release.jks', 'not a real keystore');
+
+      final report = checkReleaseReadiness(tempRoot, environment: const {});
+      expect(
+        androidIssueIds(report),
+        isNot(contains('android_release_signing_env_not_wired')),
+      );
+    });
+
+    test('문자열 리터럴에 담긴 "//"가 같은 줄의 실제 코드를 가리지 않는다', () {
+      // Comment-stripping must be string-literal-aware: naive regex
+      // stripping would treat a "//" inside a string as a line-comment
+      // start and wrongly discard the real wiring code after it.
+      writeFile('android/app/build.gradle.kts', '''
+android {
+    namespace = "com.acme.human_status"
+    defaultConfig {
+        applicationId = "com.acme.human_status"
+    }
+    signingConfigs {
+        create("release") {
+            val docs = "see https://example.com/notes" ; val a = System.getenv("ANDROID_KEYSTORE_PATH")
+            val b = System.getenv("ANDROID_STORE_PASSWORD")
+            val c = System.getenv("ANDROID_KEY_ALIAS")
+            val d = System.getenv("ANDROID_KEY_PASSWORD")
+        }
+    }
+    buildTypes {
+        release {
+            signingConfig = signingConfigs.getByName("release")
+        }
+    }
+}
+''');
+      writeNonAndroidFixtures();
+
+      final report = checkReleaseReadiness(tempRoot, environment: const {});
+      expect(
+        androidIssueIds(report),
+        isNot(contains('android_release_signing_env_not_wired')),
+      );
+    });
+
+    test('문자열 리터럴에 담긴 "/*"가 뒤따르는 실제 코드를 가리지 않는다', () {
+      // Same string-awareness requirement for block comments: a "/*"
+      // inside a string must not be mistaken for a block-comment start,
+      // which would otherwise swallow the real wiring lines that follow.
+      writeFile('android/app/build.gradle.kts', '''
+android {
+    namespace = "com.acme.human_status"
+    defaultConfig {
+        applicationId = "com.acme.human_status"
+    }
+    signingConfigs {
+        create("release") {
+            val docs = "style: /* looks like a comment start */ but is text"
+            val a = System.getenv("ANDROID_KEYSTORE_PATH")
+            val b = System.getenv("ANDROID_STORE_PASSWORD")
+            val c = System.getenv("ANDROID_KEY_ALIAS")
+            val d = System.getenv("ANDROID_KEY_PASSWORD")
+        }
+    }
+    buildTypes {
+        release {
+            signingConfig = signingConfigs.getByName("release")
+        }
+    }
+}
+''');
+      writeNonAndroidFixtures();
+
+      final report = checkReleaseReadiness(tempRoot, environment: const {});
+      expect(
+        androidIssueIds(report),
+        isNot(contains('android_release_signing_env_not_wired')),
       );
     });
   });
@@ -375,25 +623,21 @@ keyPassword=$secretKeyPassword
   });
 
   group('debug 계열 태스크는 자격 증명 없이도 구성 가능해야 한다', () {
-    test('build.gradle.kts의 fail-early guard는 "release"가 포함된 태스크에만 적용된다', () {
+    test('두 가드 모두 "release"가 포함된 태스크에만 적용된다', () {
       final gradle = File('android/app/build.gradle.kts').readAsStringSync();
-      // Static contract check (no Android SDK available to run Gradle
-      // itself here): the GradleException throw must be gated behind a
-      // task-name check containing "release", not unconditional.
-      final guardIndex = gradle.indexOf('isReleaseTaskRequested');
-      expect(guardIndex, greaterThan(-1));
-      final ifIndex = gradle.indexOf('if (isReleaseTaskRequested', guardIndex);
+      // Guard #1 (fast-fail): gated on isReleaseTaskRequested.
+      expect(gradle, contains('if (isReleaseTaskRequested)'));
+      // Guard #2 (authoritative): gated on the resolved task's own name,
+      // not just what was requested on the command line.
+      final configureEachIndex = gradle.indexOf('tasks.configureEach');
+      expect(configureEachIndex, greaterThan(-1));
       expect(
-        ifIndex,
-        greaterThan(-1),
-        reason: 'throw는 isReleaseTaskRequested 조건 안에서만 일어나야 함',
+        gradle.substring(configureEachIndex),
+        contains('name.contains("release", ignoreCase = true)'),
       );
-      final throwIndex = gradle.indexOf('throw GradleException', ifIndex);
-      expect(throwIndex, greaterThan(-1));
-      // No unconditional throw/error appears before the android {} block
-      // configures (which debug/test/analyze tasks also need to reach).
-      final androidBlockIndex = gradle.indexOf('\nandroid {');
-      expect(androidBlockIndex, greaterThan(throwIndex));
+      // Neither guard's fail path runs unconditionally: this is the whole
+      // point -- assembleDebug/test/analyze never hit it.
+      expect(gradle, isNot(contains('\nthrow GradleException')));
     });
 
     test('taskNames는 "release"를 포함하는지 대소문자 구분 없이 검사한다', () {
@@ -425,20 +669,46 @@ keyPassword=$secretKeyPassword
       }
     });
 
+    test('throw는 하나의 공용 실패 함수 안에서만 일어난다', () {
+      // Both guards call the same failIfReleaseSigningIncomplete() function
+      // instead of duplicating the throw, so they can never drift out of
+      // sync (e.g. one guard leaking a secret the other doesn't).
+      final gradle = File('android/app/build.gradle.kts').readAsStringSync();
+      final throwCount = 'throw GradleException'.allMatches(gradle).length;
+      expect(throwCount, 1);
+    });
+
+    test('가드 #2: 실제 태스크 그래프(tasks.configureEach + doFirst) 기반 가드가 존재한다', () {
+      // startParameter alone (guard #1) can be bypassed by Gradle's
+      // camelCase task-name abbreviation on the CLI, or by some other,
+      // differently-named task that transitively depends on a
+      // release-signed task. This proves a SECOND, authoritative guard
+      // exists that checks the actual resolved task graph right before
+      // execution -- not merely gradle.startParameter.taskNames.
+      final gradle = File('android/app/build.gradle.kts').readAsStringSync();
+      final configureEachIndex = gradle.indexOf('tasks.configureEach');
+      expect(configureEachIndex, greaterThan(-1));
+      final block = gradle.substring(configureEachIndex);
+      expect(block, contains('doFirst'));
+      expect(block, contains('name.contains("release"'));
+      expect(block, contains('failIfReleaseSigningIncomplete()'));
+    });
+
     test('오류 메시지 코드에 실제 비밀 값을 문자열 보간하지 않는다', () {
       final gradle = File('android/app/build.gradle.kts').readAsStringSync();
-      final throwStart = gradle.indexOf('throw GradleException(');
-      expect(throwStart, greaterThan(-1));
-      final throwEnd = gradle.indexOf(')\n}', throwStart);
-      final throwBody = gradle.substring(
-        throwStart,
-        throwEnd == -1 ? gradle.length : throwEnd,
+      final fnStart = gradle.indexOf('fun failIfReleaseSigningIncomplete()');
+      expect(fnStart, greaterThan(-1));
+      final fnEnd = gradle.indexOf('\n}', fnStart);
+      final fnBody = gradle.substring(
+        fnStart,
+        fnEnd == -1 ? gradle.length : fnEnd,
       );
+      expect(fnBody, contains('throw GradleException'));
       // The message may reference *field names* and env *var names*, but
       // must never interpolate the resolved secret values themselves.
-      expect(throwBody, isNot(contains('releaseSigningValue(')));
-      expect(throwBody, isNot(contains(r'${releaseStorePassword')));
-      expect(throwBody, isNot(contains(r'${releaseKeyPassword')));
+      expect(fnBody, isNot(contains(r'${releaseSigningValue(')));
+      expect(fnBody, isNot(contains(r'${releaseStorePassword')));
+      expect(fnBody, isNot(contains(r'${releaseKeyPassword')));
     });
   });
 }

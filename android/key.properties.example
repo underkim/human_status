@@ -13,9 +13,16 @@
 # A non-empty CI environment variable always overrides the matching value
 # below.
 #
-# storeFile may be an absolute path (Windows paths like
-# C:\keys\release.jks are fine) or a path relative to this android/
-# directory.
+# storeFile may be an absolute path or a path relative to this android/
+# directory. This file is parsed as a Java "Properties" file, which treats
+# "\" as an escape character -- a bare single backslash in a Windows path
+# (C:\keys\release.jks) would be silently mangled. Use ONE of:
+#   - forward slashes (recommended, no escaping needed): C:/keys/release.jks
+#   - escaped backslashes: C:\\keys\\release.jks
+# This restriction is specific to THIS file. If you instead set the
+# ANDROID_KEYSTORE_PATH environment variable (e.g. in CI), it is read
+# as-is with no Properties escaping, so a single-backslash Windows path
+# is safe to use there.
 
 storeFile=REPLACE_WITH_PATH_TO_YOUR_RELEASE_KEYSTORE.jks
 storePassword=REPLACE_WITH_YOUR_KEYSTORE_PASSWORD

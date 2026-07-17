@@ -204,14 +204,22 @@ placeholder ID, debug 서명, 그리고(5절의) Android 릴리즈 서명 배관
 
    ```properties
    # android/key.properties (커밋 금지 -- 이미 .gitignore에 있음)
-   storeFile=C:\Users\me\keys\release-keystore.jks
+   storeFile=C:/Users/me/keys/release-keystore.jks
    storePassword=여기에_실제_keystore_비밀번호
    keyAlias=human_status_release
    keyPassword=여기에_실제_key_비밀번호
    ```
 
-   `storeFile`은 Windows 절대 경로(`C:\...`)든, `android/` 디렉터리 기준
-   상대 경로든 그대로 동작합니다.
+   `storeFile`은 절대 경로든 `android/` 디렉터리 기준 상대 경로든 그대로
+   동작합니다. **주의:** 이 파일은 Java `Properties` 형식으로 읽히며,
+   `Properties`는 백슬래시(`\`)를 이스케이프 문자로 취급합니다. Windows
+   경로를 쓸 때는 위 예시처럼 슬래시(`C:/Users/me/...`)를 쓰거나, 굳이
+   백슬래시를 쓰려면 반드시 두 번 겹쳐 써야 합니다
+   (`C:\\Users\\me\\keys\\release-keystore.jks`) — `C:\Users\me\...`처럼
+   한 번만 쓰면 파싱 과정에서 경로가 깨집니다. 이 제약은
+   `android/key.properties` 파일 안에서만 적용되며, 아래 5.2절의
+   `ANDROID_KEYSTORE_PATH` 환경변수는 `Properties` 파싱을 거치지 않으므로
+   단일 백슬래시 경로를 그대로 써도 안전합니다.
 4. `flutter build apk --release` 또는
    `flutter build appbundle --release`를 실행합니다. 네 값 중 하나라도
    비어 있거나 `storeFile`이 가리키는 파일이 없으면, Gradle이 빌드를

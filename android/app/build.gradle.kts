@@ -21,12 +21,20 @@ plugins {
 //
 // This block only *reads* files/env vars and never prints their contents.
 // Configuration (assembleDebug, test, analyze, etc.) always succeeds even
-// when no credentials are present -- only an actual release task
-// (any task whose name contains "release", case-insensitively) fails early,
-// with a message naming which fields/input channels are missing but never
-// echoing a secret value. signingConfigs.release is always what
-// buildTypes.release points at; there is no debug-signing fallback and no
-// path that produces a silently-unsigned release artifact.
+// when no credentials are present -- only a task whose *resolved* name
+// contains "release" (case-insensitively) fails, right before it actually
+// runs (see the two guards below), with a message naming which
+// fields/input channels are missing but never echoing a secret value.
+// signingConfigs.release is always what buildTypes.release points at;
+// there is no debug-signing fallback and no path that produces a
+// silently-unsigned release artifact.
+//
+// android/key.properties is parsed with java.util.Properties, which treats
+// "\" as an escape character. On Windows, either use forward slashes
+// (C:/keys/release.jks) or escape each backslash (C:\\keys\\release.jks)
+// for storeFile in that file. ANDROID_KEYSTORE_PATH as a CI/OS environment
+// variable is NOT run through Properties parsing, so a single-backslash
+// Windows path there is safe as-is.
 data class ReleaseSigningField(
     val propertyKey: String,
     val envVar: String,
@@ -72,10 +80,12 @@ val releaseKeystoreFile: File? = releaseStoreFilePathValue?.let { path ->
 val releaseMissingFields = releaseSigningFields.filter { resolvedReleaseSigning[it] == null }
 val releaseKeystoreMissing = releaseKeystoreFile == null || !releaseKeystoreFile.exists()
 
-val requestedTaskNames = gradle.startParameter.taskNames
-val isReleaseTaskRequested = requestedTaskNames.any { it.contains("release", ignoreCase = true) }
-
-if (isReleaseTaskRequested && (releaseMissingFields.isNotEmpty() || releaseKeystoreMissing)) {
+// Single source of truth for the fail-closed error, called from BOTH
+// guards below so they can never drift out of sync or leak a secret value
+// differently. Returns nothing (throws) if signing is incomplete; a no-op
+// otherwise.
+fun failIfReleaseSigningIncomplete() {
+    if (releaseMissingFields.isEmpty() && !releaseKeystoreMissing) return
     val problems = mutableListOf<String>()
     problems.addAll(
         releaseMissingFields.map {
@@ -98,6 +108,32 @@ if (isReleaseTaskRequested && (releaseMissingFields.isNotEmpty() || releaseKeyst
             "이 오류 메시지에는 실제 비밀 값을 포함하지 않습니다. " +
             "자세한 절차는 docs/RELEASE_CHECKLIST.md 를 참고하세요.",
     )
+}
+
+val requestedTaskNames = gradle.startParameter.taskNames
+val isReleaseTaskRequested = requestedTaskNames.any { it.contains("release", ignoreCase = true) }
+
+// Guard #1 (fast-fail, best-effort): catches the common case of a release
+// task requested directly by name, before any other configuration work
+// happens. This alone is NOT sufficient -- see guard #2 below.
+if (isReleaseTaskRequested) {
+    failIfReleaseSigningIncomplete()
+}
+
+// Guard #2 (authoritative): runs immediately before ANY task whose
+// *resolved* name actually contains "release" (case-insensitively) is
+// executed, regardless of how it entered the task graph. This is what
+// makes the guard robust against gradle.startParameter.taskNames being an
+// incomplete signal -- e.g. Gradle's camelCase task-name abbreviation on
+// the command line (`gradlew aR`), or some other, differently-named task
+// that transitively depends on a release-signed task (`gradlew publish`
+// where `publish` depends on `bundleRelease`). tasks.configureEach +
+// doFirst fires on the real, resolved task graph right before execution,
+// so it cannot be bypassed by how the build was invoked.
+tasks.configureEach {
+    if (name.contains("release", ignoreCase = true)) {
+        doFirst { failIfReleaseSigningIncomplete() }
+    }
 }
 
 android {

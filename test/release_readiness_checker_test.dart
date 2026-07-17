@@ -26,14 +26,18 @@ void main() {
   }
 
   /// A minimal but fully-wired release signingConfig block: references
-  /// signingConfigs.release (never debug) and mentions all four CI
-  /// environment variable names, matching the contract checked against
-  /// android/app/build.gradle.kts.
+  /// signingConfigs.release (never debug) and reads all four CI env vars
+  /// via real System.getenv(...) calls with quoted literal names --
+  /// checker.dart requires *executable-looking* wiring (not just the names
+  /// appearing in a comment) to recognize this as wired, matching the
+  /// contract checked against android/app/build.gradle.kts.
   const wiredGradleSigningBlock = '''
     signingConfigs {
         create("release") {
-            // ANDROID_KEYSTORE_PATH ANDROID_STORE_PASSWORD
-            // ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD
+            val envKeystorePath = System.getenv("ANDROID_KEYSTORE_PATH")
+            val envStorePassword = System.getenv("ANDROID_STORE_PASSWORD")
+            val envKeyAlias = System.getenv("ANDROID_KEY_ALIAS")
+            val envKeyPassword = System.getenv("ANDROID_KEY_PASSWORD")
         }
     }
     buildTypes {
