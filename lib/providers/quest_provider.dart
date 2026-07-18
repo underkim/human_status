@@ -137,10 +137,12 @@ class QuestsNotifier extends StateNotifier<List<Quest>> {
       try {
         await addQuestLocked(quest, rollback);
         reload();
-      } catch (_) {
-        await rollback.rollback();
-        reload();
-        rethrow;
+      } catch (error, stackTrace) {
+        try {
+          await rollback.rollbackAndThrow(error, stackTrace);
+        } finally {
+          reload();
+        }
       }
     });
   }
@@ -212,9 +214,8 @@ class QuestsNotifier extends StateNotifier<List<Quest>> {
       try {
         await storage.saveQuest(candidate);
         reload();
-      } catch (_) {
-        await rollback.rollback();
-        rethrow;
+      } catch (error, stackTrace) {
+        await rollback.rollbackAndThrow(error, stackTrace);
       }
     });
   }
@@ -245,9 +246,8 @@ class QuestsNotifier extends StateNotifier<List<Quest>> {
     try {
       await storage.deleteQuest(id);
       reload();
-    } catch (_) {
-      await rollback.rollback();
-      rethrow;
+    } catch (error, stackTrace) {
+      await rollback.rollbackAndThrow(error, stackTrace);
     }
   }
 
@@ -307,9 +307,8 @@ class QuestsNotifier extends StateNotifier<List<Quest>> {
       try {
         await storage.saveQuest(candidate);
         reload();
-      } catch (_) {
-        await rollback.rollback();
-        rethrow;
+      } catch (error, stackTrace) {
+        await rollback.rollbackAndThrow(error, stackTrace);
       }
     });
   }
@@ -361,9 +360,8 @@ class QuestsNotifier extends StateNotifier<List<Quest>> {
       final rollback = RollbackScope();
       try {
         return await _completeQuestLocked(id, rollback);
-      } catch (_) {
-        await rollback.rollback();
-        rethrow;
+      } catch (error, stackTrace) {
+        await rollback.rollbackAndThrow(error, stackTrace);
       }
     });
   }

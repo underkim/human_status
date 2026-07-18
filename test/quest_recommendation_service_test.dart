@@ -39,6 +39,45 @@ class _FixedSuggestionsSource implements QuestSuggestionSource {
   }) async => suggestions;
 }
 
+class _BlockingSuggestionsSource implements QuestSuggestionSource {
+  final List<Quest> suggestions;
+  final entered = Completer<void>();
+  final release = Completer<void>();
+
+  _BlockingSuggestionsSource(this.suggestions);
+
+  @override
+  Future<List<Quest>> generateSuggestions({
+    required List<Stat> stats,
+    required List<Quest> existingQuests,
+    int count = 4,
+  }) async {
+    entered.complete();
+    await release.future;
+    return suggestions;
+  }
+}
+
+class _CountingSuggestionsSource extends _FixedSuggestionsSource {
+  int calls = 0;
+
+  _CountingSuggestionsSource(super.suggestions);
+
+  @override
+  Future<List<Quest>> generateSuggestions({
+    required List<Stat> stats,
+    required List<Quest> existingQuests,
+    int count = 4,
+  }) {
+    calls++;
+    return super.generateSuggestions(
+      stats: stats,
+      existingQuests: existingQuests,
+      count: count,
+    );
+  }
+}
+
 class _FailsAfterFreshSuggestionWriteStorage extends StorageService {
   _FailsAfterFreshSuggestionWriteStorage({required super.inMemory});
 
@@ -51,6 +90,20 @@ class _FailsAfterFreshSuggestionWriteStorage extends StorageService {
       failFreshWrite = false;
       throw StateError('simulated write failure after landing');
     }
+  }
+}
+
+class _FailsRefreshAndRollbackStorage
+    extends _FailsAfterFreshSuggestionWriteStorage {
+  _FailsRefreshAndRollbackStorage({required super.inMemory});
+
+  @override
+  Future<void> deleteQuest(String id) async {
+    final quest = getQuests().where((item) => item.id == id).firstOrNull;
+    if (quest?.title == 'fresh suggestion') {
+      throw StateError('simulated rollback delete failure');
+    }
+    await super.deleteQuest(id);
   }
 }
 
@@ -258,41 +311,102 @@ void main() {
       expect(storage.getProfile().lastQuestRefresh, isNotNull);
     });
 
-    test('restores the previous suggestion batch when a fresh write fails after landing', () async {
-      final failingStorage = _FailsAfterFreshSuggestionWriteStorage(
-        inMemory: true,
-      );
-      await failingStorage.init();
-      final first = staleSuggestion();
-      final second = staleSuggestion()
-        ..title = 'second old suggestion';
-      await failingStorage.saveQuest(first);
-      await failingStorage.saveQuest(second);
-      final fresh = Quest(
-        id: const Uuid().v4(),
-        title: 'fresh suggestion',
-        description: '',
-        statRewards: const {'wealth': 20},
-        status: QuestStatus.suggested,
-        source: QuestSource.suggested,
-        createdAt: DateTime.now(),
-      );
-      failingStorage.failFreshWrite = true;
+    test(
+      'restores the previous suggestion batch when a fresh write fails after landing',
+      () async {
+        final failingStorage = _FailsAfterFreshSuggestionWriteStorage(
+          inMemory: true,
+        );
+        await failingStorage.init();
+        final first = staleSuggestion();
+        final second = staleSuggestion()..title = 'second old suggestion';
+        await failingStorage.saveQuest(first);
+        await failingStorage.saveQuest(second);
+        final fresh = Quest(
+          id: const Uuid().v4(),
+          title: 'fresh suggestion',
+          description: '',
+          statRewards: const {'wealth': 20},
+          status: QuestStatus.suggested,
+          source: QuestSource.suggested,
+          createdAt: DateTime.now(),
+        );
+        failingStorage.failFreshWrite = true;
 
-      await expectLater(
-        QuestRecommendationService(
-          storage: failingStorage,
-          source: _FixedSuggestionsSource([fresh]),
-        ).refreshIfNeeded(),
-        throwsA(isA<StateError>()),
-      );
+        await expectLater(
+          QuestRecommendationService(
+            storage: failingStorage,
+            source: _FixedSuggestionsSource([fresh]),
+          ).refreshIfNeeded(),
+          throwsA(isA<StateError>()),
+        );
 
-      expect(
-        failingStorage.getQuests().map((q) => q.title).toSet(),
-        {'old suggestion', 'second old suggestion'},
-      );
-      expect(failingStorage.getProfile().lastQuestRefresh, isNull);
-    });
+        expect(failingStorage.getQuests().map((q) => q.title).toSet(), {
+          'old suggestion',
+          'second old suggestion',
+        });
+        expect(failingStorage.getProfile().lastQuestRefresh, isNull);
+      },
+    );
+
+    test(
+      'serializes concurrent refreshes that share the same storage',
+      () async {
+        final firstFresh = staleSuggestion()..title = 'first fresh suggestion';
+        final secondFresh = staleSuggestion()
+          ..title = 'second fresh suggestion';
+        final firstSource = _BlockingSuggestionsSource([firstFresh]);
+        final secondSource = _CountingSuggestionsSource([secondFresh]);
+        final first = QuestRecommendationService(
+          storage: storage,
+          source: firstSource,
+        ).refreshIfNeeded();
+        await firstSource.entered.future;
+        final second = QuestRecommendationService(
+          storage: storage,
+          source: secondSource,
+        ).refreshIfNeeded();
+
+        firstSource.release.complete();
+        await Future.wait([first, second]);
+
+        expect(secondSource.calls, 0);
+        expect(
+          storage.getQuests().map((quest) => quest.title),
+          contains('first fresh suggestion'),
+        );
+      },
+    );
+
+    test(
+      'reports rollback failures separately from the refresh failure',
+      () async {
+        final failingStorage = _FailsRefreshAndRollbackStorage(inMemory: true);
+        await failingStorage.init();
+        final fresh = staleSuggestion()..title = 'fresh suggestion';
+        failingStorage.failFreshWrite = true;
+
+        await expectLater(
+          QuestRecommendationService(
+            storage: failingStorage,
+            source: _FixedSuggestionsSource([fresh]),
+          ).refreshIfNeeded(),
+          throwsA(
+            isA<QuestRefreshRollbackException>()
+                .having(
+                  (error) => error.refreshError,
+                  'refreshError',
+                  isA<StateError>(),
+                )
+                .having(
+                  (error) => error.rollbackErrors,
+                  'rollbackErrors',
+                  isNotEmpty,
+                ),
+          ),
+        );
+      },
+    );
 
     test(
       'a Claude timeout falls back to the local rule engine and still replaces suggestions',

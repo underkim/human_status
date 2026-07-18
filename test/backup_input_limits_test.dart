@@ -61,4 +61,52 @@ void main() {
       throwsA(isA<FormatException>()),
     );
   });
+
+  test('rejects JSON nested beyond the supported depth', () {
+    Object? nested = 'leaf';
+    for (var i = 0; i <= BackupService.maxNestingDepth; i++) {
+      nested = <Object?>[nested];
+    }
+    final backup = minimalBackup()..['extra'] = nested;
+
+    expect(
+      () => BackupService(storage: storage).inspect(jsonEncode(backup)),
+      throwsA(
+        isA<FormatException>().having(
+          (error) => error.message,
+          'message',
+          contains('nested too deeply'),
+        ),
+      ),
+    );
+  });
+
+  test('accepts exactly the supported nesting depth', () {
+    Object? nested = 'leaf';
+    for (var i = 0; i < BackupService.maxNestingDepth; i++) {
+      nested = <Object?>[nested];
+    }
+    final backup = minimalBackup()..['extra'] = nested;
+
+    expect(
+      () => BackupService(storage: storage).inspect(jsonEncode(backup)),
+      returnsNormally,
+    );
+  });
+
+  test('rejects excessive nesting before JSON decoding', () {
+    final nested = '${'[' * 10000}null${']' * 10000}';
+    final json = '{"schemaVersion":1,"stats":[],"quests":[],"extra":$nested}';
+
+    expect(
+      () => BackupService(storage: storage).inspect(json),
+      throwsA(
+        isA<FormatException>().having(
+          (error) => error.message,
+          'message',
+          contains('nested too deeply'),
+        ),
+      ),
+    );
+  });
 }

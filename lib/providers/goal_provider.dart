@@ -165,9 +165,8 @@ class GoalsNotifier extends StateNotifier<List<Goal>> {
             candidate.currentAmount >= candidate.targetAmount!;
         if (!crossedFinancialTarget) return null;
         return await completeGoalLocked(candidate.id, rollback);
-      } catch (_) {
-        await rollback.rollback();
-        rethrow;
+      } catch (error, stackTrace) {
+        await rollback.rollbackAndThrow(error, stackTrace);
       }
     });
   }
@@ -216,9 +215,8 @@ class GoalsNotifier extends StateNotifier<List<Goal>> {
         await storage.deleteGoal(goalId);
         reload();
         ref.read(questsProvider.notifier).reload();
-      } catch (_) {
-        await rollback.rollback();
-        rethrow;
+      } catch (error, stackTrace) {
+        await rollback.rollbackAndThrow(error, stackTrace);
       }
     });
   }
@@ -312,12 +310,14 @@ class GoalsNotifier extends StateNotifier<List<Goal>> {
           quests: quests,
           newAchievements: newAchievements,
         );
-      } catch (_) {
-        await rollback.rollback();
-        reload();
-        ref.read(questsProvider.notifier).reload();
-        ref.read(unlockedAchievementsProvider.notifier).reload();
-        rethrow;
+      } catch (error, stackTrace) {
+        try {
+          await rollback.rollbackAndThrow(error, stackTrace);
+        } finally {
+          reload();
+          ref.read(questsProvider.notifier).reload();
+          ref.read(unlockedAchievementsProvider.notifier).reload();
+        }
       }
     });
   }
@@ -346,9 +346,8 @@ class GoalsNotifier extends StateNotifier<List<Goal>> {
       final rollback = RollbackScope();
       try {
         return await completeGoalLocked(goalId, rollback);
-      } catch (_) {
-        await rollback.rollback();
-        rethrow;
+      } catch (error, stackTrace) {
+        await rollback.rollbackAndThrow(error, stackTrace);
       }
     });
   }
@@ -371,28 +370,24 @@ class GoalsNotifier extends StateNotifier<List<Goal>> {
       );
     }
 
-    final alreadyClaimed = goal.completionRewardClaimed;
-    final prevStatus = goal.status;
-    final prevCompletedAt = goal.completedAt;
-    final prevClaimed = goal.completionRewardClaimed;
+    final original = goal.copy();
+    final candidate = goal.copy()
+      ..status = GoalStatus.completed
+      ..completedAt = DateTime.now()
+      ..completionRewardClaimed = true;
+    final alreadyClaimed = original.completionRewardClaimed;
     rollback.addUndo(() async {
-      goal.status = prevStatus;
-      goal.completedAt = prevCompletedAt;
-      goal.completionRewardClaimed = prevClaimed;
-      await storage.saveGoal(goal);
+      await storage.saveGoal(original);
       reload();
     });
-    goal.status = GoalStatus.completed;
-    goal.completedAt = DateTime.now();
-    goal.completionRewardClaimed = true;
-    await storage.saveGoal(goal);
+    await storage.saveGoal(candidate);
     reload();
 
     if (alreadyClaimed) {
       // Re-completing a goal whose bonus was already paid out (see the doc
       // comment above): status/completedAt still updates, but no second XP
       // bonus or achievement re-check runs.
-      final stat = storage.getStat(goal.statId);
+      final stat = storage.getStat(candidate.statId);
       return GoalCompletionResult(
         levelUp: LevelUpResult(levelsGained: 0, newLevel: stat?.level ?? 0),
         newAchievements: const [],
@@ -400,16 +395,16 @@ class GoalsNotifier extends StateNotifier<List<Goal>> {
     }
 
     final statsNotifier = ref.read(statsProvider.notifier);
-    final statBefore = storage.getStat(goal.statId);
+    final statBefore = storage.getStat(candidate.statId);
     if (statBefore != null) {
       final snapLevel = statBefore.level;
       final snapXp = statBefore.currentXp;
       rollback.addUndo(
-        () => statsNotifier.restore(goal.statId, snapLevel, snapXp),
+        () => statsNotifier.restore(candidate.statId, snapLevel, snapXp),
       );
     }
     final levelUp = await statsNotifier.applyXp(
-      goal.statId,
+      candidate.statId,
       XpService.goalCompletionBonusXp,
     );
 
