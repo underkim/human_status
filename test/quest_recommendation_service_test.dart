@@ -39,6 +39,21 @@ class _FixedSuggestionsSource implements QuestSuggestionSource {
   }) async => suggestions;
 }
 
+class _FailsAfterFreshSuggestionWriteStorage extends StorageService {
+  _FailsAfterFreshSuggestionWriteStorage({required super.inMemory});
+
+  bool failFreshWrite = false;
+
+  @override
+  Future<void> saveQuest(Quest quest) async {
+    await super.saveQuest(quest);
+    if (failFreshWrite && quest.title == 'fresh suggestion') {
+      failFreshWrite = false;
+      throw StateError('simulated write failure after landing');
+    }
+  }
+}
+
 List<Stat> _fiveStats({required Map<String, int> levels}) {
   return [
     Stat(id: 'health', name: '체력', icon: '💪', level: levels['health'] ?? 1),
@@ -241,6 +256,42 @@ void main() {
       expect(suggestions, hasLength(1));
       expect(suggestions.first.title, 'fresh suggestion');
       expect(storage.getProfile().lastQuestRefresh, isNotNull);
+    });
+
+    test('restores the previous suggestion batch when a fresh write fails after landing', () async {
+      final failingStorage = _FailsAfterFreshSuggestionWriteStorage(
+        inMemory: true,
+      );
+      await failingStorage.init();
+      final first = staleSuggestion();
+      final second = staleSuggestion()
+        ..title = 'second old suggestion';
+      await failingStorage.saveQuest(first);
+      await failingStorage.saveQuest(second);
+      final fresh = Quest(
+        id: const Uuid().v4(),
+        title: 'fresh suggestion',
+        description: '',
+        statRewards: const {'wealth': 20},
+        status: QuestStatus.suggested,
+        source: QuestSource.suggested,
+        createdAt: DateTime.now(),
+      );
+      failingStorage.failFreshWrite = true;
+
+      await expectLater(
+        QuestRecommendationService(
+          storage: failingStorage,
+          source: _FixedSuggestionsSource([fresh]),
+        ).refreshIfNeeded(),
+        throwsA(isA<StateError>()),
+      );
+
+      expect(
+        failingStorage.getQuests().map((q) => q.title).toSet(),
+        {'old suggestion', 'second old suggestion'},
+      );
+      expect(failingStorage.getProfile().lastQuestRefresh, isNull);
     });
 
     test(

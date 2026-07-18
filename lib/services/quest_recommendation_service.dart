@@ -74,15 +74,43 @@ class QuestRecommendationService {
       }
     }
 
-    for (final q in staleSuggestions) {
-      await storage.deleteQuest(q.id);
-    }
-    for (final q in suggestions) {
-      await storage.saveQuest(q);
-    }
+    final previousRefresh = profile.lastQuestRefresh;
+    try {
+      for (final q in staleSuggestions) {
+        await storage.deleteQuest(q.id);
+      }
+      for (final q in suggestions) {
+        await storage.saveQuest(q);
+      }
 
-    profile.lastQuestRefresh = DateTime.now();
-    await storage.saveProfile(profile);
+      profile.lastQuestRefresh = DateTime.now();
+      await storage.saveProfile(profile);
+    } catch (_) {
+      // Storage writes are individually atomic, but replacing a suggestion
+      // batch spans several writes. Restore the complete previous batch when
+      // any delete/save (including a write that throws after landing) fails.
+      for (final q in suggestions) {
+        try {
+          await storage.deleteQuest(q.id);
+        } catch (_) {
+          // Continue restoring the remaining records best-effort.
+        }
+      }
+      for (final q in staleSuggestions) {
+        try {
+          await storage.saveQuest(q);
+        } catch (_) {
+          // Continue restoring the profile even if one record cannot recover.
+        }
+      }
+      profile.lastQuestRefresh = previousRefresh;
+      try {
+        await storage.saveProfile(profile);
+      } catch (_) {
+        // Preserve the original refresh failure for the caller.
+      }
+      rethrow;
+    }
   }
 
   /// Uses the caller-supplied [source] as-is when overridden (e.g. in

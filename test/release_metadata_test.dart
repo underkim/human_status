@@ -180,4 +180,52 @@ void main() {
       );
     });
   });
+
+  group('macOS entitlements', () {
+    test('Release build can write to user-selected files for backup export',
+        () {
+      final entitlements = Entitlements(read('macos/Runner/Release.entitlements'));
+      expect(entitlements.isSet('com.apple.security.app-sandbox'), isTrue);
+      expect(
+        entitlements.isSet('com.apple.security.files.user-selected.read-write'),
+        isTrue,
+      );
+      expect(
+        entitlements.has('com.apple.security.files.user-selected.read-only'),
+        isFalse,
+      );
+    });
+
+    test('Debug and Profile builds retain read-only user-selected access', () {
+      final entitlements =
+          Entitlements(read('macos/Runner/DebugProfile.entitlements'));
+      expect(entitlements.isSet('com.apple.security.app-sandbox'), isTrue);
+      expect(entitlements.isSet('com.apple.security.network.client'), isTrue);
+      expect(
+        entitlements.has('com.apple.security.files.user-selected.read-write'),
+        isFalse,
+      );
+      expect(
+        entitlements.has('com.apple.security.files.user-selected.read-only'),
+        isTrue,
+      );
+    });
+  });
+}
+
+class Entitlements {
+  final String content;
+  Entitlements(this.content);
+
+  bool has(String key) => content.contains('<key>$key</key>');
+  bool? isSet(String key) {
+    if (!has(key)) return null;
+    final pattern = '<key>$key</key>\\s*<(\\w+)/>';
+    final match = RegExp(pattern).firstMatch(content);
+    if (match == null) return null;
+    final value = match.group(1);
+    if (value == 'true') return true;
+    if (value == 'false') return false;
+    return null;
+  }
 }

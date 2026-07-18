@@ -141,6 +141,14 @@ class BackupService {
   /// versions can't parse. Backups without a `schemaVersion` key predate
   /// this field and are treated as version 1 for compatibility.
   static const currentSchemaVersion = 1;
+  static const maxBackupBytes = 10 * 1024 * 1024;
+  static const maxStringLength = 10000;
+  static const maxStats = 10000;
+  static const maxQuests = 50000;
+  static const maxGoals = 10000;
+  static const maxTransactions = 100000;
+  static const maxAssetSnapshots = 10000;
+  static const maxAchievements = 10000;
 
   final StorageService storage;
 
@@ -212,7 +220,11 @@ class BackupService {
   /// rules to the same backup. Keys beyond stats/quests are optional to
   /// stay compatible with backups from older app versions.
   _ParsedBackup _parse(String jsonStr) {
+    if (utf8.encode(jsonStr).length > maxBackupBytes) {
+      throw const FormatException('Backup exceeds the maximum allowed size');
+    }
     final data = jsonDecode(jsonStr) as Map<String, dynamic>;
+    _validateInputLimits(data);
 
     // 키가 아예 없는(구버전) 백업만 레거시로 취급한다 — 키는 있는데 값이
     // null/문자열/실수 등 정수가 아니면 명시적으로 잘못된 백업이므로,
@@ -302,6 +314,44 @@ class BackupService {
       hasPreferredStatId: hasPreferredStatId,
       restoredPreferredStatId: restoredPreferredStatId,
     );
+  }
+
+  void _validateInputLimits(Map<String, dynamic> data) {
+    void validateListCount(String key, int maximum) {
+      final value = data[key];
+      if (value is List && value.length > maximum) {
+        throw FormatException('$key contains too many records');
+      }
+    }
+
+    validateListCount('stats', maxStats);
+    validateListCount('quests', maxQuests);
+    validateListCount('goals', maxGoals);
+    validateListCount('transactions', maxTransactions);
+    validateListCount('assetSnapshots', maxAssetSnapshots);
+    final achievements = data['achievements'];
+    if (achievements is Map && achievements.length > maxAchievements) {
+      throw const FormatException('achievements contains too many records');
+    }
+
+    void validateStrings(Object? value) {
+      if (value is String) {
+        if (value.length > maxStringLength) {
+          throw const FormatException('Backup contains an oversized string');
+        }
+      } else if (value is List) {
+        for (final item in value) {
+          validateStrings(item);
+        }
+      } else if (value is Map) {
+        for (final entry in value.entries) {
+          validateStrings(entry.key);
+          validateStrings(entry.value);
+        }
+      }
+    }
+
+    validateStrings(data);
   }
 
   /// Replaces all stored data with the contents of [jsonStr]. Parsing (and
