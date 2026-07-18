@@ -63,7 +63,12 @@ Linked life stat: $statName
 $targetLine
 $dateLine
 
-Suggest $count concrete quests that make tangible progress toward this goal. Respond with ONLY a JSON array (no markdown, no commentary) where each element is:
+Existing quest titles to avoid:
+${existingQuests.take(40).map((q) => '- ${q.title}').join('\n')}
+
+Build exactly $count progressive quests that make tangible progress toward this goal. The set must include: one action doable in 5 minutes, one repeatable habit with a clear trigger, one measurable milestone, and one review/adjustment step. Every quest must specify a duration, quantity, place, or completion condition. Adapt the scale to the deadline and remaining amount when supplied. Avoid vague motivation, near-duplicate actions, purchases, medical treatment, and unsafe advice.
+
+Respond with ONLY a JSON array (no markdown, no commentary) where each element is:
 {"title": string, "description": string, "difficulty": "easy" | "medium" | "hard", "xp": number}
 ''';
 
@@ -92,9 +97,7 @@ Suggest $count concrete quests that make tangible progress toward this goal. Res
     }
 
     if (response.statusCode != 200) {
-      throw Exception(
-        'Claude API error ${response.statusCode}: ${response.body}',
-      );
+      throw Exception('Claude API request failed (${response.statusCode})');
     }
 
     final body = jsonDecode(response.body) as Map<String, dynamic>;
@@ -108,30 +111,44 @@ Suggest $count concrete quests that make tangible progress toward this goal. Res
     final jsonStart = text.indexOf('[');
     final jsonEnd = text.lastIndexOf(']');
     if (jsonStart == -1 || jsonEnd == -1 || jsonEnd < jsonStart) {
-      throw Exception('Could not find a JSON array in Claude response: $text');
+      throw const FormatException('Claude response did not contain JSON');
     }
     final parsed = jsonDecode(text.substring(jsonStart, jsonEnd + 1)) as List;
 
     final now = DateTime.now();
-    return parsed.whereType<Map>().map((raw) {
+    final seenTitles = <String>{
+      ...existingQuests.map((q) => _normalizedTitle(q.title)),
+    };
+    final quests = <Quest>[];
+    for (final raw in parsed.whereType<Map>()) {
+      final title = raw['title'];
+      if (title is! String || title.trim().isEmpty) continue;
+      if (!seenTitles.add(_normalizedTitle(title))) continue;
       final difficultyStr = raw['difficulty'] as String? ?? 'easy';
       final difficulty = QuestDifficulty.values.firstWhere(
         (d) => d.name == difficultyStr,
         orElse: () => QuestDifficulty.easy,
       );
-      return Quest(
-        id: _uuid.v4(),
-        title: raw['title'] as String,
-        description: raw['description'] as String? ?? '',
-        // statId is always forced to the goal's own stat, regardless of what
-        // Claude echoes back, to avoid an extra validStatIds check.
-        statRewards: {goal.statId: (raw['xp'] as num?)?.toDouble() ?? 20},
-        difficulty: difficulty,
-        status: QuestStatus.active,
-        source: QuestSource.manual,
-        createdAt: now,
-        goalId: goal.id,
+      quests.add(
+        Quest(
+          id: _uuid.v4(),
+          title: title.trim(),
+          description: raw['description'] as String? ?? '',
+          // statId is always forced to the goal's own stat, regardless of what
+          // Claude echoes back, to avoid an extra validStatIds check.
+          statRewards: {goal.statId: (raw['xp'] as num?)?.toDouble() ?? 20},
+          difficulty: difficulty,
+          status: QuestStatus.active,
+          source: QuestSource.manual,
+          createdAt: now,
+          goalId: goal.id,
+        ),
       );
-    }).toList();
+      if (quests.length == count) break;
+    }
+    return quests;
   }
+
+  static String _normalizedTitle(String value) =>
+      value.toLowerCase().replaceAll(RegExp(r'[^a-z0-9가-힣]'), '');
 }

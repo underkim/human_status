@@ -19,7 +19,9 @@ import '../widgets/page_content_bounds.dart';
 /// HomeShell로 다시 빌드하므로(reactive gate), 이 화면은 그 상태 변경 이후
 /// 자신이 트리에서 교체되는 것을 기다리기만 하면 된다.
 class OnboardingScreen extends ConsumerStatefulWidget {
-  const OnboardingScreen({super.key});
+  const OnboardingScreen({super.key, this.standalone = false});
+
+  final bool standalone;
 
   @override
   ConsumerState<OnboardingScreen> createState() => _OnboardingScreenState();
@@ -36,12 +38,13 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   Future<void> _finishOnboarding({String? preferredStatId}) async {
     final storage = ref.read(storageServiceProvider);
     final profile = ref.read(profileProvider);
-    profile.onboardingCompleted = true;
+    if (!widget.standalone) profile.onboardingCompleted = true;
     if (preferredStatId != null) {
       profile.preferredStatId = preferredStatId;
     }
     await storage.saveProfile(profile);
     ref.read(profileProvider.notifier).reload();
+    if (widget.standalone && mounted) Navigator.of(context).pop(true);
   }
 
   Future<void> _skip() async {
@@ -92,12 +95,12 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('시작하기'),
-        automaticallyImplyLeading: false,
+        title: Text(widget.standalone ? 'AI 퀘스트 설계' : '시작하기'),
+        automaticallyImplyLeading: widget.standalone,
         actions: [
           TextButton(
             onPressed: _isSubmitting ? null : _skip,
-            child: const Text('나중에 하기'),
+            child: Text(widget.standalone ? '닫기' : '나중에 하기'),
           ),
         ],
       ),
@@ -106,6 +109,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
           maxWidth: PageContentBounds.narrow,
           child: switch (_step) {
             _OnboardingStep.intro => _IntroStep(
+              standalone: widget.standalone,
               onNext: () => setState(() => _step = _OnboardingStep.chooseStat),
             ),
             _OnboardingStep.chooseStat => _ChooseStatStep(
@@ -132,8 +136,9 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
 
 class _IntroStep extends StatelessWidget {
   final VoidCallback onNext;
+  final bool standalone;
 
-  const _IntroStep({required this.onNext});
+  const _IntroStep({required this.onNext, required this.standalone});
 
   @override
   Widget build(BuildContext context) {
@@ -143,7 +148,17 @@ class _IntroStep extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Human Status에 오신 걸 환영해요', style: theme.textTheme.headlineSmall),
+          Text(
+            standalone ? '나에게 맞는 퀘스트를 설계해요' : 'Human Status에 오신 걸 환영해요',
+            style: theme.textTheme.headlineSmall,
+          ),
+          if (standalone) ...[
+            const SizedBox(height: AppSpacing.xs),
+            Text(
+              '성장하고 싶은 영역과 목표를 고르면 AI가 실행 가능한 행동으로 나눠드려요.',
+              style: theme.textTheme.bodyMedium,
+            ),
+          ],
           const SizedBox(height: AppSpacing.lg),
           _InfoRow(
             icon: Icons.checklist,

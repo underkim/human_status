@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:uuid/uuid.dart';
 
+import '../models/goal.dart';
 import '../models/quest.dart';
 import '../models/stat.dart';
 import 'claude_request_defaults.dart';
@@ -17,6 +18,8 @@ class ClaudeQuestSuggestionSource implements QuestSuggestionSource {
   final String apiKey;
   final String model;
   final Duration timeout;
+  final List<Goal> goals;
+  final String? preferredStatId;
   final Uuid _uuid;
 
   /// Caller-supplied HTTP client, e.g. for tests. When null, a fresh
@@ -28,6 +31,8 @@ class ClaudeQuestSuggestionSource implements QuestSuggestionSource {
     required this.apiKey,
     this.model = 'claude-sonnet-5',
     this.timeout = kClaudeRequestTimeout,
+    this.goals = const [],
+    this.preferredStatId,
     this.httpClient,
     Uuid? uuid,
   }) : _uuid = uuid ?? const Uuid();
@@ -40,16 +45,22 @@ class ClaudeQuestSuggestionSource implements QuestSuggestionSource {
     required List<Quest> existingQuests,
     int count = 4,
   }) async {
-    final recentTitles = existingQuests
-        .where(
+    final recentQuests = existingQuests
+        .map(
           (q) =>
-              q.source == QuestSource.suggested ||
-              q.status == QuestStatus.completed,
+              '- ${q.title} | ${q.difficulty.name} | ${q.status.name} | ${q.statRewards.keys.join("+")}',
         )
-        .map((q) => q.title)
-        .toSet()
         .take(30)
         .toList();
+
+    final activeGoalSummary = goals
+        .where((g) => g.status == GoalStatus.active)
+        .take(8)
+        .map(
+          (g) =>
+              '- ${g.title} | stat=${g.statId} | ${g.description.isEmpty ? "no description" : g.description}',
+        )
+        .join('\n');
 
     final statSummary = stats
         .map(
@@ -66,11 +77,17 @@ Current stats:
 $statSummary
 
 Stat ids you must use: ${stats.map((s) => s.id).join(', ')}.
+Preferred growth area: ${preferredStatId ?? '(not set)'}
 
-Recently suggested or completed quest titles (do not repeat these):
-${recentTitles.isEmpty ? '(none)' : recentTitles.join('\n')}
+Active goals to support:
+${activeGoalSummary.isEmpty ? '(none)' : activeGoalSummary}
 
-Suggest $count new quests, prioritizing the user's weakest stats. Respond with ONLY a JSON array (no markdown, no commentary) where each element is:
+Recent quest history (never repeat or lightly reword these):
+${recentQuests.isEmpty ? '(none)' : recentQuests.join('\n')}
+
+Create exactly $count highly specific quests for the next 24 hours. Prioritize weak stats while giving the preferred area moderate weight. When active goals exist, include at least one quest that directly advances one of them, but keep at least one exploratory quest unrelated to a goal. Cover at least ${count >= 4 ? 3 : 2} different stats. Make every quest finishable in one sitting and vary the action pattern (movement, reflection, learning, money, connection, environment). Avoid vague verbs such as "improve", "work on", or "be mindful". Include a concrete duration, quantity, place, or trigger in each title or description. Mix easy, medium, and hard when the count permits. Do not recommend purchases, medical treatment, dangerous actions, or contacting a specific person without user choice.
+
+Respond with ONLY a JSON array (no markdown, no commentary) where each element is:
 {"title": string, "description": string, "statId": one of the stat ids above, "difficulty": "easy" | "medium" | "hard", "xp": number}
 ''';
 
@@ -99,9 +116,7 @@ Suggest $count new quests, prioritizing the user's weakest stats. Respond with O
     }
 
     if (response.statusCode != 200) {
-      throw Exception(
-        'Claude API error ${response.statusCode}: ${response.body}',
-      );
+      throw Exception('Claude API request failed (${response.statusCode})');
     }
 
     final body = jsonDecode(response.body) as Map<String, dynamic>;
@@ -115,32 +130,55 @@ Suggest $count new quests, prioritizing the user's weakest stats. Respond with O
     final jsonStart = text.indexOf('[');
     final jsonEnd = text.lastIndexOf(']');
     if (jsonStart == -1 || jsonEnd == -1 || jsonEnd < jsonStart) {
-      throw Exception('Could not find a JSON array in Claude response: $text');
+      throw const FormatException('Claude response did not contain JSON');
     }
     final parsed = jsonDecode(text.substring(jsonStart, jsonEnd + 1)) as List;
 
     final validStatIds = stats.map((s) => s.id).toSet();
     final now = DateTime.now();
-    return parsed.whereType<Map>().map((raw) {
-      final statId = raw['statId'] as String;
-      if (!validStatIds.contains(statId)) {
-        throw Exception('Claude suggested an unknown statId: $statId');
+    final seenTitles = <String>{
+      ...existingQuests.map((q) => _normalizedTitle(q.title)),
+    };
+    final suggestions = <Quest>[];
+    for (final raw in parsed.whereType<Map>()) {
+      final statId = raw['statId'];
+      final title = raw['title'];
+      if (statId is! String || title is! String || title.trim().isEmpty) {
+        continue;
       }
+      if (!validStatIds.contains(statId)) {
+        continue;
+      }
+      if (!seenTitles.add(_normalizedTitle(title))) continue;
       final difficultyStr = raw['difficulty'] as String? ?? 'easy';
       final difficulty = QuestDifficulty.values.firstWhere(
         (d) => d.name == difficultyStr,
         orElse: () => QuestDifficulty.easy,
       );
-      return Quest(
-        id: _uuid.v4(),
-        title: raw['title'] as String,
-        description: raw['description'] as String? ?? '',
-        statRewards: {statId: (raw['xp'] as num?)?.toDouble() ?? 20},
-        difficulty: difficulty,
-        status: QuestStatus.suggested,
-        source: QuestSource.suggested,
-        createdAt: now,
+      suggestions.add(
+        Quest(
+          id: _uuid.v4(),
+          title: title.trim(),
+          description: raw['description'] as String? ?? '',
+          statRewards: {statId: (raw['xp'] as num?)?.toDouble() ?? 20},
+          difficulty: difficulty,
+          status: QuestStatus.suggested,
+          source: QuestSource.suggested,
+          createdAt: now,
+        ),
       );
-    }).toList();
+      if (suggestions.length == count) break;
+    }
+    // 부분 응답으로 기존 추천 묶음을 교체하면 사용자가 하루 동안 볼 수 있는
+    // 선택지가 줄어든다. 완전한 묶음만 성공으로 인정해 로컬 fallback을 탄다.
+    if (suggestions.length != count) {
+      throw FormatException(
+        'Claude returned ${suggestions.length} valid quests; expected $count',
+      );
+    }
+    return suggestions;
   }
+
+  static String _normalizedTitle(String value) =>
+      value.toLowerCase().replaceAll(RegExp(r'[^a-z0-9가-힣]'), '');
 }

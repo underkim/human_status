@@ -85,7 +85,7 @@ void main() {
     expect(storage.getProfile().preferredStatId, isNull);
   });
 
-  testWidgets('데이터 초기화 후에는 재시작 없이도 HumanStatusApp이 온보딩으로 전환된다', (tester) async {
+  testWidgets('데이터 초기화 후에도 강제 온보딩 없이 현재 설정 흐름을 유지한다', (tester) async {
     setScreenSize(tester, const Size(400, 800));
     final storage = await createTestStorage();
     final profile = storage.getProfile();
@@ -132,12 +132,9 @@ void main() {
     await tester.tap(find.text('초기화'));
     await tester.pumpAndSettle();
 
-    // 별도의 재시작/재생성 없이, 같은 실행 중에 온보딩 화면으로 전환된다.
-    // (설정 화면까지 push된 상태에서 전환되므로, 이전 push 스택이 남지
-    // 않고 깨끗하게 교체되는지도 함께 검증한다.)
-    expect(find.byType(OnboardingScreen), findsOneWidget);
-    expect(find.byType(HomeShell), findsNothing);
-    expect(find.byType(SettingsScreen), findsNothing);
+    // 데이터 초기화 뒤에도 사용자를 강제로 온보딩에 가두지 않는다.
+    expect(find.byType(OnboardingScreen), findsNothing);
+    expect(find.byType(SettingsScreen), findsOneWidget);
   });
 
   group('Claude API 키 편집', () {

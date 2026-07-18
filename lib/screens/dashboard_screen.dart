@@ -17,6 +17,7 @@ import '../widgets/progression_journey_card.dart';
 import '../widgets/quest_card.dart';
 import '../widgets/stat_bar.dart';
 import 'goal_form_screen.dart';
+import 'onboarding_screen.dart';
 
 class DashboardScreen extends ConsumerWidget {
   /// HomeShell 안에서 넘겨주면 "전체 퀘스트 보기"가 퀘스트 탭으로 전환한다
@@ -47,7 +48,32 @@ class DashboardScreen extends ConsumerWidget {
         .toList();
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Human Status')),
+      appBar: AppBar(
+        title: const Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Human Status'),
+            Text(
+              '작은 행동이 만드는 성장',
+              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w400),
+            ),
+          ],
+        ),
+        actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: AppSpacing.sm),
+            child: FilledButton.tonalIcon(
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => const OnboardingScreen(standalone: true),
+                ),
+              ),
+              icon: const Icon(Icons.auto_awesome, size: 18),
+              label: const Text('AI 설계'),
+            ),
+          ),
+        ],
+      ),
       body: PageContentBounds(
         maxWidth: PageContentBounds.wide,
         child: ListView(
@@ -61,23 +87,34 @@ class DashboardScreen extends ConsumerWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        '시작해볼까요?',
+                        '오늘, 무엇을 바꿔볼까요?',
                         style: Theme.of(context).textTheme.titleLarge,
                       ),
                       const SizedBox(height: AppSpacing.xs),
                       Text(
-                        '첫 목표를 만들면 AI가 실행할 작은 퀘스트로 나눠드려요. 퀘스트를 완료할 때마다 스텟이 자라요.',
+                        '원하는 성장 영역을 고르면 AI가 지금 바로 실천할 수 있는 퀘스트를 설계해드려요.',
                         style: Theme.of(context).textTheme.bodyMedium,
                       ),
                       const SizedBox(height: AppSpacing.md),
                       FilledButton.icon(
                         onPressed: () => Navigator.of(context).push(
                           MaterialPageRoute(
+                            builder: (_) =>
+                                const OnboardingScreen(standalone: true),
+                          ),
+                        ),
+                        icon: const Icon(Icons.auto_awesome),
+                        label: const Text('AI로 첫 퀘스트 설계하기'),
+                      ),
+                      const SizedBox(height: AppSpacing.sm),
+                      TextButton.icon(
+                        onPressed: () => Navigator.of(context).push(
+                          MaterialPageRoute(
                             builder: (_) => const GoalFormScreen(),
                           ),
                         ),
-                        icon: const Icon(Icons.flag),
-                        label: const Text('첫 목표 만들기'),
+                        icon: const Icon(Icons.edit_outlined),
+                        label: const Text('직접 목표 만들기'),
                       ),
                     ],
                   ),

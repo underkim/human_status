@@ -25,6 +25,7 @@ void main() {
       final result = await source.generateSuggestions(
         stats: _stats(),
         existingQuests: [],
+        count: 1,
       );
 
       expect(result, hasLength(1));
@@ -99,7 +100,10 @@ void main() {
         httpClient: client,
       );
 
-      await source.generateSuggestions(stats: _stats(), existingQuests: []);
+      await expectLater(
+        source.generateSuggestions(stats: _stats(), existingQuests: []),
+        throwsA(isA<FormatException>()),
+      );
 
       expect(closed, isFalse);
     });

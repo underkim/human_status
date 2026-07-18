@@ -83,7 +83,9 @@ class QuestRecommendationService {
     try {
       suggestions = await _activeSource().generateSuggestions(
         stats: stats,
-        existingQuests: remainingQuests,
+        // 직전 suggested 묶음도 생성 문맥에 포함해 제목·행동 패턴 반복을 막는다.
+        // 저장 충돌 검증은 아래에서 실제로 유지할 remainingQuests만 사용한다.
+        existingQuests: allQuests,
       );
       _validateSuggestions(suggestions, remainingQuests);
     } catch (_) {
@@ -157,6 +159,8 @@ class QuestRecommendationService {
     if (apiKey == null || apiKey.trim().isEmpty) return source;
     return ClaudeQuestSuggestionSource(
       apiKey: apiKey,
+      goals: storage.getGoals(),
+      preferredStatId: storage.getProfile().preferredStatId,
       httpClient: claudeHttpClient,
     );
   }

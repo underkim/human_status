@@ -9,10 +9,8 @@ import 'providers/profile_provider.dart';
 import 'providers/progression_provider.dart';
 import 'providers/quest_provider.dart';
 import 'screens/home_shell.dart';
-import 'screens/onboarding_screen.dart';
 import 'services/daily_refresh_controller.dart';
 import 'services/notification_service.dart';
-import 'services/onboarding_gate.dart';
 import 'services/storage_service.dart';
 import 'theme/app_theme.dart';
 
@@ -330,25 +328,13 @@ class _HumanStatusAppState extends ConsumerState<HumanStatusApp>
 
   @override
   Widget build(BuildContext context) {
-    // profileProvider를 watch해 온보딩 게이트를 매 빌드마다 다시 평가한다
-    // (시작 시 한 번만 계산하는 flag가 아님) — 온보딩 완료/건너뛰기는 물론
-    // 데이터 초기화로 onboardingCompleted가 다시 false가 되는 경우에도,
-    // 같은 실행 중에 즉시 반영되어 알맞은 화면으로 전환된다.
-    ref.watch(profileProvider);
-    final showOnboarding = shouldShowOnboarding(
-      ref.read(storageServiceProvider),
-    );
     return MaterialApp(
-      // Navigator는 그 자체로 상태를 갖는 위젯이라, 예를 들어 설정 화면이
-      // 몇 단계 push된 채로 온보딩 게이트가 바뀌면 `home`만 바꿔서는 이미
-      // push된 화면들이 그대로 남는다 — showOnboarding이 바뀔 때마다 키를
-      // 바꿔 앱 전체(그 안의 Navigator와 push 스택 포함)를 처음부터 다시
-      // 마운트해, 항상 깨끗한 화면에서 시작하게 한다.
-      key: ValueKey(showOnboarding),
       title: 'Human Status',
       theme: AppTheme.light,
       darkTheme: AppTheme.dark,
-      home: showOnboarding ? const OnboardingScreen() : const HomeShell(),
+      themeMode: ThemeMode.system,
+      debugShowCheckedModeBanner: false,
+      home: const HomeShell(),
     );
   }
 }

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -491,10 +492,22 @@ void main() {
         String? capturedApiKeyHeader;
         final client = MockClient((request) async {
           capturedApiKeyHeader = request.headers['x-api-key'];
+          final quests = List.generate(
+            4,
+            (i) => {
+              'title': 'Claude Generated Suggestion ${i + 1}',
+              'description': 'd',
+              'statId': i.isEven ? 'health' : 'mental',
+              'difficulty': i == 0 ? 'easy' : 'medium',
+              'xp': 10,
+            },
+          );
           return http.Response(
-            '{"content": [{"type": "text", "text": '
-            '"[{\\"title\\": \\"Claude Generated Suggestion\\", \\"description\\": \\"d\\", '
-            '\\"statId\\": \\"health\\", \\"difficulty\\": \\"easy\\", \\"xp\\": 10}]"}]}',
+            jsonEncode({
+              'content': [
+                {'type': 'text', 'text': jsonEncode(quests)},
+              ],
+            }),
             200,
           );
         });
@@ -510,8 +523,8 @@ void main() {
             .getQuests()
             .where((q) => q.status == QuestStatus.suggested)
             .toList();
-        expect(suggestions, hasLength(1));
-        expect(suggestions.first.title, 'Claude Generated Suggestion');
+        expect(suggestions, hasLength(4));
+        expect(suggestions.first.title, 'Claude Generated Suggestion 1');
       },
     );
 

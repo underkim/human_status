@@ -4,6 +4,7 @@ import 'package:human_status/models/goal.dart';
 import 'package:human_status/models/quest.dart';
 import 'package:human_status/screens/dashboard_screen.dart';
 import 'package:human_status/screens/goal_form_screen.dart';
+import 'package:human_status/screens/onboarding_screen.dart';
 import 'package:human_status/screens/quest_form_screen.dart';
 import 'package:human_status/screens/quests_screen.dart';
 import 'package:human_status/widgets/action_hub_card.dart';
@@ -14,17 +15,18 @@ import 'helpers/test_app.dart';
 const _compactPhone = Size(400, 800);
 
 void main() {
-  testWidgets('첫 실행에는 CTA 카드가 뜨고 버튼이 목표 작성 화면으로 이동한다', (tester) async {
+  testWidgets('첫 실행에는 AI 설계 CTA와 직접 목표 작성 경로가 함께 보인다', (tester) async {
     final storage = await createTestStorage();
     await pumpApp(tester, storage, const DashboardScreen());
 
-    expect(find.text('시작해볼까요?'), findsOneWidget);
+    expect(find.text('오늘, 무엇을 바꿔볼까요?'), findsOneWidget);
     expect(find.text('종합 레벨'), findsOneWidget);
     expect(find.text('오늘의 행동'), findsNothing);
 
-    await tester.tap(find.text('첫 목표 만들기'));
+    await tester.tap(find.text('AI로 첫 퀘스트 설계하기'));
     await tester.pumpAndSettle();
-    expect(find.byType(GoalFormScreen), findsOneWidget);
+    expect(find.byType(OnboardingScreen), findsOneWidget);
+    expect(find.text('AI 퀘스트 설계'), findsOneWidget);
   });
 
   testWidgets('진행중 퀘스트가 있으면 오늘의 행동 허브에 강조 퀘스트와 완료 버튼이 스크롤 없이 보인다', (

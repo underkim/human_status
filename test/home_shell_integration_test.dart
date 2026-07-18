@@ -3,14 +3,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:human_status/main.dart';
 import 'package:human_status/providers/profile_provider.dart';
-import 'package:human_status/screens/goal_form_screen.dart';
 import 'package:human_status/screens/home_shell.dart';
+import 'package:human_status/screens/onboarding_screen.dart';
 
 import 'helpers/test_app.dart';
 
 void main() {
-  testWidgets('HomeShell의 IndexedStack에 마운트된 여러 FAB이 있어도 대시보드 첫 목표 CTA로 '
-      'GoalFormScreen에 진입할 때 Hero 충돌이 없다', (tester) async {
+  testWidgets('HomeShell의 IndexedStack에 마운트된 여러 FAB이 있어도 대시보드 AI 설계로 '
+      '독립 마법사에 진입할 때 Hero 충돌이 없다', (tester) async {
     setScreenSize(tester, const Size(400, 800));
     final storage = await createTestStorage();
     final profile = storage.getProfile();
@@ -32,10 +32,10 @@ void main() {
     expect(find.byType(HomeShell), findsOneWidget);
     expect(tester.takeException(), isNull);
 
-    await tester.tap(find.text('첫 목표 만들기'));
+    await tester.tap(find.text('AI로 첫 퀘스트 설계하기'));
     await tester.pumpAndSettle();
 
-    expect(find.byType(GoalFormScreen), findsOneWidget);
+    expect(find.byType(OnboardingScreen), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 }

@@ -40,14 +40,14 @@ class AppColors extends ThemeExtension<AppColors> {
   });
 
   static const light = AppColors(
-    surfaceAlt: Color(0xFFEFECE3),
-    textMuted: Color(0xFF756F62),
-    outline: Color(0xFFE1DCCF),
-    outlineStrong: Color(0xFFC7C0AE),
-    success: Color(0xFF3D6B4F),
-    warning: Color(0xFF8A5A2B),
+    surfaceAlt: Color(0xFFF0F3F8),
+    textMuted: Color(0xFF667085),
+    outline: Color(0xFFE4E7EC),
+    outlineStrong: Color(0xFFD0D5DD),
+    success: Color(0xFF16835B),
+    warning: Color(0xFFB36816),
     error: Color(0xFF9A3F3F),
-    info: Color(0xFF3A5F7D),
+    info: Color(0xFF3562C8),
     statHealth: Color(0xFFC1552F),
     statIntelligence: Color(0xFF3A6693),
     statWealth: Color(0xFFA87820),
@@ -58,10 +58,10 @@ class AppColors extends ThemeExtension<AppColors> {
   );
 
   static const dark = AppColors(
-    surfaceAlt: Color(0xFF2A2622),
-    textMuted: Color(0xFFA39C8C),
-    outline: Color(0xFF34302A),
-    outlineStrong: Color(0xFF4A443B),
+    surfaceAlt: Color(0xFF202938),
+    textMuted: Color(0xFF98A2B3),
+    outline: Color(0xFF2D3748),
+    outlineStrong: Color(0xFF475467),
     success: Color(0xFF7FBD97),
     warning: Color(0xFFD99A5C),
     error: Color(0xFFE19A9A),
@@ -78,13 +78,13 @@ class AppColors extends ThemeExtension<AppColors> {
   /// Looks up a stat's accent color by [Stat.id] (health/intelligence/wealth/
   /// relationships/mental). Falls back to [textMuted] for unknown ids.
   Color statColor(String statId) => switch (statId) {
-        'health' => statHealth,
-        'intelligence' => statIntelligence,
-        'wealth' => statWealth,
-        'relationships' => statRelationships,
-        'mental' => statMental,
-        _ => textMuted,
-      };
+    'health' => statHealth,
+    'intelligence' => statIntelligence,
+    'wealth' => statWealth,
+    'relationships' => statRelationships,
+    'mental' => statMental,
+    _ => textMuted,
+  };
 
   @override
   AppColors copyWith({
@@ -136,9 +136,17 @@ class AppColors extends ThemeExtension<AppColors> {
       error: Color.lerp(error, other.error, t)!,
       info: Color.lerp(info, other.info, t)!,
       statHealth: Color.lerp(statHealth, other.statHealth, t)!,
-      statIntelligence: Color.lerp(statIntelligence, other.statIntelligence, t)!,
+      statIntelligence: Color.lerp(
+        statIntelligence,
+        other.statIntelligence,
+        t,
+      )!,
       statWealth: Color.lerp(statWealth, other.statWealth, t)!,
-      statRelationships: Color.lerp(statRelationships, other.statRelationships, t)!,
+      statRelationships: Color.lerp(
+        statRelationships,
+        other.statRelationships,
+        t,
+      )!,
       statMental: Color.lerp(statMental, other.statMental, t)!,
       celebration: Color.lerp(celebration, other.celebration, t)!,
       onCelebration: Color.lerp(onCelebration, other.onCelebration, t)!,

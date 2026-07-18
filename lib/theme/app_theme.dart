@@ -17,22 +17,25 @@ class AppTheme {
   static ThemeData _build(Brightness brightness, AppColors ext) {
     final isDark = brightness == Brightness.dark;
 
-    final background = isDark ? const Color(0xFF17181A) : const Color(0xFFF6F4EE);
-    final surface = isDark ? const Color(0xFF201F1C) : const Color(0xFFFFFFFF);
-    final primary = isDark ? const Color(0xFF6FBBA0) : const Color(0xFF2E6F5C);
-    final onPrimary = isDark ? const Color(0xFF0E2620) : const Color(0xFFFFFFFF);
+    final background = isDark
+        ? const Color(0xFF0B101B)
+        : const Color(0xFFF7F8FC);
+    final surface = isDark ? const Color(0xFF121A28) : const Color(0xFFFFFFFF);
+    final primary = isDark ? const Color(0xFF8B9CFF) : const Color(0xFF5B5FEF);
+    final onPrimary = Colors.white;
 
-    final colorScheme = ColorScheme.fromSeed(
-      seedColor: primary,
-      brightness: brightness,
-    ).copyWith(
-      primary: primary,
-      onPrimary: onPrimary,
-      surface: surface,
-      error: ext.error,
-      outline: ext.outline,
-      outlineVariant: ext.outline,
-    );
+    final colorScheme =
+        ColorScheme.fromSeed(
+          seedColor: primary,
+          brightness: brightness,
+        ).copyWith(
+          primary: primary,
+          onPrimary: onPrimary,
+          surface: surface,
+          error: ext.error,
+          outline: ext.outline,
+          outlineVariant: ext.outline,
+        );
 
     final base = ThemeData(
       brightness: brightness,
@@ -49,8 +52,17 @@ class AppTheme {
 
     return base.copyWith(
       textTheme: base.textTheme.copyWith(
-        titleLarge: base.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
-        titleMedium: base.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+        headlineSmall: base.textTheme.headlineSmall?.copyWith(
+          fontWeight: FontWeight.w800,
+          letterSpacing: -0.6,
+        ),
+        titleLarge: base.textTheme.titleLarge?.copyWith(
+          fontWeight: FontWeight.w800,
+          letterSpacing: -0.35,
+        ),
+        titleMedium: base.textTheme.titleMedium?.copyWith(
+          fontWeight: FontWeight.w600,
+        ),
         bodyMedium: base.textTheme.bodyMedium?.copyWith(color: ext.textMuted),
         labelSmall: base.textTheme.labelSmall?.copyWith(
           color: ext.textMuted,
@@ -63,7 +75,9 @@ class AppTheme {
         style: ElevatedButton.styleFrom(
           minimumSize: const Size(64, AppDimens.buttonHeightStandard),
           padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(AppRadius.md),
+          ),
           disabledBackgroundColor: ext.outline,
           disabledForegroundColor: ext.textMuted,
         ),
@@ -72,7 +86,9 @@ class AppTheme {
         style: FilledButton.styleFrom(
           minimumSize: const Size(64, AppDimens.buttonHeightStandard),
           padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(AppRadius.md),
+          ),
           disabledBackgroundColor: ext.outline,
           disabledForegroundColor: ext.textMuted,
         ),
@@ -81,7 +97,9 @@ class AppTheme {
         style: OutlinedButton.styleFrom(
           minimumSize: const Size(64, AppDimens.buttonHeightStandard),
           padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(AppRadius.md),
+          ),
           side: BorderSide(color: ext.outlineStrong),
         ),
       ),
@@ -96,7 +114,10 @@ class AppTheme {
       // the visual icon itself is smaller (AppIconSize.md/lg).
       iconButtonTheme: IconButtonThemeData(
         style: IconButton.styleFrom(
-          minimumSize: const Size(AppDimens.minTouchTarget, AppDimens.minTouchTarget),
+          minimumSize: const Size(
+            AppDimens.minTouchTarget,
+            AppDimens.minTouchTarget,
+          ),
         ),
       ),
 
@@ -104,7 +125,10 @@ class AppTheme {
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: surface,
-        contentPadding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg, vertical: AppSpacing.md),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.lg,
+          vertical: AppSpacing.md,
+        ),
         border: outlineBorder,
         enabledBorder: outlineBorder,
         focusedBorder: outlineBorder.copyWith(
@@ -146,18 +170,22 @@ class AppTheme {
 
       // Card / Table 컨테이너
       cardTheme: CardThemeData(
-        elevation: 0,
+        elevation: isDark ? 0 : 1,
+        shadowColor: const Color(0xFF101828).withValues(alpha: 0.08),
         color: surface,
         margin: EdgeInsets.zero,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(AppRadius.lg),
+          borderRadius: BorderRadius.circular(20),
           side: BorderSide(color: ext.outline),
         ),
       ),
 
       // List
       listTileTheme: ListTileThemeData(
-        contentPadding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg, vertical: AppSpacing.xs),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.lg,
+          vertical: AppSpacing.xs,
+        ),
         iconColor: ext.textMuted,
         minVerticalPadding: AppSpacing.sm,
       ),
@@ -177,7 +205,9 @@ class AppTheme {
       // Modal(Dialog)
       dialogTheme: DialogThemeData(
         backgroundColor: surface,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.lg)),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppRadius.lg),
+        ),
       ),
 
       // Drawer
@@ -189,9 +219,13 @@ class AppTheme {
       // Toast(SnackBar)
       snackBarTheme: SnackBarThemeData(
         backgroundColor: isDark ? ext.outlineStrong : const Color(0xFF201E1A),
-        contentTextStyle: TextStyle(color: isDark ? const Color(0xFF17181A) : Colors.white),
+        contentTextStyle: TextStyle(
+          color: isDark ? const Color(0xFF17181A) : Colors.white,
+        ),
         behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppRadius.md),
+        ),
       ),
 
       // Tooltip
@@ -200,18 +234,25 @@ class AppTheme {
           color: ext.outlineStrong,
           borderRadius: BorderRadius.circular(AppRadius.sm),
         ),
-        textStyle: TextStyle(color: isDark ? const Color(0xFF17181A) : Colors.white, fontSize: 12),
+        textStyle: TextStyle(
+          color: isDark ? const Color(0xFF17181A) : Colors.white,
+          fontSize: 12,
+        ),
       ),
 
       // 바텀 내비게이션 (Compact) / NavigationRail은 화면 쪽에서 폭에 따라 전환
       navigationBarTheme: NavigationBarThemeData(
-        height: 62,
+        height: 68,
         backgroundColor: surface,
-        indicatorColor: primary.withValues(alpha: isDark ? 0.24 : 0.14),
+        indicatorColor: primary.withValues(alpha: isDark ? 0.28 : 0.12),
         labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
       ),
 
-      dividerTheme: DividerThemeData(color: ext.outline, thickness: 1, space: 1),
+      dividerTheme: DividerThemeData(
+        color: ext.outline,
+        thickness: 1,
+        space: 1,
+      ),
 
       chipTheme: base.chipTheme.copyWith(
         side: BorderSide(color: ext.outlineStrong),

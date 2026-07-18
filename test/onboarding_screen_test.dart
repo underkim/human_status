@@ -68,7 +68,7 @@ void main() {
   });
 
   group('HumanStatusApp 진입 화면', () {
-    testWidgets('신규 설치는 온보딩 화면으로 시작한다', (tester) async {
+    testWidgets('신규 설치도 온보딩에 가두지 않고 메인 화면으로 시작한다', (tester) async {
       final storage = await createTestStorage();
       await tester.pumpWidget(
         ProviderScope(
@@ -78,8 +78,8 @@ void main() {
       );
       await tester.pump();
 
-      expect(find.byType(OnboardingScreen), findsOneWidget);
-      expect(find.byType(HomeShell), findsNothing);
+      expect(find.byType(HomeShell), findsOneWidget);
+      expect(find.byType(OnboardingScreen), findsNothing);
     });
 
     testWidgets('완료 처리된 프로필은 바로 HomeShell로 시작한다', (tester) async {
@@ -117,21 +117,10 @@ void main() {
       expect(find.text('불필요한 지출 줄이기'), findsOneWidget);
     });
 
-    testWidgets('스타터 목표 완료 시 Goal 1개와 연결 active quest가 만들어지고 HomeShell로 전환된다', (
-      tester,
-    ) async {
+    testWidgets('설계 마법사 완료 시 Goal 1개와 연결 active quest가 만들어진다', (tester) async {
       setScreenSize(tester, const Size(400, 800));
       final storage = await createTestStorage();
-      // 실제 앱과 동일하게 HumanStatusApp을 통째로 pump한다 — profileProvider
-      // 변화를 보고 MaterialApp의 home을 HomeShell로 바꿔치기하는 실제
-      // reactive gate 경로를 검증한다.
-      await tester.pumpWidget(
-        ProviderScope(
-          overrides: [storageServiceProvider.overrideWithValue(storage)],
-          child: const HumanStatusApp(),
-        ),
-      );
-      await tester.pump();
+      await pumpApp(tester, storage, const OnboardingScreen());
 
       await tester.tap(find.text('다음'));
       await tester.pumpAndSettle();
@@ -140,9 +129,6 @@ void main() {
 
       await tester.tap(find.text('시작하기').first);
       await tester.pumpAndSettle();
-
-      expect(find.byType(HomeShell), findsOneWidget);
-      expect(find.byType(OnboardingScreen), findsNothing);
 
       final goals = storage.getGoals();
       expect(goals, hasLength(1));
@@ -219,24 +205,14 @@ void main() {
       expect(storage.getGoals(), isEmpty);
     });
 
-    testWidgets('건너뛰기는 완료 상태를 저장하고 HomeShell로 전환하며, 재시작해도 온보딩이 다시 뜨지 않는다', (
-      tester,
-    ) async {
+    testWidgets('건너뛰기는 완료 상태를 저장하며 재시작은 항상 메인으로 열린다', (tester) async {
       setScreenSize(tester, const Size(400, 800));
       final storage = await createTestStorage();
-      await tester.pumpWidget(
-        ProviderScope(
-          overrides: [storageServiceProvider.overrideWithValue(storage)],
-          child: const HumanStatusApp(),
-        ),
-      );
-      await tester.pump();
+      await pumpApp(tester, storage, const OnboardingScreen());
 
       await tester.tap(find.text('나중에 하기'));
       await tester.pumpAndSettle();
 
-      expect(find.byType(HomeShell), findsOneWidget);
-      expect(find.byType(OnboardingScreen), findsNothing);
       expect(storage.getProfile().onboardingCompleted, isTrue);
 
       // "재시작"을 새 HumanStatusApp 인스턴스로 흉내낸다 — 같은 storage를 그대로 사용한다.

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:human_status/main.dart';
 import 'package:human_status/screens/onboarding_screen.dart';
+import 'package:human_status/screens/home_shell.dart';
 import 'package:human_status/services/storage_service.dart';
 
 import 'helpers/test_app.dart';
@@ -89,7 +90,7 @@ void main() {
     },
   );
 
-  testWidgets('처음 실패한 뒤 재시도가 성공하면 initializer가 정확히 두 번 호출되고 온보딩에 도달한다', (
+  testWidgets('처음 실패한 뒤 재시도가 성공하면 initializer가 정확히 두 번 호출되고 메인에 도달한다', (
     tester,
   ) async {
     var callCount = 0;
@@ -117,7 +118,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(callCount, 2);
-    expect(find.byType(OnboardingScreen), findsOneWidget);
+    expect(find.byType(HomeShell), findsOneWidget);
+    expect(find.byType(OnboardingScreen), findsNothing);
   });
 
   testWidgets('부트스트랩 성공 시 startup sequence는 최대 한 번만 실행된다', (tester) async {
@@ -136,7 +138,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(runCount, 1);
-    expect(find.byType(OnboardingScreen), findsOneWidget);
+    expect(find.byType(HomeShell), findsOneWidget);
+    expect(find.byType(OnboardingScreen), findsNothing);
 
     // 이후 리빌드(예: 부모 상태 변경으로 인한 재빌드)로도 중복 스케줄되지 않는다.
     await tester.pump();
