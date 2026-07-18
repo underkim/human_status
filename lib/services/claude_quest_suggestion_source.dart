@@ -149,18 +149,23 @@ Respond with ONLY a JSON array (no markdown, no commentary) where each element i
       if (!validStatIds.contains(statId)) {
         continue;
       }
+      final difficultyStr = raw['difficulty'];
+      if (difficultyStr is! String) continue;
+      final difficulty = QuestDifficulty.values
+          .where((d) => d.name == difficultyStr)
+          .firstOrNull;
+      if (difficulty == null) continue;
+      final xpRaw = raw['xp'];
+      if (xpRaw is! num) continue;
+      final xp = xpRaw.toDouble();
+      if (!xp.isFinite || xp <= 0 || xp > 100) continue;
       if (!seenTitles.add(_normalizedTitle(title))) continue;
-      final difficultyStr = raw['difficulty'] as String? ?? 'easy';
-      final difficulty = QuestDifficulty.values.firstWhere(
-        (d) => d.name == difficultyStr,
-        orElse: () => QuestDifficulty.easy,
-      );
       suggestions.add(
         Quest(
           id: _uuid.v4(),
           title: title.trim(),
           description: raw['description'] as String? ?? '',
-          statRewards: {statId: (raw['xp'] as num?)?.toDouble() ?? 20},
+          statRewards: {statId: xp},
           difficulty: difficulty,
           status: QuestStatus.suggested,
           source: QuestSource.suggested,

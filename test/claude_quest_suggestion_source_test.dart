@@ -33,6 +33,58 @@ void main() {
       expect(result.first.statRewards['health'], 15);
     });
 
+    test(
+      'drops rows with invalid difficulty and falls back on incomplete batch',
+      () async {
+        final client = MockClient((request) async {
+          return http.Response(
+            '{"content": [{"type": "text", "text": "[{\\"title\\": \\"Walk\\", \\"statId\\": \\"health\\", \\"difficulty\\": \\"impossible\\", \\"xp\\": 15}]"}]}',
+            200,
+          );
+        });
+        final source = ClaudeQuestSuggestionSource(
+          apiKey: 'key',
+          httpClient: client,
+        );
+
+        expect(
+          () => source.generateSuggestions(
+            stats: _stats(),
+            existingQuests: [],
+            count: 1,
+          ),
+          throwsA(isA<FormatException>()),
+        );
+      },
+    );
+
+    test('drops rows with non-finite, zero, negative, or >100 xp', () async {
+      final client = MockClient((request) async {
+        return http.Response(
+          '{"content": [{"type": "text", "text": "['
+          '{\\"title\\": \\"A\\", \\"statId\\": \\"health\\", \\"difficulty\\": \\"easy\\", \\"xp\\": 0},'
+          '{\\"title\\": \\"B\\", \\"statId\\": \\"health\\", \\"difficulty\\": \\"easy\\", \\"xp\\": -5},'
+          '{\\"title\\": \\"C\\", \\"statId\\": \\"health\\", \\"difficulty\\": \\"easy\\", \\"xp\\": 101},'
+          '{\\"title\\": \\"D\\", \\"statId\\": \\"health\\", \\"difficulty\\": \\"easy\\", \\"xp\\": null}'
+          ']"}]}',
+          200,
+        );
+      });
+      final source = ClaudeQuestSuggestionSource(
+        apiKey: 'key',
+        httpClient: client,
+      );
+
+      expect(
+        () => source.generateSuggestions(
+          stats: _stats(),
+          existingQuests: [],
+          count: 1,
+        ),
+        throwsA(isA<FormatException>()),
+      );
+    });
+
     test('throws on a non-200 HTTP status', () async {
       final client = MockClient(
         (request) async => http.Response('server error', 500),
