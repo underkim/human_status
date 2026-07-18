@@ -26,6 +26,15 @@ class _GatedAssetSnapshotsNotifier extends AssetSnapshotsNotifier {
   }
 }
 
+class _FailingAssetSnapshotsNotifier extends AssetSnapshotsNotifier {
+  _FailingAssetSnapshotsNotifier(super.storage);
+
+  @override
+  Future<void> deleteSnapshot(String id) async {
+    throw StateError('sensitive storage failure');
+  }
+}
+
 AssetSnapshot _snapshot(
   String id,
   DateTime importedAt, {
@@ -41,6 +50,32 @@ AssetSnapshot _snapshot(
 );
 
 void main() {
+  testWidgets('shows a safe error and keeps the snapshot when deletion fails', (
+    tester,
+  ) async {
+    final storage = await createTestStorage();
+    await storage.saveAssetSnapshot(_snapshot('s1', DateTime(2026, 7, 1)));
+    await pumpApp(
+      tester,
+      storage,
+      const AssetSnapshotListView(),
+      overrides: [
+        assetSnapshotsProvider.overrideWith(
+          (ref) =>
+              _FailingAssetSnapshotsNotifier(ref.watch(storageServiceProvider)),
+        ),
+      ],
+    );
+
+    await tester.tap(find.widgetWithIcon(IconButton, Icons.delete_outline));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, '삭제'));
+    await tester.pumpAndSettle();
+
+    expect(storage.getAssetSnapshots(), hasLength(1));
+    expect(find.textContaining('삭제하지 못했어요'), findsOneWidget);
+    expect(find.textContaining('sensitive storage failure'), findsNothing);
+  });
   testWidgets('가져온 자산현황이 없으면 빈 상태 안내가 나온다', (tester) async {
     final storage = await createTestStorage();
     await pumpApp(tester, storage, const AssetSnapshotListView());

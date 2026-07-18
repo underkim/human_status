@@ -181,7 +181,7 @@ class TransactionImportService {
   /// periodically re-sends months of already-stored data; this lets repeat
   /// imports only add what's actually new.
   static List<Transaction> filterDuplicates(List<Transaction> candidates, List<Transaction> existing) {
-    final existingKeys = existing.map((t) => (t.date, t.category, t.amount)).toSet();
-    return candidates.where((t) => !existingKeys.contains((t.date, t.category, t.amount))).toList();
+    final seenKeys = existing.map((t) => (t.date, t.category, t.amount)).toSet();
+    return candidates.where((t) => seenKeys.add((t.date, t.category, t.amount))).toList();
   }
 }

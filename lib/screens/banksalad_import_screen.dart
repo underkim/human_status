@@ -137,8 +137,9 @@ class _BanksaladImportScreenState extends ConsumerState<BanksaladImportScreen> {
         _assetSnapshot = snapshot;
         _assetError = assetErr;
       });
-    } catch (e) {
-      setState(() => _error = '파일을 해석할 수 없어요: $e');
+    } catch (error, stackTrace) {
+      debugPrint('Failed to parse Banksalad import: $error\n$stackTrace');
+      setState(() => _error = '파일을 해석할 수 없어요. 파일 형식을 확인해주세요.');
     }
   }
 
@@ -166,12 +167,13 @@ class _BanksaladImportScreenState extends ConsumerState<BanksaladImportScreen> {
       messenger.showSnackBar(
         SnackBar(content: Text('${parts.join(', ')}을 가져왔어요.')),
       );
-    } catch (e) {
+    } catch (error, stackTrace) {
+      debugPrint('Failed to import Banksalad data: $error\n$stackTrace');
       if (!mounted) return;
       setState(() => _isImporting = false);
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('가져오기에 실패했어요: $e')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('가져오기에 실패했어요. 잠시 후 다시 시도해주세요.')),
+      );
     }
   }
 
