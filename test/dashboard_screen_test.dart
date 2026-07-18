@@ -3,7 +3,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:human_status/models/goal.dart';
 import 'package:human_status/models/quest.dart';
 import 'package:human_status/screens/dashboard_screen.dart';
-import 'package:human_status/screens/goal_form_screen.dart';
 import 'package:human_status/screens/onboarding_screen.dart';
 import 'package:human_status/screens/quest_form_screen.dart';
 import 'package:human_status/screens/quests_screen.dart';

@@ -36,27 +36,30 @@ void main() {
       expect(result, 7000);
     });
 
-    test('the computed monthly payment actually reaches the target when simulated forward', () {
-      const targetAmount = 100000.0;
-      const currentAmount = 10000.0;
-      const months = 24;
-      const annualReturnPercent = 6.0;
+    test(
+      'the computed monthly payment actually reaches the target when simulated forward',
+      () {
+        const targetAmount = 100000.0;
+        const currentAmount = 10000.0;
+        const months = 24;
+        const annualReturnPercent = 6.0;
 
-      final pmt = FinancialPlanningService.requiredMonthlySaving(
-        targetAmount: targetAmount,
-        currentAmount: currentAmount,
-        months: months,
-        annualReturnPercent: annualReturnPercent,
-      );
+        final pmt = FinancialPlanningService.requiredMonthlySaving(
+          targetAmount: targetAmount,
+          currentAmount: currentAmount,
+          months: months,
+          annualReturnPercent: annualReturnPercent,
+        );
 
-      final monthlyRate = annualReturnPercent / 100 / 12;
-      var balance = currentAmount;
-      for (var i = 0; i < months; i++) {
-        balance = balance * (1 + monthlyRate) + pmt;
-      }
+        final monthlyRate = annualReturnPercent / 100 / 12;
+        var balance = currentAmount;
+        for (var i = 0; i < months; i++) {
+          balance = balance * (1 + monthlyRate) + pmt;
+        }
 
-      expect(balance, closeTo(targetAmount, 0.01));
-    });
+        expect(balance, closeTo(targetAmount, 0.01));
+      },
+    );
 
     test('never goes negative when the target is already reached', () {
       final overfunded = FinancialPlanningService.requiredMonthlySaving(
@@ -67,14 +70,47 @@ void main() {
       );
       expect(overfunded, 0);
 
-      final overfundedNoHorizon = FinancialPlanningService.requiredMonthlySaving(
-        targetAmount: 10000,
-        currentAmount: 50000,
-        months: 0,
-        annualReturnPercent: 5,
-      );
+      final overfundedNoHorizon =
+          FinancialPlanningService.requiredMonthlySaving(
+            targetAmount: 10000,
+            currentAmount: 50000,
+            months: 0,
+            annualReturnPercent: 5,
+          );
       expect(overfundedNoHorizon, 0);
     });
+
+    test(
+      'returns 0 instead of NaN when an extreme return rate overflows compounding to infinity',
+      () {
+        // monthlyRate ~= 833,333: (1+monthlyRate)^months overflows a double to
+        // Infinity well before the sign check, and 0 * Infinity is NaN — a
+        // user can reach this by typing an unrealistic return rate with the
+        // "이미 모아둔 금액" field left at its default of 0.
+        final result = FinancialPlanningService.requiredMonthlySaving(
+          targetAmount: 100000,
+          currentAmount: 0,
+          months: 1000,
+          annualReturnPercent: 999999999,
+        );
+        expect(result, 0);
+        expect(result.isFinite, isTrue);
+      },
+    );
+
+    test(
+      'returns 0 instead of infinity when an extreme return rate overflows compounding with a nonzero current amount',
+      () {
+        final result = FinancialPlanningService.requiredMonthlySaving(
+          targetAmount: 100000,
+          currentAmount: 500,
+          months: 1000,
+          annualReturnPercent: 999999999,
+        );
+        expect(result, 0);
+        expect(result.isFinite, isTrue);
+      },
+    );
   });
 
   group('FinancialPlanningService storage-backed methods', () {
@@ -82,9 +118,13 @@ void main() {
     late StorageService storage;
 
     setUp(() async {
-      tempDir = await Directory.systemTemp.createTemp('human_status_planning_test_');
+      tempDir = await Directory.systemTemp.createTemp(
+        'human_status_planning_test_',
+      );
       Hive.init(tempDir.path);
-      if (!Hive.isAdapterRegistered(4)) Hive.registerAdapter(TransactionAdapter());
+      if (!Hive.isAdapterRegistered(4)) {
+        Hive.registerAdapter(TransactionAdapter());
+      }
 
       storage = StorageService();
       storage.transactionsBox = await Hive.openBox<Transaction>(
@@ -97,32 +137,52 @@ void main() {
       await tempDir.delete(recursive: true);
     });
 
-    Transaction tx({required TransactionType type, required double amount, required DateTime date}) => Transaction(
-          id: const Uuid().v4(),
-          type: type,
-          category: 'test',
-          memo: '',
-          amount: amount,
-          date: date,
-          createdAt: DateTime.now(),
+    Transaction tx({
+      required TransactionType type,
+      required double amount,
+      required DateTime date,
+    }) => Transaction(
+      id: const Uuid().v4(),
+      type: type,
+      category: 'test',
+      memo: '',
+      amount: amount,
+      date: date,
+      createdAt: DateTime.now(),
+    );
+
+    test(
+      'recentAverageMonthlySaving averages net income-expense over the last N months',
+      () async {
+        final now = DateTime.now();
+        await storage.saveTransaction(
+          tx(type: TransactionType.income, amount: 1000, date: now),
+        );
+        await storage.saveTransaction(
+          tx(type: TransactionType.expense, amount: 400, date: now),
         );
 
-    test('recentAverageMonthlySaving averages net income-expense over the last N months', () async {
-      final now = DateTime.now();
-      await storage.saveTransaction(tx(type: TransactionType.income, amount: 1000, date: now));
-      await storage.saveTransaction(tx(type: TransactionType.expense, amount: 400, date: now));
+        final lastMonth = DateTime(now.year, now.month - 1, 15);
+        await storage.saveTransaction(
+          tx(type: TransactionType.income, amount: 500, date: lastMonth),
+        );
+        await storage.saveTransaction(
+          tx(type: TransactionType.expense, amount: 300, date: lastMonth),
+        );
 
-      final lastMonth = DateTime(now.year, now.month - 1, 15);
-      await storage.saveTransaction(tx(type: TransactionType.income, amount: 500, date: lastMonth));
-      await storage.saveTransaction(tx(type: TransactionType.expense, amount: 300, date: lastMonth));
+        final twoMonthsAgo = DateTime(now.year, now.month - 2, 15);
+        await storage.saveTransaction(
+          tx(type: TransactionType.expense, amount: 100, date: twoMonthsAgo),
+        );
 
-      final twoMonthsAgo = DateTime(now.year, now.month - 2, 15);
-      await storage.saveTransaction(tx(type: TransactionType.expense, amount: 100, date: twoMonthsAgo));
+        final avg = FinancialPlanningService.recentAverageMonthlySaving(
+          storage,
+          months: 3,
+        );
 
-      final avg = FinancialPlanningService.recentAverageMonthlySaving(storage, months: 3);
-
-      expect(avg, closeTo((600 + 200 - 100) / 3, 0.001));
-    });
+        expect(avg, closeTo((600 + 200 - 100) / 3, 0.001));
+      },
+    );
 
     test('buildRecommendations includes retirement when enabled', () {
       final plan = FinancialPlan(
@@ -133,7 +193,10 @@ void main() {
         monthlyLivingCostAfterRetirement: 1000,
       );
 
-      final recs = FinancialPlanningService().buildRecommendations(plan, storage);
+      final recs = FinancialPlanningService().buildRecommendations(
+        plan,
+        storage,
+      );
 
       expect(recs, hasLength(1));
       expect(recs.first.goalTitle, '은퇴자금');
@@ -153,7 +216,10 @@ void main() {
         homePurchaseTargetAmount: 50000,
       );
 
-      final recs = FinancialPlanningService().buildRecommendations(plan, storage);
+      final recs = FinancialPlanningService().buildRecommendations(
+        plan,
+        storage,
+      );
 
       expect(recs, hasLength(2));
       expect(recs.map((r) => r.goalTitle), containsAll(['은퇴자금', '주택구입자금']));
@@ -161,7 +227,10 @@ void main() {
 
     test('buildRecommendations is empty when neither goal is enabled', () {
       final plan = FinancialPlan(updatedAt: DateTime.now());
-      final recs = FinancialPlanningService().buildRecommendations(plan, storage);
+      final recs = FinancialPlanningService().buildRecommendations(
+        plan,
+        storage,
+      );
       expect(recs, isEmpty);
     });
   });
@@ -185,11 +254,17 @@ void main() {
       final restored = FinancialPlan.fromJson(plan.toJson());
 
       expect(restored.updatedAt, plan.updatedAt);
-      expect(restored.expectedAnnualReturnPercent, plan.expectedAnnualReturnPercent);
+      expect(
+        restored.expectedAnnualReturnPercent,
+        plan.expectedAnnualReturnPercent,
+      );
       expect(restored.retirementEnabled, plan.retirementEnabled);
       expect(restored.currentAge, plan.currentAge);
       expect(restored.retirementAge, plan.retirementAge);
-      expect(restored.monthlyLivingCostAfterRetirement, plan.monthlyLivingCostAfterRetirement);
+      expect(
+        restored.monthlyLivingCostAfterRetirement,
+        plan.monthlyLivingCostAfterRetirement,
+      );
       expect(restored.retirementCurrentSavings, plan.retirementCurrentSavings);
       expect(restored.homePurchaseEnabled, plan.homePurchaseEnabled);
       expect(restored.homePurchaseTargetDate, plan.homePurchaseTargetDate);
@@ -233,5 +308,37 @@ void main() {
       );
       expect(rec.isOnTrack, isFalse);
     });
+
+    test(
+      'is true when the target is already fully funded (required saving is 0) even if recent cashflow is negative',
+      () {
+        final rec = PlanRecommendation(
+          goalTitle: 'x',
+          statId: 'wealth',
+          requiredTargetAmount: 1000,
+          requiredMonthlySaving: 0,
+          currentAverageMonthlySaving: -50,
+          targetDate: DateTime(2030, 1, 1),
+          currentAmount: 1000,
+        );
+        expect(rec.isOnTrack, isTrue);
+      },
+    );
+
+    test(
+      'is false when a positive required saving is compared against negative recent cashflow',
+      () {
+        final rec = PlanRecommendation(
+          goalTitle: 'x',
+          statId: 'wealth',
+          requiredTargetAmount: 1000,
+          requiredMonthlySaving: 100,
+          currentAverageMonthlySaving: -50,
+          targetDate: DateTime(2030, 1, 1),
+          currentAmount: 0,
+        );
+        expect(rec.isOnTrack, isFalse);
+      },
+    );
   });
 }

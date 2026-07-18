@@ -524,7 +524,12 @@ void main() {
             .where((q) => q.status == QuestStatus.suggested)
             .toList();
         expect(suggestions, hasLength(4));
-        expect(suggestions.first.title, 'Claude Generated Suggestion 1');
+        expect(suggestions.map((q) => q.title).toSet(), {
+          'Claude Generated Suggestion 1',
+          'Claude Generated Suggestion 2',
+          'Claude Generated Suggestion 3',
+          'Claude Generated Suggestion 4',
+        });
       },
     );
 
