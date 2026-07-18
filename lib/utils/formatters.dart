@@ -17,20 +17,26 @@ String formatWonCompact(num amount) {
   final sign = v < 0 ? '-' : '';
   if (abs >= 100000000) {
     final eok = abs / 100000000;
-    final text = eok >= 10 ? eok.round().toString() : eok.toStringAsFixed(1).replaceFirst(RegExp(r'\.0$'), '');
+    final text = eok >= 10
+        ? eok.round().toString()
+        : eok.toStringAsFixed(1).replaceFirst(RegExp(r'\.0$'), '');
     return '$sign$text억';
   }
-  if (abs >= 10000) return '$sign${_numberFormat.format((abs / 10000).round())}만';
+  if (abs >= 10000) {
+    return '$sign${_numberFormat.format((abs / 10000).round())}만';
+  }
   return '$sign${_numberFormat.format(abs)}';
 }
 
 /// 목표 기한까지 남은 일수를 "D-84"/"D-DAY"/"기한 12일 지남" 형태로 — 절대
 /// 날짜(2026.10.04)보다 "얼마나 남았는지"가 더 즉각적으로 와닿는다.
-String formatDday(DateTime target) {
-  final now = DateTime.now();
-  final today = DateTime(now.year, now.month, now.day);
-  final targetDay = DateTime(target.year, target.month, target.day);
-  final days = targetDay.difference(today).inDays;
+String formatDday(DateTime target, {DateTime? now}) {
+  final current = now ?? DateTime.now();
+  // UTC is only a stable ordinal for these local calendar fields. Unlike
+  // subtracting local midnights, it remains a whole day across DST changes.
+  final todayOrdinal = DateTime.utc(current.year, current.month, current.day);
+  final targetOrdinal = DateTime.utc(target.year, target.month, target.day);
+  final days = targetOrdinal.difference(todayOrdinal).inDays;
   if (days == 0) return 'D-DAY';
   if (days < 0) return '기한 ${-days}일 지남';
   return 'D-$days';

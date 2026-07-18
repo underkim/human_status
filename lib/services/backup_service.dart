@@ -141,6 +141,15 @@ class BackupService {
   /// versions can't parse. Backups without a `schemaVersion` key predate
   /// this field and are treated as version 1 for compatibility.
   static const currentSchemaVersion = 1;
+  static const maxBackupBytes = 10 * 1024 * 1024;
+  static const maxStringLength = 10000;
+  static const maxNestingDepth = 100;
+  static const maxStats = 10000;
+  static const maxQuests = 50000;
+  static const maxGoals = 10000;
+  static const maxTransactions = 100000;
+  static const maxAssetSnapshots = 10000;
+  static const maxAchievements = 10000;
 
   final StorageService storage;
 
@@ -212,6 +221,10 @@ class BackupService {
   /// rules to the same backup. Keys beyond stats/quests are optional to
   /// stay compatible with backups from older app versions.
   _ParsedBackup _parse(String jsonStr) {
+    if (utf8.encode(jsonStr).length > maxBackupBytes) {
+      throw const FormatException('Backup exceeds the maximum allowed size');
+    }
+    _validateJsonNesting(jsonStr);
     final data = jsonDecode(jsonStr) as Map<String, dynamic>;
 
     // 키가 아예 없는(구버전) 백업만 레거시로 취급한다 — 키는 있는데 값이
@@ -231,6 +244,8 @@ class BackupService {
         );
       }
     }
+
+    _validateInputLimits(data);
 
     final stats = (data['stats'] as List)
         .map((e) => Stat.fromJson(e as Map<String, dynamic>))
@@ -302,6 +317,79 @@ class BackupService {
       hasPreferredStatId: hasPreferredStatId,
       restoredPreferredStatId: restoredPreferredStatId,
     );
+  }
+
+  void _validateJsonNesting(String jsonStr) {
+    var depth = 0;
+    var inString = false;
+    var escaped = false;
+    for (final codeUnit in jsonStr.codeUnits) {
+      if (inString) {
+        if (escaped) {
+          escaped = false;
+        } else if (codeUnit == 0x5c) {
+          escaped = true;
+        } else if (codeUnit == 0x22) {
+          inString = false;
+        }
+        continue;
+      }
+      if (codeUnit == 0x22) {
+        inString = true;
+      } else if (codeUnit == 0x7b || codeUnit == 0x5b) {
+        depth++;
+        // The backup's root object accounts for one structural level.
+        if (depth > maxNestingDepth + 1) {
+          throw const FormatException('Backup is nested too deeply');
+        }
+      } else if (codeUnit == 0x7d || codeUnit == 0x5d) {
+        depth--;
+      }
+    }
+  }
+
+  void _validateInputLimits(Map<String, dynamic> data) {
+    void validateListCount(String key, int maximum) {
+      final value = data[key];
+      if (value is List && value.length > maximum) {
+        throw FormatException('$key contains too many records');
+      }
+    }
+
+    validateListCount('stats', maxStats);
+    validateListCount('quests', maxQuests);
+    validateListCount('goals', maxGoals);
+    validateListCount('transactions', maxTransactions);
+    validateListCount('assetSnapshots', maxAssetSnapshots);
+    final achievements = data['achievements'];
+    if (achievements is Map && achievements.length > maxAchievements) {
+      throw const FormatException('achievements contains too many records');
+    }
+
+    void validateStrings(Object? value, [int depth = 0]) {
+      if (value is String) {
+        if (value.length > maxStringLength) {
+          throw const FormatException('Backup contains an oversized string');
+        }
+      } else if (value is List) {
+        if (depth > maxNestingDepth) {
+          throw const FormatException('Backup is nested too deeply');
+        }
+        for (final item in value) {
+          validateStrings(item, depth + 1);
+        }
+      } else if (value is Map) {
+        if (depth > maxNestingDepth) {
+          throw const FormatException('Backup is nested too deeply');
+        }
+        for (final entry in value.entries) {
+          validateStrings(entry.key, depth + 1);
+          validateStrings(entry.value, depth + 1);
+        }
+      }
+    }
+
+    validateStrings(data);
   }
 
   /// Replaces all stored data with the contents of [jsonStr]. Parsing (and

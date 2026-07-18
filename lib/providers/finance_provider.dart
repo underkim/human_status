@@ -13,11 +13,15 @@ final financeServiceProvider = Provider<FinanceService>(
   (ref) => FinanceService(storage: ref.watch(storageServiceProvider)),
 );
 
-final transactionsProvider = StateNotifierProvider<TransactionsNotifier, List<Transaction>>((ref) {
-  return TransactionsNotifier(ref.watch(storageServiceProvider), ref);
-});
+final transactionsProvider =
+    StateNotifierProvider<TransactionsNotifier, List<Transaction>>((ref) {
+      return TransactionsNotifier(ref.watch(storageServiceProvider), ref);
+    });
 
-final monthlySummaryProvider = Provider.family<MonthlySummary, String>((ref, monthKey) {
+final monthlySummaryProvider = Provider.family<MonthlySummary, String>((
+  ref,
+  monthKey,
+) {
   final transactions = ref.watch(transactionsProvider);
   return FinanceService.summarize(transactions, monthKey);
 });
@@ -50,7 +54,8 @@ class TransactionsNotifier extends StateNotifier<List<Transaction>> {
   final StorageService storage;
   final Ref ref;
 
-  TransactionsNotifier(this.storage, this.ref) : super(storage.getTransactions());
+  TransactionsNotifier(this.storage, this.ref)
+    : super(storage.getTransactions());
 
   void reload() => state = storage.getTransactions();
 
@@ -84,9 +89,8 @@ class TransactionsNotifier extends StateNotifier<List<Transaction>> {
       final rollback = RollbackScope();
       try {
         await _addTransactionLocked(tx, rollback);
-      } catch (_) {
-        await rollback.rollback();
-        rethrow;
+      } catch (error, stackTrace) {
+        await rollback.rollbackAndThrow(error, stackTrace);
       }
     });
     reload();
@@ -94,7 +98,10 @@ class TransactionsNotifier extends StateNotifier<List<Transaction>> {
     await _notifyIfBudgetJustExceeded(spentBefore);
   }
 
-  Future<void> _addTransactionLocked(Transaction tx, RollbackScope rollback) async {
+  Future<void> _addTransactionLocked(
+    Transaction tx,
+    RollbackScope rollback,
+  ) async {
     final existing = storage.getTransactions().where((t) => t.id == tx.id);
     if (existing.isNotEmpty) {
       if (_sameTransactionPayload(existing.first, tx)) return;
@@ -117,12 +124,17 @@ class TransactionsNotifier extends StateNotifier<List<Transaction>> {
       }
     });
 
-    final linkedGoal = await ref.read(financeServiceProvider).addTransaction(tx);
+    final linkedGoal = await ref
+        .read(financeServiceProvider)
+        .addTransaction(tx);
     if (linkedGoal == null) return;
     ref.read(goalsProvider.notifier).reload();
 
-    if (linkedGoal.status == GoalStatus.active && linkedGoal.currentAmount >= linkedGoal.targetAmount!) {
-      await ref.read(goalsProvider.notifier).completeGoalLocked(linkedGoal.id, rollback);
+    if (linkedGoal.status == GoalStatus.active &&
+        linkedGoal.currentAmount >= linkedGoal.targetAmount!) {
+      await ref
+          .read(goalsProvider.notifier)
+          .completeGoalLocked(linkedGoal.id, rollback);
     }
   }
 
@@ -139,16 +151,18 @@ class TransactionsNotifier extends StateNotifier<List<Transaction>> {
       final rollback = RollbackScope();
       try {
         await _deleteTransactionLocked(id, rollback);
-      } catch (_) {
-        await rollback.rollback();
-        rethrow;
+      } catch (error, stackTrace) {
+        await rollback.rollbackAndThrow(error, stackTrace);
       }
     });
     reload();
     ref.read(goalsProvider.notifier).reload();
   }
 
-  Future<void> _deleteTransactionLocked(String id, RollbackScope rollback) async {
+  Future<void> _deleteTransactionLocked(
+    String id,
+    RollbackScope rollback,
+  ) async {
     final matches = storage.getTransactions().where((t) => t.id == id);
     final tx = matches.isNotEmpty ? matches.first : null;
     if (tx == null) return;
@@ -173,7 +187,9 @@ class TransactionsNotifier extends StateNotifier<List<Transaction>> {
       }
     });
 
-    final adjustedGoal = await ref.read(financeServiceProvider).deleteTransaction(id);
+    final adjustedGoal = await ref
+        .read(financeServiceProvider)
+        .deleteTransaction(id);
     if (adjustedGoal != null) {
       ref.read(goalsProvider.notifier).reload();
     }
@@ -189,8 +205,10 @@ class TransactionsNotifier extends StateNotifier<List<Transaction>> {
     await _notifyIfBudgetJustExceeded(spentBefore);
   }
 
-  double _currentMonthExpense() =>
-      FinanceService.summarize(storage.getTransactions(), monthKeyOf(DateTime.now())).expense;
+  double _currentMonthExpense() => FinanceService.summarize(
+    storage.getTransactions(),
+    monthKeyOf(DateTime.now()),
+  ).expense;
 
   /// 이번 저장으로 이번 달 지출이 예산을 '처음' 넘어섰을 때만 로컬 알림을
   /// 한 번 보낸다 — 이미 초과 상태에서의 추가 지출은 조용히 지나간다.
@@ -198,7 +216,10 @@ class TransactionsNotifier extends StateNotifier<List<Transaction>> {
     final budget = storage.getFinancialPlan().monthlyBudget;
     final spentAfter = _currentMonthExpense();
     if (!BudgetService.justExceeded(
-        budget: budget, spentBefore: spentBefore, spentAfter: spentAfter)) {
+      budget: budget,
+      spentBefore: spentBefore,
+      spentAfter: spentAfter,
+    )) {
       return;
     }
     try {

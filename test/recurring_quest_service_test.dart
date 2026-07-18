@@ -7,7 +7,8 @@ import 'helpers/test_app.dart';
 final _now = DateTime(2026, 7, 14, 9); // 오늘 오전 9시
 final _yesterday = DateTime(2026, 7, 13, 22);
 
-Quest _recurringCompleted(String id, DateTime completedAt, {String? goalId}) => Quest(
+Quest _recurringCompleted(String id, DateTime completedAt, {String? goalId}) =>
+    Quest(
       id: id,
       title: '아침 스트레칭',
       description: '10분',
@@ -26,7 +27,9 @@ void main() {
     final storage = await createTestStorage();
     await storage.saveQuest(_recurringCompleted('q1', _yesterday));
 
-    final count = await RecurringQuestService(storage: storage).respawnDue(now: _now);
+    final count = await RecurringQuestService(
+      storage: storage,
+    ).respawnDue(now: _now);
 
     expect(count, 1);
     final quests = storage.getQuests();
@@ -51,9 +54,13 @@ void main() {
 
   test('오늘 완료한 반복 퀘스트는 아직 재생성되지 않는다', () async {
     final storage = await createTestStorage();
-    await storage.saveQuest(_recurringCompleted('q1', DateTime(2026, 7, 14, 8)));
+    await storage.saveQuest(
+      _recurringCompleted('q1', DateTime(2026, 7, 14, 8)),
+    );
 
-    final count = await RecurringQuestService(storage: storage).respawnDue(now: _now);
+    final count = await RecurringQuestService(
+      storage: storage,
+    ).respawnDue(now: _now);
 
     expect(count, 0);
     expect(storage.getQuests().length, 1);
@@ -69,30 +76,39 @@ void main() {
 
     expect(second, 0);
     expect(storage.getQuests().length, 2);
-    expect(storage.getQuests().where((q) => q.status == QuestStatus.active).length, 1);
+    expect(
+      storage.getQuests().where((q) => q.status == QuestStatus.active).length,
+      1,
+    );
   });
 
   test('반복이 아니거나 미완료인 퀘스트는 건드리지 않는다', () async {
     final storage = await createTestStorage();
-    await storage.saveQuest(Quest(
-      id: 'plain',
-      title: '일반 완료 퀘스트',
-      description: '',
-      statRewards: {'health': 10},
-      status: QuestStatus.completed,
-      createdAt: DateTime(2026, 7, 10),
-      completedAt: _yesterday,
-    ));
-    await storage.saveQuest(Quest(
-      id: 'active',
-      title: '진행중 반복 퀘스트',
-      description: '',
-      statRewards: {'health': 10},
-      isRecurring: true,
-      createdAt: DateTime(2026, 7, 10),
-    ));
+    await storage.saveQuest(
+      Quest(
+        id: 'plain',
+        title: '일반 완료 퀘스트',
+        description: '',
+        statRewards: {'health': 10},
+        status: QuestStatus.completed,
+        createdAt: DateTime(2026, 7, 10),
+        completedAt: _yesterday,
+      ),
+    );
+    await storage.saveQuest(
+      Quest(
+        id: 'active',
+        title: '진행중 반복 퀘스트',
+        description: '',
+        statRewards: {'health': 10},
+        isRecurring: true,
+        createdAt: DateTime(2026, 7, 10),
+      ),
+    );
 
-    final count = await RecurringQuestService(storage: storage).respawnDue(now: _now);
+    final count = await RecurringQuestService(
+      storage: storage,
+    ).respawnDue(now: _now);
 
     expect(count, 0);
     expect(storage.getQuests().length, 2);
@@ -100,11 +116,40 @@ void main() {
 
   test('재생성본은 goalId를 승계하지 않는다', () async {
     final storage = await createTestStorage();
-    await storage.saveQuest(_recurringCompleted('q1', _yesterday, goalId: 'g1'));
+    await storage.saveQuest(
+      _recurringCompleted('q1', _yesterday, goalId: 'g1'),
+    );
 
     await RecurringQuestService(storage: storage).respawnDue(now: _now);
 
-    final respawned = storage.getQuests().singleWhere((q) => q.status == QuestStatus.active);
+    final respawned = storage.getQuests().singleWhere(
+      (q) => q.status == QuestStatus.active,
+    );
     expect(respawned.goalId, isNull);
   });
+  test(
+    'does not overwrite an unrelated quest with the deterministic id',
+    () async {
+      final storage = await createTestStorage();
+      await storage.saveQuest(_recurringCompleted('q1', _yesterday));
+      final today = DateTime(_now.year, _now.month, _now.day);
+      final collisionId = 'recurring-q1-${today.millisecondsSinceEpoch}';
+      await storage.saveQuest(
+        Quest(
+          id: collisionId,
+          title: 'unrelated',
+          description: '',
+          statRewards: const {'wealth': 1},
+          createdAt: _now,
+        ),
+      );
+
+      await expectLater(
+        RecurringQuestService(storage: storage).respawnDue(now: _now),
+        throwsA(isA<StateError>()),
+      );
+      expect(storage.getQuest(collisionId)?.title, 'unrelated');
+      expect(storage.getQuest('q1')?.isRecurring, isTrue);
+    },
+  );
 }

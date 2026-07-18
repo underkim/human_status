@@ -280,7 +280,7 @@ void main() {
       expect(snaps.single.totalAssets, 300);
     });
 
-    test('정상적으로 가져오면 거래와 오늘자 스냅샷이 함께 반영되고 다른 날짜 스냅샷은 그대로 남는다', () async {
+    test('정상적으로 가져오면 배치 중복을 제거하고 오늘자 스냅샷을 반영한다', () async {
       final storage = await createTestStorage();
       final today = DateTime.now();
       final yesterday = today.subtract(const Duration(days: 1));
@@ -302,7 +302,7 @@ void main() {
         snapshot: _snapshot('new', today, totalAssets: 50),
       );
 
-      expect(storage.getTransactions().map((t) => t.id).toSet(), {'t1', 't2'});
+      expect(storage.getTransactions().map((t) => t.id).toSet(), {'t1'});
       expect(storage.getAssetSnapshots().map((s) => s.id).toSet(), {
         'new',
         'otherDay',

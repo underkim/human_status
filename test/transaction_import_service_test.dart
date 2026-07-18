@@ -176,6 +176,16 @@ void main() {
       expect(result, isEmpty);
     });
 
+    test('keeps only one of identical candidates in the same batch', () {
+      final date = DateTime(2026, 7, 1, 13, 22);
+      final first = tx(date: date);
+      final second = tx(date: date);
+
+      final result = TransactionImportService.filterDuplicates([first, second], const []);
+
+      expect(result, [same(first)]);
+    });
+
     test('keeps a candidate whose amount differs', () {
       final date = DateTime(2026, 7, 1, 13, 22);
       final existing = [tx(date: date, amount: 1000)];

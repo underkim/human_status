@@ -608,6 +608,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           const typeGroup = XTypeGroup(label: 'json', extensions: ['json']);
           final file = await openFile(acceptedTypeGroups: [typeGroup]);
           if (file == null) return;
+          if (await file.length() > BackupService.maxBackupBytes) {
+            throw const FormatException('Backup file is too large');
+          }
           jsonStr = await file.readAsString();
         }
       } catch (_) {
@@ -622,6 +625,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       // 빈 문자열은 "가져오기"를 눌렀지만 내용이 없는 경우라 오류를 알려야
       // 한다 — 아래 malformed 케이스와 동일하게 교체 확인 없이 종료한다.
       if (jsonStr == null) return;
+      if (utf8.encode(jsonStr).length > BackupService.maxBackupBytes) {
+        if (context.mounted) _showGenericImportError(context);
+        return;
+      }
       if (jsonStr.trim().isEmpty) {
         if (context.mounted) _showGenericImportError(context);
         return;

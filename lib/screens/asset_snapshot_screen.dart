@@ -47,7 +47,26 @@ class _AssetSnapshotListViewState extends ConsumerState<AssetSnapshotListView> {
         ),
       );
       if (confirmed != true || !mounted) return;
-      await ref.read(assetSnapshotsProvider.notifier).deleteSnapshot(id);
+      try {
+        await ref.read(assetSnapshotsProvider.notifier).deleteSnapshot(id);
+      } catch (error, stackTrace) {
+        debugPrint('Failed to delete asset snapshot: $error\n$stackTrace');
+        if (mounted) {
+          await showDialog<void>(
+            context: context,
+            builder: (dialogContext) => AlertDialog(
+              title: const Text('삭제 실패'),
+              content: const Text('자산 현황을 삭제하지 못했어요. 잠시 후 다시 시도해주세요.'),
+              actions: [
+                FilledButton(
+                  onPressed: () => Navigator.pop(dialogContext),
+                  child: const Text('확인'),
+                ),
+              ],
+            ),
+          );
+        }
+      }
     } finally {
       if (mounted) setState(() => _pendingDeletes.remove(id));
     }

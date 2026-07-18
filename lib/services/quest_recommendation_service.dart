@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:http/http.dart' as http;
 
 import '../models/quest.dart';
@@ -8,7 +10,26 @@ import 'storage_service.dart';
 
 export 'quest_suggestion_source.dart';
 
+class QuestRefreshRollbackException implements Exception {
+  final Object refreshError;
+  final StackTrace refreshStackTrace;
+  final List<Object> rollbackErrors;
+
+  const QuestRefreshRollbackException({
+    required this.refreshError,
+    required this.refreshStackTrace,
+    required this.rollbackErrors,
+  });
+
+  @override
+  String toString() =>
+      'Quest refresh failed and rollback was incomplete: $refreshError '
+      '(${rollbackErrors.length} rollback error(s))';
+}
+
 class QuestRecommendationService {
+  static final Expando<_RefreshGate> _refreshGates = Expando<_RefreshGate>();
+
   final StorageService storage;
   final QuestSuggestionSource source;
 
@@ -40,7 +61,11 @@ class QuestRecommendationService {
   /// configured, quest generation is delegated to Claude and falls back to
   /// the local rule engine on any failure (network error, timeout, bad
   /// response, missing key).
-  Future<void> refreshIfNeeded() async {
+  Future<void> refreshIfNeeded() => _refreshGate.run(_refreshIfNeeded);
+
+  _RefreshGate get _refreshGate => _refreshGates[storage] ??= _RefreshGate();
+
+  Future<void> _refreshIfNeeded() async {
     final profile = storage.getProfile();
     if (!shouldRefresh(profile)) return;
 
@@ -60,10 +85,12 @@ class QuestRecommendationService {
         stats: stats,
         existingQuests: remainingQuests,
       );
+      _validateSuggestions(suggestions, remainingQuests);
     } catch (_) {
       try {
         suggestions = await LocalRuleQuestSuggestionSource()
             .generateSuggestions(stats: stats, existingQuests: remainingQuests);
+        _validateSuggestions(suggestions, remainingQuests);
       } catch (_) {
         // Both the configured source and the local fallback failed (e.g. the
         // fallback was already the source that threw). Skip this refresh
@@ -74,15 +101,51 @@ class QuestRecommendationService {
       }
     }
 
-    for (final q in staleSuggestions) {
-      await storage.deleteQuest(q.id);
-    }
-    for (final q in suggestions) {
-      await storage.saveQuest(q);
-    }
+    final previousRefresh = profile.lastQuestRefresh;
+    try {
+      for (final q in staleSuggestions) {
+        await storage.deleteQuest(q.id);
+      }
+      for (final q in suggestions) {
+        await storage.saveQuest(q);
+      }
 
-    profile.lastQuestRefresh = DateTime.now();
-    await storage.saveProfile(profile);
+      profile.lastQuestRefresh = DateTime.now();
+      await storage.saveProfile(profile);
+    } catch (refreshError, refreshStackTrace) {
+      // Storage writes are individually atomic, but replacing a suggestion
+      // batch spans several writes. Restore the complete previous batch when
+      // any delete/save (including a write that throws after landing) fails.
+      final rollbackErrors = <Object>[];
+      for (final q in suggestions) {
+        try {
+          await storage.deleteQuest(q.id);
+        } catch (error) {
+          rollbackErrors.add(error);
+        }
+      }
+      for (final q in staleSuggestions) {
+        try {
+          await storage.saveQuest(q);
+        } catch (error) {
+          rollbackErrors.add(error);
+        }
+      }
+      profile.lastQuestRefresh = previousRefresh;
+      try {
+        await storage.saveProfile(profile);
+      } catch (error) {
+        rollbackErrors.add(error);
+      }
+      if (rollbackErrors.isNotEmpty) {
+        throw QuestRefreshRollbackException(
+          refreshError: refreshError,
+          refreshStackTrace: refreshStackTrace,
+          rollbackErrors: List.unmodifiable(rollbackErrors),
+        );
+      }
+      Error.throwWithStackTrace(refreshError, refreshStackTrace);
+    }
   }
 
   /// Uses the caller-supplied [source] as-is when overridden (e.g. in
@@ -96,5 +159,39 @@ class QuestRecommendationService {
       apiKey: apiKey,
       httpClient: claudeHttpClient,
     );
+  }
+
+  void _validateSuggestions(
+    List<Quest> suggestions,
+    List<Quest> existingQuests,
+  ) {
+    final reservedIds = existingQuests.map((quest) => quest.id).toSet();
+    final seenIds = <String>{};
+    for (final suggestion in suggestions) {
+      if (suggestion.status != QuestStatus.suggested ||
+          suggestion.source != QuestSource.suggested) {
+        throw const FormatException(
+          'Quest suggestion source returned a non-suggested quest',
+        );
+      }
+      if (reservedIds.contains(suggestion.id) || !seenIds.add(suggestion.id)) {
+        throw const FormatException(
+          'Quest suggestion source returned a duplicate quest id',
+        );
+      }
+    }
+  }
+}
+
+class _RefreshGate {
+  Future<void> _tail = Future<void>.value();
+
+  Future<void> run(Future<void> Function() action) {
+    final previous = _tail;
+    final released = Completer<void>();
+    _tail = released.future;
+    return previous.then((_) => action()).whenComplete(() {
+      if (!released.isCompleted) released.complete();
+    });
   }
 }
