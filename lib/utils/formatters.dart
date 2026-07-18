@@ -22,8 +22,9 @@ String formatWonCompact(num amount) {
         : eok.toStringAsFixed(1).replaceFirst(RegExp(r'\.0$'), '');
     return '$sign$text억';
   }
-  if (abs >= 10000)
+  if (abs >= 10000) {
     return '$sign${_numberFormat.format((abs / 10000).round())}만';
+  }
   return '$sign${_numberFormat.format(abs)}';
 }
 
