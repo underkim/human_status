@@ -7,6 +7,7 @@ import '../models/stat.dart';
 import '../providers/goal_provider.dart';
 import '../providers/profile_provider.dart';
 import '../providers/quest_provider.dart';
+import '../theme/app_spacing.dart';
 import '../widgets/achievement_dialog.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/level_up_dialog.dart';
@@ -24,6 +25,8 @@ class QuestsScreen extends ConsumerStatefulWidget {
 class _QuestsScreenState extends ConsumerState<QuestsScreen>
     with SingleTickerProviderStateMixin {
   late final TabController _tabController;
+  final TextEditingController _searchController = TextEditingController();
+  bool _isSearching = false;
 
   @override
   void initState() {
@@ -34,20 +37,88 @@ class _QuestsScreenState extends ConsumerState<QuestsScreen>
   @override
   void dispose() {
     _tabController.dispose();
+    _searchController.dispose();
+    // questSearchQueryProvider는 autoDispose라서 이 화면(그리고 파생
+    // Provider들)을 아무도 watch하지 않게 되는 즉시 스스로 폐기되고, 다시
+    // 들어오면 초기값('')부터 새로 시작한다 — 여기서 직접 clear()를
+    // 호출하지 않는다. 이 State 자신이 그 provider의 구독자이므로,
+    // unmount 도중 상태를 갱신하면 이미 defunct된 자신의 Element를
+    // rebuild하려는 어서션 실패가 난다.
     super.dispose();
+  }
+
+  void _openSearch() {
+    setState(() => _isSearching = true);
+  }
+
+  /// 검색 입력과 검색 모드를 함께 닫는다. controller와 provider를 항상 같이
+  /// 정리해 둘의 상태가 어긋나지 않게 한다.
+  void _closeSearch() {
+    _searchController.clear();
+    ref.read(questSearchQueryProvider.notifier).clear();
+    setState(() => _isSearching = false);
+  }
+
+  /// 검색 모드는 유지한 채 검색어만 비운다 — 입력창의 지우기 버튼과 결과
+  /// 없음 EmptyState의 CTA가 함께 쓰는 경로.
+  void _clearSearchText() {
+    _searchController.clear();
+    ref.read(questSearchQueryProvider.notifier).clear();
+  }
+
+  void _onSearchChanged(String value) {
+    ref.read(questSearchQueryProvider.notifier).setQuery(value);
   }
 
   @override
   Widget build(BuildContext context) {
     final stats = ref.watch(statsProvider);
-    final active = ref.watch(activeQuestsProvider);
-    final suggested = ref.watch(suggestedQuestsProvider);
-    final completed = ref.watch(completedQuestsProvider);
+    final active = ref.watch(searchedActiveQuestsProvider);
+    final suggested = ref.watch(searchedSuggestedQuestsProvider);
+    final completed = ref.watch(searchedCompletedQuestsProvider);
+    // 탭별 원본(검색 전) 목록 — 검색 결과가 0건일 때 "원본 자체가 없음"과
+    // "검색으로 다 걸러짐"을 구분하는 데만 쓰인다.
+    final activeOriginal = ref.watch(activeQuestsProvider);
+    final suggestedOriginal = ref.watch(suggestedQuestsProvider);
+    final completedOriginal = ref.watch(completedQuestsProvider);
     final goals = ref.watch(goalsProvider);
+    final query = ref.watch(questSearchQueryProvider);
+    final isSearching = query.trim().isNotEmpty;
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('퀘스트'),
+        title: _isSearching
+            ? TextField(
+                controller: _searchController,
+                autofocus: true,
+                decoration: const InputDecoration(
+                  hintText: '퀘스트 검색',
+                  border: InputBorder.none,
+                ),
+                onChanged: _onSearchChanged,
+              )
+            : const Text('퀘스트'),
+        actions: _isSearching
+            ? [
+                if (query.isNotEmpty)
+                  IconButton(
+                    icon: const Icon(Icons.clear, size: AppIconSize.md),
+                    tooltip: '검색어 지우기',
+                    onPressed: _clearSearchText,
+                  ),
+                IconButton(
+                  icon: const Icon(Icons.close, size: AppIconSize.md),
+                  tooltip: '검색 닫기',
+                  onPressed: _closeSearch,
+                ),
+              ]
+            : [
+                IconButton(
+                  icon: const Icon(Icons.search, size: AppIconSize.md),
+                  tooltip: '퀘스트 검색',
+                  onPressed: _openSearch,
+                ),
+              ],
         bottom: TabBar(
           controller: _tabController,
           tabs: [
@@ -62,9 +133,27 @@ class _QuestsScreenState extends ConsumerState<QuestsScreen>
         child: TabBarView(
           controller: _tabController,
           children: [
-            _ActiveTab(quests: active, stats: stats, goals: goals),
-            _SuggestedTab(quests: suggested, stats: stats, goals: goals),
-            _CompletedTab(quests: completed, stats: stats, goals: goals),
+            _ActiveTab(
+              quests: active,
+              stats: stats,
+              goals: goals,
+              isSearching: isSearching && activeOriginal.isNotEmpty,
+              onClearSearch: _clearSearchText,
+            ),
+            _SuggestedTab(
+              quests: suggested,
+              stats: stats,
+              goals: goals,
+              isSearching: isSearching && suggestedOriginal.isNotEmpty,
+              onClearSearch: _clearSearchText,
+            ),
+            _CompletedTab(
+              quests: completed,
+              stats: stats,
+              goals: goals,
+              isSearching: isSearching && completedOriginal.isNotEmpty,
+              onClearSearch: _clearSearchText,
+            ),
           ],
         ),
       ),
@@ -91,11 +180,15 @@ class _ActiveTab extends ConsumerStatefulWidget {
   final List<Quest> quests;
   final List<Stat> stats;
   final List<Goal> goals;
+  final bool isSearching;
+  final VoidCallback onClearSearch;
 
   const _ActiveTab({
     required this.quests,
     required this.stats,
     required this.goals,
+    required this.isSearching,
+    required this.onClearSearch,
   });
 
   @override
@@ -183,6 +276,14 @@ class _ActiveTabState extends ConsumerState<_ActiveTab> {
   @override
   Widget build(BuildContext context) {
     if (widget.quests.isEmpty) {
+      if (widget.isSearching) {
+        return EmptyState(
+          icon: Icons.search_off,
+          message: '검색 결과가 없어요.',
+          ctaLabel: '검색어 지우기',
+          onCta: widget.onClearSearch,
+        );
+      }
       return const EmptyState(
         icon: Icons.checklist_outlined,
         message: '진행중인 퀘스트가 없어요.\n오른쪽 아래 + 버튼으로 추가해보세요.',
@@ -228,11 +329,15 @@ class _SuggestedTab extends ConsumerStatefulWidget {
   final List<Quest> quests;
   final List<Stat> stats;
   final List<Goal> goals;
+  final bool isSearching;
+  final VoidCallback onClearSearch;
 
   const _SuggestedTab({
     required this.quests,
     required this.stats,
     required this.goals,
+    required this.isSearching,
+    required this.onClearSearch,
   });
 
   @override
@@ -281,6 +386,14 @@ class _SuggestedTabState extends ConsumerState<_SuggestedTab> {
   @override
   Widget build(BuildContext context) {
     if (widget.quests.isEmpty) {
+      if (widget.isSearching) {
+        return EmptyState(
+          icon: Icons.search_off,
+          message: '검색 결과가 없어요.',
+          ctaLabel: '검색어 지우기',
+          onCta: widget.onClearSearch,
+        );
+      }
       return const EmptyState(
         icon: Icons.auto_awesome_outlined,
         message: '추천 퀘스트가 없어요.\n하루가 지나면 새로운 추천이 생성돼요.',
@@ -328,16 +441,28 @@ class _CompletedTab extends StatelessWidget {
   final List<Quest> quests;
   final List<Stat> stats;
   final List<Goal> goals;
+  final bool isSearching;
+  final VoidCallback onClearSearch;
 
   const _CompletedTab({
     required this.quests,
     required this.stats,
     required this.goals,
+    required this.isSearching,
+    required this.onClearSearch,
   });
 
   @override
   Widget build(BuildContext context) {
     if (quests.isEmpty) {
+      if (isSearching) {
+        return EmptyState(
+          icon: Icons.search_off,
+          message: '검색 결과가 없어요.',
+          ctaLabel: '검색어 지우기',
+          onCta: onClearSearch,
+        );
+      }
       return const EmptyState(
         icon: Icons.task_alt_outlined,
         message: '아직 완료한 퀘스트가 없어요.',

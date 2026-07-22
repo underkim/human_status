@@ -42,6 +42,33 @@ class _FinanceListViewState extends ConsumerState<FinanceListView> {
   /// 사이에 같은 행을 다시 눌러도 삭제가 두 번 들어가지 않도록 막는다.
   final Set<String> _pendingDeletes = {};
 
+  final TextEditingController _searchController = TextEditingController();
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    // transactionSearchQueryProvider는 autoDispose라서 이 화면(그리고
+    // searchedTransactionsProvider)을 아무도 watch하지 않게 되는 즉시 스스로
+    // 폐기되고, 다시 들어오면 초기값('')부터 새로 시작한다 — 여기서 직접
+    // clear()를 호출하지 않는다. 이 State 자신이 그 provider의 구독자이므로,
+    // unmount 도중 상태를 갱신하면 이미 defunct된 자신의 Element를
+    // rebuild하려는 어서션 실패가 난다.
+    super.dispose();
+  }
+
+  /// 검색창의 지우기 버튼과 "검색 조건에 맞는 거래가 없어요" EmptyState의
+  /// CTA가 함께 쓰는 경로 — controller와 provider를 항상 같이 정리한다.
+  void _clearSearchText() {
+    _searchController.clear();
+    ref.read(transactionSearchQueryProvider.notifier).clear();
+  }
+
+  void _clearSearchAndCategoryFilter() {
+    _searchController.clear();
+    ref.read(transactionSearchQueryProvider.notifier).clear();
+    setState(() => _categoryFilter = null);
+  }
+
   Future<void> _confirmDeleteTransaction(
     BuildContext context,
     WidgetRef ref,
@@ -92,6 +119,7 @@ class _FinanceListViewState extends ConsumerState<FinanceListView> {
   Widget build(BuildContext context) {
     final monthKey = monthKeyOf(DateTime.now());
     final summary = ref.watch(monthlySummaryProvider(monthKey));
+    // 요약/차트는 검색 입력과 무관하게 항상 전체 거래를 기준으로 계산한다.
     final transactions = [...ref.watch(transactionsProvider)]
       ..sort((a, b) => b.date.compareTo(a.date));
     final byCategory = FinanceService.expenseByCategory(transactions, monthKey);
@@ -102,9 +130,16 @@ class _FinanceListViewState extends ConsumerState<FinanceListView> {
         .toList();
     final progress = ref.watch(goalProgressMapProvider);
     final colors = context.appColors;
+    final searchQuery = ref.watch(transactionSearchQueryProvider);
+    final hasSearchQuery = searchQuery.trim().isNotEmpty;
+    // 목록에는 검색 결과를 정렬한 뒤 카테고리 필터를 AND로 합성해 보여준다.
+    final searchedTransactions = [...ref.watch(searchedTransactionsProvider)]
+      ..sort((a, b) => b.date.compareTo(a.date));
     final filteredTransactions = _categoryFilter == null
-        ? transactions
-        : transactions.where((t) => t.category == _categoryFilter).toList();
+        ? searchedTransactions
+        : searchedTransactions
+              .where((t) => t.category == _categoryFilter)
+              .toList();
 
     return ListView(
       padding: const EdgeInsets.all(AppSpacing.lg),
@@ -212,6 +247,30 @@ class _FinanceListViewState extends ConsumerState<FinanceListView> {
             ),
           ],
         ),
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: AppSpacing.xs),
+          child: TextField(
+            controller: _searchController,
+            onChanged: (value) => ref
+                .read(transactionSearchQueryProvider.notifier)
+                .setQuery(value),
+            decoration: InputDecoration(
+              hintText: '거래 검색',
+              isDense: true,
+              constraints: const BoxConstraints(
+                minHeight: AppDimens.inputHeightStandard,
+              ),
+              prefixIcon: const Icon(Icons.search, size: AppIconSize.md),
+              suffixIcon: hasSearchQuery
+                  ? IconButton(
+                      icon: const Icon(Icons.clear, size: AppIconSize.md),
+                      tooltip: '검색어 지우기',
+                      onPressed: _clearSearchText,
+                    )
+                  : null,
+            ),
+          ),
+        ),
         if (_categoryFilter != null)
           Padding(
             padding: const EdgeInsets.only(bottom: AppSpacing.xs),
@@ -228,6 +287,13 @@ class _FinanceListViewState extends ConsumerState<FinanceListView> {
           const EmptyState(
             icon: Icons.receipt_long_outlined,
             message: '아직 기록된 거래가 없어요.',
+          )
+        else if (filteredTransactions.isEmpty && hasSearchQuery)
+          EmptyState(
+            icon: Icons.search_off,
+            message: '검색 조건에 맞는 거래가 없어요.',
+            ctaLabel: '검색 및 필터 초기화',
+            onCta: _clearSearchAndCategoryFilter,
           )
         else if (filteredTransactions.isEmpty)
           EmptyState(

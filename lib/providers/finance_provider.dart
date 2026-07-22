@@ -26,6 +26,48 @@ final monthlySummaryProvider = Provider.family<MonthlySummary, String>((
   return FinanceService.summarize(transactions, monthKey);
 });
 
+/// 거래 검색어 — Hive에 저장된 거래 목록([TransactionsNotifier])과는 수명이
+/// 분리된 순수 UI 상태다. `autoDispose`라서 FinanceListView를 아무도
+/// watch하지 않게 되는 순간(화면을 나가는 순간) 자동으로 폐기되고, 다시
+/// 들어오면 초기값('')부터 새로 시작한다 — 화면 State의 dispose()에서 직접
+/// clear()를 호출하면 이 위젯 자신이 구독 중인 provider를 unmount 도중에
+/// 갱신하게 되어 "defunct element" 어서션이 나므로, 명시적 정리 대신 이
+/// 생명주기에 맡긴다.
+class TransactionSearchQueryNotifier extends StateNotifier<String> {
+  TransactionSearchQueryNotifier() : super('');
+
+  void setQuery(String query) => state = query;
+
+  void clear() => state = '';
+}
+
+final transactionSearchQueryProvider =
+    StateNotifierProvider.autoDispose<TransactionSearchQueryNotifier, String>(
+      (ref) => TransactionSearchQueryNotifier(),
+    );
+
+/// [transaction]의 memo/category가 [query]를 부분 일치로 포함하는지
+/// 검사한다. [query]는 앞뒤 공백만 제거하고 소문자로 비교하며(내부 공백은
+/// 보존), 빈 문자열/공백뿐인 문자열은 모든 거래와 일치하는 것으로 취급한다.
+bool transactionMatchesSearchQuery(Transaction transaction, String query) {
+  final normalized = query.trim().toLowerCase();
+  if (normalized.isEmpty) return true;
+  return transaction.memo.toLowerCase().contains(normalized) ||
+      transaction.category.toLowerCase().contains(normalized);
+}
+
+/// [transactionsProvider] 원본과 검색어만 합성한다. 정렬이나 카테고리
+/// 필터는 화면(`_FinanceListViewState.build`)의 책임이다.
+final searchedTransactionsProvider = Provider.autoDispose<List<Transaction>>((
+  ref,
+) {
+  final query = ref.watch(transactionSearchQueryProvider);
+  return ref
+      .watch(transactionsProvider)
+      .where((t) => transactionMatchesSearchQuery(t, query))
+      .toList();
+});
+
 /// Thrown by [TransactionsNotifier.addTransaction] when a transaction id
 /// already exists in storage with different field values than the one being
 /// added. An exact repeat of an already-applied add (same id, same fields —

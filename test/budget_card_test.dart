@@ -12,17 +12,25 @@ Future<void> _setBudget(StorageService storage, double amount) async {
   await storage.saveFinancialPlan(plan);
 }
 
-Future<void> _spend(StorageService storage, String id, double amount, {String category = '식비', DateTime? date}) {
+Future<void> _spend(
+  StorageService storage,
+  String id,
+  double amount, {
+  String category = '식비',
+  DateTime? date,
+}) {
   final now = date ?? DateTime.now();
-  return storage.saveTransaction(Transaction(
-    id: id,
-    type: TransactionType.expense,
-    category: category,
-    memo: '',
-    amount: amount,
-    date: now,
-    createdAt: now,
-  ));
+  return storage.saveTransaction(
+    Transaction(
+      id: id,
+      type: TransactionType.expense,
+      category: category,
+      memo: '',
+      amount: amount,
+      date: now,
+      createdAt: now,
+    ),
+  );
 }
 
 void main() {
@@ -34,7 +42,13 @@ void main() {
 
     await tester.tap(find.text('설정'));
     await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextField), '300000');
+    await tester.enterText(
+      find.descendant(
+        of: find.byType(AlertDialog),
+        matching: find.byType(TextField),
+      ),
+      '300000',
+    );
     await tester.tap(find.text('저장'));
     await tester.pumpAndSettle();
 
@@ -74,8 +88,12 @@ void main() {
 
     await tester.tap(find.text('카테고리 예산 추가'));
     await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextField).at(0), '식비');
-    await tester.enterText(find.byType(TextField).at(1), '100000');
+    final dialogFields = find.descendant(
+      of: find.byType(AlertDialog),
+      matching: find.byType(TextField),
+    );
+    await tester.enterText(dialogFields.at(0), '식비');
+    await tester.enterText(dialogFields.at(1), '100000');
     await tester.tap(find.text('저장'));
     await tester.pumpAndSettle();
 

@@ -98,6 +98,66 @@ final completedQuestsProvider = Provider<List<Quest>>((ref) {
   return quests;
 });
 
+/// 퀘스트 검색어 — Hive에 저장된 퀘스트 목록([QuestsNotifier])과는 수명이
+/// 분리된 순수 UI 상태다. `autoDispose`라서 QuestsScreen을 아무도 watch하지
+/// 않게 되는 순간(화면을 나가는 순간) 자동으로 폐기되고, 다시 들어오면
+/// 초기값('')부터 새로 시작한다 — 화면 State의 dispose()에서 직접
+/// clear()를 호출하면 이 위젯 자신이 구독 중인 provider를 unmount 도중에
+/// 갱신하게 되어 "defunct element" 어서션이 나므로, 명시적 정리 대신 이
+/// 생명주기에 맡긴다.
+class QuestSearchQueryNotifier extends StateNotifier<String> {
+  QuestSearchQueryNotifier() : super('');
+
+  void setQuery(String query) => state = query;
+
+  void clear() => state = '';
+}
+
+final questSearchQueryProvider =
+    StateNotifierProvider.autoDispose<QuestSearchQueryNotifier, String>(
+      (ref) => QuestSearchQueryNotifier(),
+    );
+
+/// [quest]의 title/description이 [query]를 부분 일치로 포함하는지 검사한다.
+/// [query]는 앞뒤 공백만 제거하고 소문자로 비교하며(내부 공백은 보존),
+/// 빈 문자열/공백뿐인 문자열은 모든 퀘스트와 일치하는 것으로 취급한다.
+bool questMatchesSearchQuery(Quest quest, String query) {
+  final normalized = query.trim().toLowerCase();
+  if (normalized.isEmpty) return true;
+  return quest.title.toLowerCase().contains(normalized) ||
+      quest.description.toLowerCase().contains(normalized);
+}
+
+final searchedActiveQuestsProvider = Provider.autoDispose<List<Quest>>((ref) {
+  final query = ref.watch(questSearchQueryProvider);
+  return ref
+      .watch(activeQuestsProvider)
+      .where((q) => questMatchesSearchQuery(q, query))
+      .toList();
+});
+
+final searchedSuggestedQuestsProvider = Provider.autoDispose<List<Quest>>((
+  ref,
+) {
+  final query = ref.watch(questSearchQueryProvider);
+  return ref
+      .watch(suggestedQuestsProvider)
+      .where((q) => questMatchesSearchQuery(q, query))
+      .toList();
+});
+
+/// [completedQuestsProvider]는 이미 완료일 내림차순이므로, 여기서는 그
+/// 순서를 그대로 보존한 채 검색어로만 좁힌다.
+final searchedCompletedQuestsProvider = Provider.autoDispose<List<Quest>>((
+  ref,
+) {
+  final query = ref.watch(questSearchQueryProvider);
+  return ref
+      .watch(completedQuestsProvider)
+      .where((q) => questMatchesSearchQuery(q, query))
+      .toList();
+});
+
 /// 홈 허브에 강조할 단 하나의 "다음 퀘스트" — 규칙은 [selectNextQuest] 참고.
 final nextQuestProvider = Provider<Quest?>((ref) {
   return selectNextQuest(ref.watch(activeQuestsProvider));

@@ -42,8 +42,14 @@ class _GatedTransactionsNotifier extends TransactionsNotifier {
 Future<void> _openAddDialog(WidgetTester tester) async {
   await tester.tap(find.byTooltip('거래 직접 추가'));
   await tester.pumpAndSettle();
-  await tester.enterText(find.byType(TextField).at(0), '식비'); // 카테고리
-  await tester.enterText(find.byType(TextField).at(2), '10000'); // 금액
+  // FinanceListView의 인라인 검색창이 다이얼로그 아래에서도 계속
+  // 마운트돼 있으므로, 전역 인덱스 대신 다이얼로그 내부로 범위를 좁힌다.
+  final dialogFields = find.descendant(
+    of: find.byType(AlertDialog),
+    matching: find.byType(TextField),
+  );
+  await tester.enterText(dialogFields.at(0), '식비'); // 카테고리
+  await tester.enterText(dialogFields.at(2), '10000'); // 금액
 }
 
 void main() {
