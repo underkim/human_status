@@ -29,7 +29,13 @@
   - dart analyze 0건, flutter test 909개 통과
   - [TODO] Windows/Linux 실기기 검증, Flatpak/Snap 패키징 검증, macOS는 별도 Phase
 - [ ] Phase 3 — 프로덕션 배포 블로커 해소 (서명, 실기기 검증, 스토어 자산)
-- [ ] Phase 4 — 알림 액션 완료 + 홈 화면 위젯
+- [x] Phase 4 — 알림 액션 완료 + 홈 화면 위젯 (완료: 커밋 7d4aca9, 2026-07-23)
+  - 알림 액션으로 퀘스트 즉시 완료만 구현. 홈 화면 위젯(네이티브 Kotlin/Swift)은
+    실기기/Xcode 빌드 검증 불가로 범위에서 제외, 별도 Phase로 보류
+  - Codex 리뷰 1회(반려→Blocker 3건→최종 승인). dart analyze 0건, flutter test 971개 통과
+  - ⚠️ [TODO] 배포 전 필수: kQuestCompletionNotificationActionEnabled(기본값 false)는
+    Android/iOS 실기기 cross-isolate Hive 동시성 검증을 통과하기 전까지 true로
+    바꾸면 안 됨(XP 중복 지급 위험). RELEASE_CHECKLIST.md에 게이트 문서화됨
 - [ ] Phase 5 — 감성적 훅 강화 (마이크로 애니메이션, 공유 카드)
 - [ ] Phase 6 — 엔지니어링 마감 (파일 분할, 접근성, 데스크톱 단축키)
 
