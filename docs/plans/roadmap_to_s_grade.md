@@ -3,6 +3,11 @@
 목표: 4개 평가축(엔지니어링 완성도 / 프로덕션 출시 준비도 / 시장 매력도 / 현대적 편의성)을
 모두 S급 수준으로 끌어올린다.
 
+> 새로 투입되는 에이전트는 먼저 [`docs/plans/S_GRADE_MASTER_PLAYBOOK.md`](S_GRADE_MASTER_PLAYBOOK.md)를
+> 읽는다. 목표·현황·다음 작업·검증·인수인계 프로토콜이 한 문서에 정리되어 있다.
+> 표준 게이트 점검은 `bash tool/verify_phase.sh <phase>`, 작업 가이드는 Hermes 스킬
+> `human-status-s-grade`를 사용한다.
+
 ## 진행 방식 (모든 Phase 공통)
 
 1. Codex에게 해당 Phase 상세 구현 계획 위임 (읽기 전용, 코드 수정 금지)
@@ -29,6 +34,7 @@
   - dart analyze 0건, flutter test 909개 통과
   - [TODO] Windows/Linux 실기기 검증, Flatpak/Snap 패키징 검증, macOS는 별도 Phase
 - [ ] Phase 3 — 프로덕션 배포 블로커 해소 (서명, 실기기 검증, 스토어 자산)
+  - 상세 계획: [`docs/plans/phase3_production_release_plan.md`](phase3_production_release_plan.md)
 - [x] Phase 4 — 알림 액션 완료 + 홈 화면 위젯 (완료: 커밋 7d4aca9, 2026-07-23)
   - 알림 액션으로 퀘스트 즉시 완료만 구현. 홈 화면 위젯(네이티브 Kotlin/Swift)은
     실기기/Xcode 빌드 검증 불가로 범위에서 제외, 별도 Phase로 보류
@@ -37,7 +43,9 @@
     Android/iOS 실기기 cross-isolate Hive 동시성 검증을 통과하기 전까지 true로
     바꾸면 안 됨(XP 중복 지급 위험). RELEASE_CHECKLIST.md에 게이트 문서화됨
 - [ ] Phase 5 — 감성적 훅 강화 (마이크로 애니메이션, 공유 카드)
+  - 상세 계획: [`docs/plans/phase5_delight_polish_plan.md`](phase5_delight_polish_plan.md)
 - [ ] Phase 6 — 엔지니어링 마감 (파일 분할, 접근성, 데스크톱 단축키)
+  - 상세 계획: [`docs/plans/phase6_engineering_polish_plan.md`](phase6_engineering_polish_plan.md)
 
 ## Phase 1 상세 계획 (진행 중)
 
