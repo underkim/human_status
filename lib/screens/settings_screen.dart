@@ -13,6 +13,7 @@ import '../providers/backup_provider.dart';
 import '../providers/finance_provider.dart';
 import '../providers/financial_planning_provider.dart';
 import '../providers/goal_provider.dart';
+import '../providers/observability_provider.dart';
 import '../providers/profile_provider.dart';
 import '../providers/quest_provider.dart';
 import '../services/backup_service.dart';
@@ -728,6 +729,48 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     }
   }
 
+  Future<void> _toggleCrashReporting(
+    BuildContext context,
+    WidgetRef ref,
+    bool enable,
+  ) async {
+    if (enable) {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('익명 크래시 리포팅'),
+          content: const Text(
+            '켜면 앱이 예기치 않게 오류를 일으켰을 때 예외 종류·스택 정보와 기기·OS·앱 버전 같은 '
+            '진단 정보가 Sentry(오류 수집 서비스)로 전송돼요. 퀘스트·목표·거래 등 기록한 내용이나 '
+            'Claude API 키는 보내지 않아요. 언제든 다시 끌 수 있고, 자세한 내용은 설정의 '
+            '"데이터 및 개인정보"에서 확인할 수 있어요.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('취소'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('동의하고 켜기'),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true) return;
+    }
+
+    final result = await ref
+        .read(crashReportingConsentProvider.notifier)
+        .setEnabled(enable);
+    if (!context.mounted) return;
+    if (result == ConsentChangeResult.saveFailed) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('설정을 저장하지 못했어요. 잠시 후 다시 시도해주세요.')),
+      );
+    }
+  }
+
   void _showGenericImportError(BuildContext context) {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('백업 파일 형식을 확인할 수 없어요. 다른 파일을 선택해주세요.')),
@@ -737,6 +780,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   @override
   Widget build(BuildContext context) {
     final profile = ref.watch(profileProvider);
+    final crashReportingConsent = ref.watch(crashReportingConsentProvider);
     final apiKeySet =
         (ref.read(storageServiceProvider).claudeApiKey ?? '').isNotEmpty;
     final reminderMinutes = profile.reminderMinutesSinceMidnight;
@@ -796,6 +840,21 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               onChanged: kIsWeb || _notificationChangeInProgress
                   ? null
                   : (v) => _toggleWeeklyReport(context, ref, v),
+            ),
+            SwitchListTile(
+              secondary: const Icon(Icons.bug_report_outlined),
+              title: const Text('익명 크래시 리포팅'),
+              subtitle: Text(
+                !crashReportingConsent.enabled
+                    ? '꺼짐 · 오류 정보가 외부로 전송되지 않아요'
+                    : crashReportingConsent.sessionInitFailed
+                    ? '켜짐 · 이번 세션은 연결하지 못했어요. 다음 실행 때 다시 시도해요'
+                    : '켜짐 · 앱 오류와 기기·OS 정보를 Sentry로 보내요',
+              ),
+              value: crashReportingConsent.enabled,
+              onChanged: crashReportingConsent.isChanging
+                  ? null
+                  : (v) => _toggleCrashReporting(context, ref, v),
             ),
             ListTile(
               leading: const Icon(Icons.refresh),
@@ -867,28 +926,77 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
-            children: const [
-              Text(
+            children: [
+              const Text(
                 '모든 게임 데이터(스텟·퀘스트·목표·거래 등)는 계정이나 서버 동기화 없이 이 '
                 '기기에만 로컬로 저장돼요.',
               ),
-              SizedBox(height: 12),
-              Text(
+              const SizedBox(height: 12),
+              const Text(
                 'Claude API 키는 지원되는 플랫폼에서는 보안 저장소(Android Keystore, '
                 'iOS/macOS Keychain, Windows DPAPI, Linux libsecret)에 저장되고, '
                 '백업 파일에는 포함되지 않아요.',
               ),
-              SizedBox(height: 12),
-              Text(
+              const SizedBox(height: 12),
+              const Text(
                 '기기를 바꾸거나 데이터를 초기화하기 전에는 설정의 "백업 내보내기"로 먼저 '
                 '내보내두는 걸 권장해요.',
               ),
-              SizedBox(height: 12),
-              Text(
+              const SizedBox(height: 12),
+              const Text(
                 '웹에서는 API 키 보호 수준이 다른 플랫폼보다 낮아요. 신뢰할 수 있는 기기의 '
                 'HTTPS 환경에서만 사용해주세요.',
               ),
+              const SizedBox(height: 12),
+              const Text(
+                '익명 크래시 리포팅은 기본적으로 꺼져 있고, 설정에서 직접 켠 경우에만 오류 '
+                '정보가 Sentry로 전송돼요. 자세한 처리 항목·보관 기간은 아래 버튼으로 볼 수 '
+                '있어요.',
+              ),
+              const SizedBox(height: 12),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton(
+                  onPressed: () => _showFullPrivacyPolicy(context),
+                  child: const Text('개인정보처리방침 전체 보기'),
+                ),
+              ),
             ],
+          ),
+        ),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('닫기'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Loads the bundled `docs/privacy_policy.md` asset and shows it verbatim
+  /// (plain text, not markdown-rendered) in a scrollable dialog — this is
+  /// the same document maintainers edit, so there is a single source of
+  /// truth instead of a copy that can drift out of sync.
+  Future<void> _showFullPrivacyPolicy(BuildContext context) async {
+    String? text;
+    try {
+      text = await rootBundle.loadString('docs/privacy_policy.md');
+    } catch (_) {
+      // Falls through with text == null; shown as a load-failure message
+      // below instead of leaking the raw asset-loading exception.
+    }
+    if (!context.mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('개인정보처리방침'),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: SingleChildScrollView(
+            child: SelectableText(
+              text ?? '문서를 불러오지 못했어요. 잠시 후 다시 시도해주세요.',
+            ),
           ),
         ),
         actions: [

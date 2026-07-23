@@ -11,6 +11,7 @@ import 'package:human_status/models/quest.dart';
 import 'package:human_status/models/stat.dart';
 import 'package:human_status/providers/backup_provider.dart';
 import 'package:human_status/providers/financial_planning_provider.dart';
+import 'package:human_status/providers/observability_provider.dart';
 import 'package:human_status/providers/profile_provider.dart';
 import 'package:human_status/providers/quest_provider.dart';
 import 'package:human_status/screens/home_shell.dart';
@@ -27,6 +28,10 @@ void main() {
   testWidgets('데이터 초기화는 확인 후 스텟을 기본값으로 되돌리고 API 키/알림·온보딩 상태를 알맞게 처리한다', (
     tester,
   ) async {
+    // 크래시 리포팅 토글이 추가되며 목록이 길어져, '데이터 초기화'가 기본 뷰포트의
+    // 가상화(virtualization) 캐시 범위 밖으로 밀려난다 — 화면을 세로로
+    // 넉넉하게 잡아 처음부터 전부 mount되도록 한다.
+    setScreenSize(tester, const Size(800, 1200));
     final storage = await createTestStorage();
     await storage.saveClaudeApiKey('sk-ant-test');
     final profile = storage.getProfile();
@@ -86,7 +91,11 @@ void main() {
   });
 
   testWidgets('데이터 초기화 후에도 강제 온보딩 없이 현재 설정 흐름을 유지한다', (tester) async {
-    setScreenSize(tester, const Size(400, 800));
+    // 너비는 좁은 레이아웃(하단 내비게이션) 검증을 위해 그대로 두고, 높이만
+    // 늘려 크래시 리포팅 토글 추가로 길어진 목록이 처음부터 전부
+    // mount되도록 한다 (그렇지 않으면 '데이터 초기화'가 가상화 캐시 범위
+    // 밖으로 밀려나 ensureVisible이 찾지 못한다).
+    setScreenSize(tester, const Size(400, 1400));
     final storage = await createTestStorage();
     final profile = storage.getProfile();
     profile.onboardingCompleted = true;
@@ -102,7 +111,10 @@ void main() {
     );
 
     final container = ProviderContainer(
-      overrides: [storageServiceProvider.overrideWithValue(storage)],
+      overrides: [
+        storageServiceProvider.overrideWithValue(storage),
+        crashReporterProvider.overrideWithValue(FakeCrashReporter()),
+      ],
     );
     addTearDown(container.dispose);
 
@@ -220,6 +232,7 @@ void main() {
   group('데이터 초기화와 레거시 전용 API 키 (Codex review 회귀)', () {
     testWidgets('보안 저장소가 계속 사용 불가능해 레거시 필드가 유일한 복사본인 상태에서도, '
         '데이터 초기화 UI를 실제로 밟은 뒤 유효 키와 레거시 복사본이 모두 살아남는다', (tester) async {
+      setScreenSize(tester, const Size(800, 1200));
       final secretStore = FakeSecretStore()..failWrite = true;
       final storage = StorageService(inMemory: true, secretStore: secretStore);
       await storage.init();
@@ -452,6 +465,7 @@ void main() {
           overrides: [
             storageServiceProvider.overrideWithValue(storage),
             backupServiceProvider.overrideWithValue(backupService),
+            crashReporterProvider.overrideWithValue(FakeCrashReporter()),
           ],
         );
         addTearDown(container.dispose);
@@ -514,6 +528,7 @@ void main() {
           overrides: [
             storageServiceProvider.overrideWithValue(storage),
             backupServiceProvider.overrideWithValue(backupService),
+            crashReporterProvider.overrideWithValue(FakeCrashReporter()),
           ],
         );
         addTearDown(container.dispose);
@@ -591,6 +606,7 @@ void main() {
         overrides: [
           storageServiceProvider.overrideWithValue(storage),
           backupServiceProvider.overrideWithValue(backupService),
+          crashReporterProvider.overrideWithValue(FakeCrashReporter()),
         ],
       );
       addTearDown(container.dispose);
@@ -657,6 +673,7 @@ void main() {
         overrides: [
           storageServiceProvider.overrideWithValue(storage),
           backupServiceProvider.overrideWithValue(backupService),
+          crashReporterProvider.overrideWithValue(FakeCrashReporter()),
         ],
       );
       addTearDown(container.dispose);

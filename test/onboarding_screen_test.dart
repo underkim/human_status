@@ -6,6 +6,7 @@ import 'package:human_status/models/goal.dart';
 import 'package:human_status/models/quest.dart';
 import 'package:human_status/models/user_profile.dart';
 import 'package:human_status/providers/goal_provider.dart';
+import 'package:human_status/providers/observability_provider.dart';
 import 'package:human_status/providers/profile_provider.dart';
 import 'package:human_status/screens/goal_form_screen.dart';
 import 'package:human_status/screens/home_shell.dart';
@@ -216,9 +217,15 @@ void main() {
       expect(storage.getProfile().onboardingCompleted, isTrue);
 
       // "재시작"을 새 HumanStatusApp 인스턴스로 흉내낸다 — 같은 storage를 그대로 사용한다.
+      // pumpApp이 기본으로 넣어준 crashReporterProvider override도 그대로 유지해야
+      // 한다 — 같은 ProviderScope 엘리먼트를 다른 override 개수로 다시 pump하면
+      // Riverpod가 "overrides 개수를 바꿀 수 없다"는 에러를 던진다.
       await tester.pumpWidget(
         ProviderScope(
-          overrides: [storageServiceProvider.overrideWithValue(storage)],
+          overrides: [
+            storageServiceProvider.overrideWithValue(storage),
+            crashReporterProvider.overrideWithValue(FakeCrashReporter()),
+          ],
           child: const HumanStatusApp(),
         ),
       );

@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hive/hive.dart';
 import 'package:human_status/models/user_profile.dart';
+import 'package:human_status/providers/observability_provider.dart';
 import 'package:human_status/providers/profile_provider.dart';
 import 'package:human_status/screens/settings_screen.dart';
 import 'package:human_status/services/notification_service.dart';
@@ -137,6 +138,7 @@ Future<void> _pumpHostWithSettingsPush(
       overrides: [
         storageServiceProvider.overrideWithValue(storage),
         notificationServiceProvider.overrideWithValue(fake),
+        crashReporterProvider.overrideWithValue(FakeCrashReporter()),
       ],
       child: MaterialApp(
         theme: AppTheme.light,
@@ -174,6 +176,7 @@ Future<void> _pumpWithStatefulScheduler(
       overrides: [
         storageServiceProvider.overrideWithValue(storage),
         notificationServiceProvider.overrideWithValue(fake),
+        crashReporterProvider.overrideWithValue(FakeCrashReporter()),
       ],
       child: MaterialApp(theme: AppTheme.light, home: const SettingsScreen()),
     ),
@@ -191,6 +194,7 @@ Future<_ThrowingNotificationService> _pumpSettings(
       overrides: [
         storageServiceProvider.overrideWithValue(storage),
         notificationServiceProvider.overrideWithValue(fake),
+        crashReporterProvider.overrideWithValue(FakeCrashReporter()),
       ],
       child: MaterialApp(theme: AppTheme.light, home: const SettingsScreen()),
     ),
@@ -401,7 +405,11 @@ void main() {
       isFalse,
     );
     expect(
-      tester.widget<SwitchListTile>(find.byType(SwitchListTile)).onChanged,
+      tester
+          .widget<SwitchListTile>(
+            find.widgetWithText(SwitchListTile, '주간 리포트 알림'),
+          )
+          .onChanged,
       isNull,
     );
 
@@ -416,7 +424,11 @@ void main() {
       isTrue,
     );
     expect(
-      tester.widget<SwitchListTile>(find.byType(SwitchListTile)).onChanged,
+      tester
+          .widget<SwitchListTile>(
+            find.widgetWithText(SwitchListTile, '주간 리포트 알림'),
+          )
+          .onChanged,
       isNotNull,
     );
   });

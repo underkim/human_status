@@ -90,6 +90,7 @@ sha256sum -c human_status-web-<버전>.zip.sha256
 - [ ] 퀘스트 추가/완료, 목표 생성, 뱅크샐러드 파일 가져오기가 동작한다
 - [ ] 백업 내보내기/가져오기가 동작한다
 - [ ] 알림 관련 화면(알림 시간 설정)이 오류 없이 열린다
+- [ ] 설정 → "익명 크래시 리포팅"이 기본 꺼짐으로 보인다(3.5절 참고)
 
 **Web**
 
@@ -99,6 +100,42 @@ sha256sum -c human_status-web-<버전>.zip.sha256
 - [ ] Claude API 키 입력 시 "브라우저 저장 보호 수준이 낮다"는 경고가
       표시된다
 - [ ] 반응형 레이아웃(좁은 폭 vs 넓은 폭)이 모두 정상이다
+- [ ] 설정 → "익명 크래시 리포팅"이 기본 꺼짐으로 보인다(3.5절 참고)
+
+## 3.5 크래시 리포팅(Sentry) 릴리즈 게이트
+
+`sentry_flutter` 도입은 [docs/privacy_policy.md](privacy_policy.md)(현재
+초안)와 짝을 이룹니다. 아래 항목은 실제 배포 전 6개 플랫폼 각각에서(적어도
+빌드 가능한 플랫폼에서는 직접) 확인해야 합니다.
+
+- [ ] **기본 꺼짐** — 새 설치, 기존 사용자 업데이트, 백업 가져오기 직후 모두
+      설정의 스위치가 꺼짐 상태다(`crashReportingEnabled`는 백업 스키마에
+      포함되지 않으므로 새 기기/가져오기 후에는 항상 기본값 `false`다).
+- [ ] **off 상태 무전송** — 프록시(예: mitmproxy)나 Sentry 프로젝트의 수신
+      통계로, 꺼짐 상태에서 앱을 평소처럼 사용해도 Sentry로 나가는 네트워크
+      요청이 0건인지 확인한다. 이 저장소의 자동 테스트(`test/crash_reporting_service_test.dart`
+      등)는 fake SDK 경계로 이 게이트 로직을 검증하지만, 실제 네트워크 계층
+      확인은 대체하지 못한다.
+- [ ] **opt-in 이벤트 도달** — 테스트 전용 Sentry 프로젝트 DSN으로 빌드한 뒤
+      (`--dart-define=SENTRY_DSN=...`), 설정에서 켜고 synthetic 오류를
+      1건 발생시켜 Sentry 대시보드에 실제로 도달하는지 확인한다. 실제 사용자
+      데이터가 있는 기기 대신 비식별 QA fixture만 사용한다.
+- [ ] **opt-out 후 무전송** — 끈 뒤 신규 이벤트 발생과 (있었다면) 보류 큐
+      전송이 없는지 확인한다.
+- [ ] **symbol/source map** — 릴리즈 스택이 읽을 수 있는 형태로 매핑되는지
+      확인한다. 이 저장소는 아직 심볼/소스맵 자동 업로드를 CI에 배선하지
+      않았다(`SENTRY_AUTH_TOKEN` 등 실제 Sentry 조직 자격 증명이 필요해 이번
+      변경 범위 밖으로 남겨 두었다) — 도입 시 이 항목과
+      `.github/workflows/ci.yml`/`release-artifacts.yml`을 함께 갱신한다.
+- [ ] **privacy policy/retention/region 확정** — `docs/privacy_policy.md`의
+      `[TODO]` 표시가 모두 실제 값으로 채워졌는지 확인한다(운영 법인, data
+      region, 보관 기간, 문의처).
+- [ ] **DSN 환경 분리** — 운영 DSN이 소스에 하드코딩되지 않고
+      `--dart-define=SENTRY_DSN=...`로만 주입되는지, 로컬 개발/CI 빌드에는
+      DSN이 없어 SDK가 아예 초기화되지 않는지 확인한다.
+- [ ] **네이티브 크래시 지원 차이 고지** — Windows/Linux는 Dart/Flutter 예외만
+      다루고 네이티브(C/C++) 크래시는 Android/iOS와 동등한 수준으로 잡지
+      않는다는 점을 릴리즈 노트에 명시한다.
 
 ## 4. 영구 ID 이전 체크리스트 (모바일 스토어 출시 전 필수)
 

@@ -2,9 +2,60 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hive/hive.dart';
+import 'package:human_status/providers/observability_provider.dart';
 import 'package:human_status/providers/profile_provider.dart';
+import 'package:human_status/services/crash_reporting_service.dart';
 import 'package:human_status/services/storage_service.dart';
 import 'package:human_status/theme/app_theme.dart';
+
+/// Call-counting [CrashReporter] test double. Every method just records that
+/// it was called (and, for the capture methods, always "sends" — unlike the
+/// real [CrashReportingService] it does not gate on consent/init state
+/// itself) so tests can assert wiring/ordering without ever touching Sentry.
+/// [initializeError]/[captureThrows] let a test simulate a reporter that
+/// fails, to verify callers stay safe regardless.
+class FakeCrashReporter implements CrashReporter {
+  int initializeCallCount = 0;
+  int flutterErrorCallCount = 0;
+  int errorCallCount = 0;
+  int closeCallCount = 0;
+  final List<bool> consentCalls = [];
+
+  /// Awaited inside [initialize] before it resolves/throws, so a test can
+  /// hold an "in flight" init open to observe intermediate state.
+  Future<void>? initializeGate;
+  Object? initializeError;
+  Object? captureThrows;
+
+  @override
+  Future<void> initialize() async {
+    initializeCallCount++;
+    if (initializeGate != null) await initializeGate;
+    if (initializeError != null) throw initializeError!;
+  }
+
+  @override
+  void captureFlutterError(FlutterErrorDetails details) {
+    flutterErrorCallCount++;
+    if (captureThrows != null) throw captureThrows!;
+  }
+
+  @override
+  void captureError(Object error, StackTrace stackTrace) {
+    errorCallCount++;
+    if (captureThrows != null) throw captureThrows!;
+  }
+
+  @override
+  Future<void> setConsent(bool enabled) async {
+    consentCalls.add(enabled);
+  }
+
+  @override
+  Future<void> close() async {
+    closeCallCount++;
+  }
+}
 
 /// Opens a StorageService on hive's in-memory backend: the real disk
 /// backend's file IO never completes inside the widget-test FakeAsync zone,
@@ -20,7 +71,11 @@ Future<StorageService> createTestStorage() async {
 /// Pumps [home] inside a MaterialApp with the app theme and the given
 /// storage wired into Riverpod — the same setup main() performs.
 /// [overrides] adds further provider overrides (e.g. a BackupService with
-/// fault injectors pre-wired) alongside the storage override.
+/// fault injectors pre-wired) alongside the storage override. A
+/// [FakeCrashReporter] is always wired in by default (crash reporting is
+/// unrelated to most tests using this helper) — pass an explicit
+/// `crashReporterProvider.overrideWithValue(...)` in [overrides] to use a
+/// specific fake instance instead.
 Future<void> pumpApp(
   WidgetTester tester,
   StorageService storage,
@@ -31,6 +86,7 @@ Future<void> pumpApp(
     ProviderScope(
       overrides: [
         storageServiceProvider.overrideWithValue(storage),
+        crashReporterProvider.overrideWithValue(FakeCrashReporter()),
         ...overrides,
       ],
       child: MaterialApp(theme: AppTheme.light, home: home),

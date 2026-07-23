@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hive/hive.dart';
 import 'package:human_status/models/user_profile.dart';
+import 'package:human_status/providers/observability_provider.dart';
 import 'package:human_status/providers/profile_provider.dart';
 import 'package:human_status/screens/settings_screen.dart';
 import 'package:human_status/services/notification_service.dart';
@@ -87,6 +88,7 @@ Future<_FakeNotificationService> _pumpSettings(
       overrides: [
         storageServiceProvider.overrideWithValue(storage),
         notificationServiceProvider.overrideWithValue(fake),
+        crashReporterProvider.overrideWithValue(FakeCrashReporter()),
       ],
       child: MaterialApp(theme: AppTheme.light, home: const SettingsScreen()),
     ),
@@ -104,6 +106,7 @@ Future<_ThrowingNotificationService> _pumpSettingsWithThrowingService(
       overrides: [
         storageServiceProvider.overrideWithValue(storage),
         notificationServiceProvider.overrideWithValue(fake),
+        crashReporterProvider.overrideWithValue(FakeCrashReporter()),
       ],
       child: MaterialApp(theme: AppTheme.light, home: const SettingsScreen()),
     ),
@@ -126,7 +129,11 @@ void main() {
     expect(find.text('일요일 20:00에 주간 리포트를 알려드릴게요.'), findsOneWidget);
     // 프로필 reload가 리스너에 실제로 전파되어 스위치 UI도 켜져야 한다.
     expect(
-      tester.widget<SwitchListTile>(find.byType(SwitchListTile)).value,
+      tester
+          .widget<SwitchListTile>(
+            find.widgetWithText(SwitchListTile, '주간 리포트 알림'),
+          )
+          .value,
       isTrue,
     );
   });
@@ -158,7 +165,11 @@ void main() {
     // 스케줄링이 실패했으므로 프로필은 그대로 꺼짐 상태로 남아야 한다.
     expect(storage.getProfile().weeklyReportReminderEnabled, isFalse);
     expect(
-      tester.widget<SwitchListTile>(find.byType(SwitchListTile)).value,
+      tester
+          .widget<SwitchListTile>(
+            find.widgetWithText(SwitchListTile, '주간 리포트 알림'),
+          )
+          .value,
       isFalse,
     );
     expect(find.text('알림 설정을 변경하지 못했어요. 잠시 후 다시 시도해주세요.'), findsOneWidget);
@@ -181,7 +192,11 @@ void main() {
     // 취소가 실패했으므로 이전 상태(켜짐)가 그대로 유지되어야 한다.
     expect(storage.getProfile().weeklyReportReminderEnabled, isTrue);
     expect(
-      tester.widget<SwitchListTile>(find.byType(SwitchListTile)).value,
+      tester
+          .widget<SwitchListTile>(
+            find.widgetWithText(SwitchListTile, '주간 리포트 알림'),
+          )
+          .value,
       isTrue,
     );
     expect(find.text('알림 설정을 변경하지 못했어요. 잠시 후 다시 시도해주세요.'), findsOneWidget);
@@ -203,7 +218,11 @@ void main() {
     // enabled=true는 그대로 저장돼야 한다.
     expect(storage.getProfile().weeklyReportReminderEnabled, isTrue);
     expect(
-      tester.widget<SwitchListTile>(find.byType(SwitchListTile)).value,
+      tester
+          .widget<SwitchListTile>(
+            find.widgetWithText(SwitchListTile, '주간 리포트 알림'),
+          )
+          .value,
       isTrue,
     );
     expect(
@@ -225,7 +244,11 @@ void main() {
     expect(fake.cancelWeeklyCalls, 1);
     expect(fake.weeklyScheduled, isFalse);
     expect(
-      tester.widget<SwitchListTile>(find.byType(SwitchListTile)).value,
+      tester
+          .widget<SwitchListTile>(
+            find.widgetWithText(SwitchListTile, '주간 리포트 알림'),
+          )
+          .value,
       isFalse,
     );
     expect(find.text('알림 설정을 변경하지 못했어요. 잠시 후 다시 시도해주세요.'), findsOneWidget);
@@ -243,6 +266,7 @@ void main() {
         overrides: [
           storageServiceProvider.overrideWithValue(storage),
           notificationServiceProvider.overrideWithValue(fake),
+          crashReporterProvider.overrideWithValue(FakeCrashReporter()),
         ],
         child: MaterialApp(theme: AppTheme.light, home: const SettingsScreen()),
       ),
@@ -257,7 +281,11 @@ void main() {
     expect(fake.scheduleWeeklyCalls, 1);
     expect(fake.weeklyScheduled, isTrue);
     expect(
-      tester.widget<SwitchListTile>(find.byType(SwitchListTile)).value,
+      tester
+          .widget<SwitchListTile>(
+            find.widgetWithText(SwitchListTile, '주간 리포트 알림'),
+          )
+          .value,
       isTrue,
     );
     expect(find.text('알림 설정을 변경하지 못했어요. 잠시 후 다시 시도해주세요.'), findsOneWidget);

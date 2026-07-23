@@ -32,6 +32,7 @@ void main() {
     var callCount = 0;
     // 파일 경로처럼 사용자에게 그대로 노출되면 안 되는 진단 정보를 흉내낸다.
     const sensitiveSentinel = '/private/var/mobile/Containers/Data/secret.hive';
+    final reporter = FakeCrashReporter();
 
     await tester.pumpWidget(
       AppBootstrap(
@@ -39,6 +40,7 @@ void main() {
           callCount++;
           throw Exception(sensitiveSentinel);
         },
+        crashReporter: reporter,
       ),
     );
     await tester.pump();
@@ -54,6 +56,11 @@ void main() {
 
     await tester.pump(const Duration(seconds: 2));
     expect(callCount, 1);
+    // storage를 열 수 없으면 동의 값도 읽을 수 없으므로, 리포터는 절대
+    // 건드리지 않는다 (섹션 7의 "동의 확인 전 전송 금지" 원칙).
+    expect(reporter.initializeCallCount, 0);
+    expect(reporter.flutterErrorCallCount, 0);
+    expect(reporter.errorCallCount, 0);
   });
 
   testWidgets(
@@ -146,4 +153,135 @@ void main() {
     await tester.pump();
     expect(runCount, 1);
   });
+
+  testWidgets('저장소 동의 값이 false면 성공적으로 열려도 reporter를 초기화하지 않는다', (
+    tester,
+  ) async {
+    final storage = await createTestStorage();
+    expect(storage.crashReportingEnabled, isFalse);
+    final reporter = FakeCrashReporter();
+
+    await tester.pumpWidget(
+      AppBootstrap(createStorage: () async => storage, crashReporter: reporter),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.pumpAndSettle();
+
+    expect(find.byType(HomeShell), findsOneWidget);
+    expect(reporter.initializeCallCount, 0);
+  });
+
+  testWidgets('저장소 동의 값이 true면 reporter가 정확히 한 번 초기화된다', (tester) async {
+    final storage = await createTestStorage();
+    await storage.setCrashReportingEnabled(true);
+    final reporter = FakeCrashReporter();
+    var runCount = 0;
+
+    await tester.pumpWidget(
+      AppBootstrap(
+        createStorage: () async => storage,
+        crashReporter: reporter,
+        startupSequenceRunner: (refreshController, storage) async {
+          runCount++;
+        },
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.pumpAndSettle();
+
+    expect(find.byType(HomeShell), findsOneWidget);
+    expect(reporter.initializeCallCount, 1);
+    expect(runCount, 1);
+  });
+
+  testWidgets('reporter 초기화가 실패해도(throw) HomeShell에 정상 도달한다', (tester) async {
+    final storage = await createTestStorage();
+    await storage.setCrashReportingEnabled(true);
+    final reporter = FakeCrashReporter()
+      ..initializeError = Exception('sentry unreachable');
+
+    await tester.pumpWidget(
+      AppBootstrap(createStorage: () async => storage, crashReporter: reporter),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.pumpAndSettle();
+
+    expect(find.byType(HomeShell), findsOneWidget);
+    expect(find.byType(OnboardingScreen), findsNothing);
+    expect(reporter.initializeCallCount, 1);
+  });
+
+  testWidgets(
+    '실패 후 재시도가 성공하면 reporter는 성공한 시도에서만 초기화되고 중복 실행되지 않는다',
+    (tester) async {
+      var callCount = 0;
+      StorageService? succeededStorage;
+      final reporter = FakeCrashReporter();
+
+      await tester.pumpWidget(
+        AppBootstrap(
+          createStorage: () async {
+            callCount++;
+            if (callCount == 1) {
+              throw Exception('corrupt hive file');
+            }
+            succeededStorage = await createTestStorage();
+            await succeededStorage!.setCrashReportingEnabled(true);
+            return succeededStorage!;
+          },
+          crashReporter: reporter,
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      expect(callCount, 1);
+      expect(reporter.initializeCallCount, 0);
+      expect(find.text('다시 시도'), findsOneWidget);
+
+      await tester.tap(find.text('다시 시도'));
+      await tester.pump();
+      await tester.pump();
+      await tester.pumpAndSettle();
+
+      expect(callCount, 2);
+      expect(find.byType(HomeShell), findsOneWidget);
+      expect(reporter.initializeCallCount, 1);
+
+      // 추가 리빌드로도 중복 초기화되지 않는다.
+      await tester.pump();
+      await tester.pump();
+      expect(reporter.initializeCallCount, 1);
+    },
+  );
+
+  testWidgets(
+    'pending 상태에서 dispose된 뒤 initializer가 완료돼도 reporter는 초기화되지 않는다',
+    (tester) async {
+      final completer = Completer<StorageService>();
+      final reporter = FakeCrashReporter();
+
+      await tester.pumpWidget(
+        AppBootstrap(
+          createStorage: () => completer.future,
+          crashReporter: reporter,
+        ),
+      );
+      await tester.pump();
+
+      await tester.pumpWidget(const SizedBox.shrink());
+
+      final storage = await createTestStorage();
+      await storage.setCrashReportingEnabled(true);
+      completer.complete(storage);
+      await tester.pump();
+      await tester.pump();
+
+      expect(tester.takeException(), isNull);
+      expect(reporter.initializeCallCount, 0);
+    },
+  );
 }

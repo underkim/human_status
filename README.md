@@ -62,11 +62,27 @@ flutter build windows --release
 flutter build web --release
 ```
 
-Windows·Web 릴리즈 빌드는 2026-07-16에 로컬에서 검증되었습니다. Android는
-로컬에 `ANDROID_HOME`/SDK가 없어 여전히 빌드를 확인하지 못했습니다(CI가
-`flutter build apk --debug`로 Android 빌드 가능 여부를 대신 검증합니다).
-애플리케이션/번들 ID, 서명 구성, 최종 아이콘은 아직 확정되지 않았고, 실제
-배포 전 명시적으로 채워야 할 릴리즈 게이트로 남아 있습니다.
+Windows·Web 릴리즈 빌드는 2026-07-16에 로컬에서 검증되었습니다. `sentry_flutter`
+도입(2026-07-23) 이후에는 `flutter build web --release`가 다시 클린하게
+성공하는 것을 확인했습니다. Windows는 이번 세션(샌드박스 환경)에서
+`flutter build windows --release`가 `sentry_flutter`의 네이티브 의존성
+(`sentry-native`)을 CMake `FetchContent`로 git clone하는 단계에서 막혔습니다
+— 같은 세션의 일반 셸에서는 `git clone`이 정상 동작했는데도 CMake가 자식
+프로세스로 실행하는 git 호출만 실패해, 이 저장소 코드가 아니라 이 세션의
+셸/프로세스 실행 환경에 특정된 문제로 보입니다. 그 fetch 단계를 로컬에 이미
+받아 둔 소스로 우회하자 CMake 구성과 **Debug 구성 빌드**(sentry 네이티브
+라이브러리 컴파일 포함, `human_status.exe` 생성까지)는 정상적으로
+끝났습니다. 다만 **Release 구성**은 이 세션의 Windows 빌드 도구 체인에서
+저장소 경로에 포함된 한글이 Dart AOT 스냅샷 생성 단계로 전달되며 깨지는
+별도의(이번 변경과 무관해 보이는) 인코딩 문제로 최종 산출물까지는 만들지
+못했습니다. 두 문제 모두 이번 세션 환경의 특성으로 보이며, Windows에서 이
+기능을 실제로 릴리즈하기 전에는 정상적인(샌드박스가 아닌) 개발 환경에서
+`flutter build windows --release`를 다시 한 번 처음부터 확인하는 것을
+권장합니다. Android는 로컬에 `ANDROID_HOME`/SDK가 없어 여전히 빌드를
+확인하지 못했습니다(CI가 `flutter build apk --debug`로 Android 빌드 가능
+여부를 대신 검증합니다). 애플리케이션/번들 ID, 서명 구성, 최종 아이콘은 아직
+확정되지 않았고, 실제 배포 전 명시적으로 채워야 할 릴리즈 게이트로 남아
+있습니다.
 
 ### 릴리즈 아티팩트 & 출시 준비 검사
 
@@ -185,3 +201,28 @@ Linux libsecret)에만 저장되고 백업 파일에는 포함되지 않습니�
 - **Web** — 브라우저에 저장되는 값은 보호 수준이 낮습니다. HTTPS/로컬호스트
   환경, 신뢰할 수 있는 기기에서만 키를 입력하세요. 설정 화면에 이 경고가
   표시됩니다.
+
+## 선택적 크래시 리포팅 (기본 꺼짐)
+
+설정 → "익명 크래시 리포팅"을 켜면 [Sentry](https://pub.dev/packages/sentry_flutter)로
+앱 오류(예외·스택·기기/OS/앱 버전 정보)가 전송됩니다. **기본값은 항상
+꺼짐**이며, 사용자가 명시적으로 켜기 전까지는 Sentry SDK 초기화도, 어떤
+네트워크 전송도 일어나지 않습니다. 자세한 수집 항목·처리자·보관 기간은
+[docs/privacy_policy.md](docs/privacy_policy.md)를 참고하세요(현재 초안이며,
+실제 Sentry 계정 확정 전까지 일부 항목이 `[TODO]`로 남아 있습니다).
+
+DSN은 소스에 하드코딩하지 않고 빌드 시점에 주입합니다:
+
+```sh
+flutter run --dart-define=SENTRY_DSN=https://examplePublicKey@o0.ingest.sentry.io/0
+flutter build windows --release --dart-define=SENTRY_DSN=...
+```
+
+`SENTRY_DSN`을 생략하면(로컬 개발, `flutter test`, 이 저장소의 CI가 모두
+해당) 리포터는 항상 안전한 no-op 상태로 남아 SDK를 초기화하지 않습니다 —
+저장된 동의 값이 `true`여도 마찬가지입니다. 실제 QA 빌드에서 수신을
+검증하려면 별도의 테스트 전용 Sentry 프로젝트 DSN을 사용하세요. 심볼/소스맵
+업로드는 아직 이 저장소에 배선되어 있지 않습니다(실제 Sentry 조직이 있어야
+설정 가능한 `SENTRY_AUTH_TOKEN` 등이 필요해 이번 변경 범위 밖으로 남겨
+두었습니다) — 도입 시 `docs/RELEASE_CHECKLIST.md`와 CI 워크플로에 함께
+반영해야 합니다.

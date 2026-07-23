@@ -5,22 +5,72 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'models/quest.dart';
 import 'providers/financial_advisor_provider.dart';
+import 'providers/observability_provider.dart';
 import 'providers/profile_provider.dart';
 import 'providers/progression_provider.dart';
 import 'providers/quest_provider.dart';
 import 'screens/home_shell.dart';
+import 'services/crash_reporting_service.dart';
 import 'services/daily_refresh_controller.dart';
 import 'services/notification_service.dart';
 import 'services/storage_service.dart';
 import 'theme/app_theme.dart';
 
 Future<void> main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-  // runApp fires immediately with a mounted bootstrap widget — storage init
-  // (which can fail, e.g. a corrupt Hive file) happens behind it, so a
-  // failure surfaces as a recovery screen instead of a blank pre-runApp
-  // crash.
-  runApp(const AppBootstrap());
+  final reporter = CrashReportingService();
+  // Everything below runs inside one root zone so runZonedGuarded's onError
+  // catches uncaught async errors outside the Flutter framework (timers,
+  // Futures). It never fires for errors FlutterError.onError already
+  // handles synchronously.
+  await runZonedGuarded(() async {
+    WidgetsFlutterBinding.ensureInitialized();
+    // Consent hasn't been read from storage yet at this point (that only
+    // happens once AppBootstrap opens it) — reporter starts as a safe no-op,
+    // so any error here is still shown via the existing Flutter path but
+    // never sent anywhere.
+    installFlutterErrorReporting(reporter);
+    // runApp fires immediately with a mounted bootstrap widget — storage
+    // init (which can fail, e.g. a corrupt Hive file) happens behind it, so
+    // a failure surfaces as a recovery screen instead of a blank pre-runApp
+    // crash.
+    runApp(AppBootstrap(crashReporter: reporter));
+  }, zoneErrorHandler(reporter));
+}
+
+/// Installs the process-wide `FlutterError.onError` handler that forwards
+/// every Flutter framework error to [reporter] (a no-op unless consent is
+/// granted and the reporter has finished initializing) and then always
+/// calls whatever handler was previously installed — Flutter's own
+/// presentation by default — exactly once, so existing error display never
+/// changes. Extracted from `main()` so it can be exercised directly in
+/// `test/global_error_handler_test.dart` without a full app boot.
+void installFlutterErrorReporting(CrashReporter reporter) {
+  final previousFlutterError = FlutterError.onError;
+  FlutterError.onError = (details) {
+    try {
+      reporter.captureFlutterError(details);
+    } catch (_) {
+      // A reporter failure must never block/duplicate the existing Flutter
+      // error presentation below, nor become an uncaught error itself.
+    }
+    (previousFlutterError ?? FlutterError.presentError)(details);
+  };
+}
+
+/// Builds the `onError` callback for `runZonedGuarded`: forwards an
+/// uncaught zone error to [reporter] (no-op gated, same as
+/// [installFlutterErrorReporting]) and never rethrows, so a reporter failure
+/// can't crash the zone it's meant to be protecting.
+void Function(Object error, StackTrace stack) zoneErrorHandler(
+  CrashReporter reporter,
+) {
+  return (error, stack) {
+    try {
+      reporter.captureError(error, stack);
+    } catch (_) {
+      // See installFlutterErrorReporting — never let this rethrow.
+    }
+  };
 }
 
 /// Creates and initializes the [StorageService] used by the real app.
@@ -56,10 +106,17 @@ class AppBootstrap extends StatefulWidget {
     super.key,
     this.createStorage = _defaultCreateStorage,
     this.startupSequenceRunner = runStartupSequence,
+    this.crashReporter,
   });
 
   final StorageInitializer createStorage;
   final StartupSequenceRunner startupSequenceRunner;
+
+  /// Injection point for tests. `null` (the production default) lazily
+  /// creates a real [CrashReportingService] — a compile-time-constant
+  /// default isn't possible since that constructor holds mutable state, so
+  /// this stays nullable and [_AppBootstrapState] substitutes the default.
+  final CrashReporter? crashReporter;
 
   @override
   State<AppBootstrap> createState() => _AppBootstrapState();
@@ -71,6 +128,9 @@ class _AppBootstrapState extends State<AppBootstrap> {
   _BootstrapStatus _status = _BootstrapStatus.loading;
   ProviderContainer? _container;
   DailyRefreshController? _refreshController;
+
+  late final CrashReporter _reporter =
+      widget.crashReporter ?? CrashReportingService();
 
   // Bumped on every attempt so a still-in-flight initializer from a
   // superseded attempt (e.g. rapid retry taps) can recognize it's stale and
@@ -120,11 +180,40 @@ class _AppBootstrapState extends State<AppBootstrap> {
 
     if (!mounted || generation != _generation) return;
 
+    // Best-effort, fire-and-forget: only ever started for a generation that
+    // just passed the freshness check above, so a stale/superseded attempt
+    // (e.g. a fast retry) never triggers a second init. The reporter's own
+    // initialize() is idempotent regardless, but gating on the generation
+    // here keeps this call symmetric with the startupSequenceRunner
+    // scheduling below and matches what the bootstrap tests assert. A slow
+    // or failing SDK init must never delay or fail the app opening, so this
+    // is never awaited by the state machine below.
+    //
+    // The getter itself is already fail-closed, but it's read outside the
+    // widget.createStorage() try/catch above — a throw here would otherwise
+    // be swallowed by the root zone handler and leave the bootstrap stuck on
+    // the loading screen instead of reaching setState(ready) below.
+    var crashReportingEnabled = false;
+    try {
+      crashReportingEnabled = storage.crashReportingEnabled;
+    } catch (_) {}
+    if (crashReportingEnabled) {
+      unawaited(
+        _reporter.initialize().catchError((_) {
+          // SDK init failures are never bootstrap failures — the reporter
+          // just stays in its safe no-op state for this session.
+        }),
+      );
+    }
+
     // A manual container (instead of a plain ProviderScope) so the daily
     // refresh below can poke the affected notifiers to reload once it
     // finishes.
     final container = ProviderContainer(
-      overrides: [storageServiceProvider.overrideWithValue(storage)],
+      overrides: [
+        storageServiceProvider.overrideWithValue(storage),
+        crashReporterProvider.overrideWithValue(_reporter),
+      ],
     );
 
     // 최초 시작과, 자정을 넘긴 뒤의 resume 모두 이 컨트롤러 하나를 거친다 —

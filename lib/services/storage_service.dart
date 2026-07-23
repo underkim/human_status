@@ -22,6 +22,9 @@ class StorageService {
   static const transactionsBoxName = 'transactions';
   static const assetSnapshotsBoxName = 'assetSnapshots';
   static const financialPlanBoxName = 'financialPlan';
+  static const settingsBoxName = 'settings';
+
+  static const _crashReportingEnabledKey = 'crashReportingEnabled';
 
   late Box<Stat> statsBox;
   late Box<Quest> questsBox;
@@ -31,6 +34,7 @@ class StorageService {
   late Box<Transaction> transactionsBox;
   late Box<AssetSnapshot> assetSnapshotsBox;
   late Box<FinancialPlan> financialPlanBox;
+  late Box<dynamic> settingsBox;
 
   static const defaultStats = [
     (id: 'health', name: '건강', icon: '💪'),
@@ -100,6 +104,7 @@ class StorageService {
     transactionsBox = await open<Transaction>(transactionsBoxName);
     assetSnapshotsBox = await open<AssetSnapshot>(assetSnapshotsBoxName);
     financialPlanBox = await open<FinancialPlan>(financialPlanBoxName);
+    settingsBox = await open<dynamic>(settingsBoxName);
 
     if (statsBox.isEmpty) {
       for (final s in defaultStats) {
@@ -298,4 +303,21 @@ class StorageService {
 
   Future<void> saveFinancialPlan(FinancialPlan plan) =>
       financialPlanBox.put('plan', plan);
+
+  /// Anonymous crash reporting consent. Defaults to `false` (fail-closed) if
+  /// the key is missing, holds a value of an unexpected type (e.g. a
+  /// corrupted box), or the read itself throws (e.g. disk corruption) — a
+  /// new install, a fresh backup restore (this key is deliberately excluded
+  /// from the backup schema), or a damaged read must never be treated as
+  /// opted-in.
+  bool get crashReportingEnabled {
+    try {
+      return settingsBox.get(_crashReportingEnabledKey) == true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<void> setCrashReportingEnabled(bool value) =>
+      settingsBox.put(_crashReportingEnabledKey, value);
 }
