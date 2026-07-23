@@ -11,6 +11,7 @@ import '../theme/app_spacing.dart';
 import 'achievement_dialog.dart';
 import 'level_up_dialog.dart';
 import 'quest_card.dart';
+import 'quest_completion_button.dart';
 
 /// 홈 상단 "오늘의 행동" 허브 — 지금 당장 할 일을 스크롤 없이 완료할 수
 /// 있게 한다. 진행중 퀘스트가 있으면 [nextQuestProvider]가 고른 단 하나를
@@ -139,13 +140,11 @@ class _ActionHubCardState extends ConsumerState<ActionHubCard> {
             stats: stats,
             goals: goals,
             actions: [
-              FilledButton(
+              QuestCompletionButton(
                 onPressed: completing
                     ? null
                     : () => _completeHighlighted(nextQuest.id, nextQuest.title),
-                child: completing
-                    ? pendingActionIndicator('완료 처리 중')
-                    : const Text('완료'),
+                isCompleting: completing,
               ),
             ],
           ),

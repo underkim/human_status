@@ -13,6 +13,7 @@ import '../widgets/empty_state.dart';
 import '../widgets/level_up_dialog.dart';
 import '../widgets/page_content_bounds.dart';
 import '../widgets/quest_card.dart';
+import '../widgets/quest_completion_button.dart';
 import 'quest_form_screen.dart';
 
 class QuestsScreen extends ConsumerStatefulWidget {
@@ -306,15 +307,9 @@ class _ActiveTabState extends ConsumerState<_ActiveTab> {
                 ),
           onDelete: busy ? null : () => _confirmDelete(q),
           actions: [
-            FilledButton(
+            QuestCompletionButton(
               onPressed: busy ? null : () => _completeQuest(q),
-              child: completing
-                  ? const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Text('완료'),
+              isCompleting: completing,
             ),
           ],
         );

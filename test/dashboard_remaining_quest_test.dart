@@ -289,7 +289,14 @@ void main() {
     expect(find.bySemanticsLabel('완료 처리 중'), findsNothing);
 
     await tester.tap(r1Button);
+    // QuestCompletionButton은 처리중 표시를 AnimatedSwitcher로 감싸므로, 그
+    // 크로스페이드가 opacity 0인 첫 프레임(ticker 시작 기준 프레임)을 지나야
+    // 새 child의 semantics가 트리에 온전히 포함된다. pendingActionIndicator
+    // 내부 CircularProgressIndicator는 무한 반복 애니메이션이라
+    // pumpAndSettle을 쓰면 끝나지 않으므로, 유한한 duration으로 직접
+    // 두 프레임만 흘려보낸다.
     await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
 
     expect(find.bySemanticsLabel('완료 처리 중'), findsOneWidget);
 

@@ -75,12 +75,16 @@ Future<StorageService> createTestStorage() async {
 /// [FakeCrashReporter] is always wired in by default (crash reporting is
 /// unrelated to most tests using this helper) — pass an explicit
 /// `crashReporterProvider.overrideWithValue(...)` in [overrides] to use a
-/// specific fake instance instead.
+/// specific fake instance instead. [disableAnimations] simulates the
+/// platform's reduced-motion setting (`MediaQueryData.disableAnimations`) for
+/// tests that need to assert the app's motion-reduced code paths; it
+/// defaults to false so existing callers are unaffected.
 Future<void> pumpApp(
   WidgetTester tester,
   StorageService storage,
   Widget home, {
   List<Override> overrides = const [],
+  bool disableAnimations = false,
 }) {
   return tester.pumpWidget(
     ProviderScope(
@@ -89,7 +93,16 @@ Future<void> pumpApp(
         crashReporterProvider.overrideWithValue(FakeCrashReporter()),
         ...overrides,
       ],
-      child: MaterialApp(theme: AppTheme.light, home: home),
+      child: MaterialApp(
+        theme: AppTheme.light,
+        home: home,
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(
+            context,
+          ).copyWith(disableAnimations: disableAnimations),
+          child: child!,
+        ),
+      ),
     ),
   );
 }

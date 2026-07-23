@@ -15,6 +15,7 @@ import '../widgets/level_up_dialog.dart';
 import '../widgets/page_content_bounds.dart';
 import '../widgets/progression_journey_card.dart';
 import '../widgets/quest_card.dart';
+import '../widgets/quest_completion_button.dart';
 import '../widgets/stat_bar.dart';
 import 'goal_form_screen.dart';
 import 'onboarding_screen.dart';
@@ -301,11 +302,9 @@ class _RemainingActiveQuestsState
           stats: widget.stats,
           goals: widget.goals,
           actions: [
-            FilledButton(
+            QuestCompletionButton(
               onPressed: completing ? null : () => _completeQuest(q),
-              child: completing
-                  ? pendingActionIndicator('완료 처리 중')
-                  : const Text('완료'),
+              isCompleting: completing,
             ),
           ],
         );
