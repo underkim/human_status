@@ -295,6 +295,10 @@ void main() {
 
       _expectBounded(tester, PageContentBounds.wide, _compact.width);
       expect(tester.takeException(), isNull);
+      // 자동 백업 섹션이 추가되며 목록이 늘어나 '데이터 및 개인정보'가 이
+      // 좁은/짧은 뷰포트에서는 스크롤해야만 보인다.
+      await tester.scrollUntilVisible(find.text('데이터 및 개인정보'), 300);
+      expect(tester.takeException(), isNull);
       expect(find.text('데이터 및 개인정보'), findsOneWidget);
     });
 
@@ -332,6 +336,9 @@ void main() {
 
       await tester.tap(find.text('설정'));
       await tester.pumpAndSettle();
+      // 자동 백업 섹션이 추가되며 목록이 늘어나 '데이터 및 개인정보'가 이
+      // 좁은/짧은 뷰포트에서는 스크롤해야만 보인다.
+      await tester.scrollUntilVisible(find.text('데이터 및 개인정보'), 300);
       expect(find.text('데이터 및 개인정보'), findsOneWidget);
     });
 

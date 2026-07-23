@@ -4,12 +4,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'models/quest.dart';
+import 'providers/auto_backup_provider.dart';
 import 'providers/financial_advisor_provider.dart';
 import 'providers/observability_provider.dart';
 import 'providers/profile_provider.dart';
 import 'providers/progression_provider.dart';
 import 'providers/quest_provider.dart';
 import 'screens/home_shell.dart';
+import 'services/auto_backup_controller.dart';
 import 'services/crash_reporting_service.dart';
 import 'services/daily_refresh_controller.dart';
 import 'services/notification_service.dart';
@@ -90,8 +92,9 @@ Future<StorageService> _defaultCreateStorage() async {
 typedef StartupSequenceRunner =
     Future<void> Function(
       DailyRefreshController refreshController,
-      StorageService storage,
-    );
+      StorageService storage, {
+      required AutoBackupController autoBackupController,
+    });
 
 /// Bootstraps the app: mounts immediately (so `main()` can call `runApp`
 /// synchronously), then runs [createStorage] asynchronously behind a themed
@@ -128,6 +131,7 @@ class _AppBootstrapState extends State<AppBootstrap> {
   _BootstrapStatus _status = _BootstrapStatus.loading;
   ProviderContainer? _container;
   DailyRefreshController? _refreshController;
+  AutoBackupController? _autoBackupController;
 
   late final CrashReporter _reporter =
       widget.crashReporter ?? CrashReportingService();
@@ -157,6 +161,7 @@ class _AppBootstrapState extends State<AppBootstrap> {
     _container?.dispose();
     _container = null;
     _refreshController = null;
+    _autoBackupController = null;
     setState(() {
       _status = _BootstrapStatus.loading;
     });
@@ -225,18 +230,32 @@ class _AppBootstrapState extends State<AppBootstrap> {
           container.read(financialAdviceProvider.notifier).reload(),
     );
 
+    // container.read(...)로 얻는 이 인스턴스가 곧 SettingsScreen의
+    // autoBackupProvider가 내부적으로 쓰는 것과 동일한 하나뿐인
+    // AutoBackupController다 — Riverpod Provider는 컨테이너당 한 번만
+    // 만들어지므로 startup/resume 트리거와 "지금 백업" 버튼이 같은
+    // in-flight guard를 공유한다(계획서 5.1절 "한 인스턴스만 구성한다").
+    final autoBackupController = container.read(autoBackupControllerProvider);
+
     // AI refreshes and notification scheduling run AFTER the first frame in
     // which HumanStatusApp is actually mounted — a slow or absent network
     // must never delay opening the app. Scheduled exactly once per
     // successful attempt (not in build(), so rebuilds never re-trigger it).
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || generation != _generation) return;
-      unawaited(widget.startupSequenceRunner(refreshController, storage));
+      unawaited(
+        widget.startupSequenceRunner(
+          refreshController,
+          storage,
+          autoBackupController: autoBackupController,
+        ),
+      );
     });
 
     setState(() {
       _container = container;
       _refreshController = refreshController;
+      _autoBackupController = autoBackupController;
       _status = _BootstrapStatus.ready;
     });
   }
@@ -251,7 +270,10 @@ class _AppBootstrapState extends State<AppBootstrap> {
       case _BootstrapStatus.ready:
         return UncontrolledProviderScope(
           container: _container!,
-          child: HumanStatusApp(refreshController: _refreshController),
+          child: HumanStatusApp(
+            refreshController: _refreshController,
+            autoBackupController: _autoBackupController,
+          ),
         );
     }
   }
@@ -338,12 +360,24 @@ class _BootstrapErrorScreen extends StatelessWidget {
 /// than a stale pre-refresh snapshot. [notificationService] is injectable
 /// so tests can substitute a fake instead of hitting the real platform
 /// plugin (mirrors [DailyRefreshController]'s pattern for its own steps).
+///
+/// [autoBackupController] runs an automatic backup here (opportunistically,
+/// only if one is due) right after the refresh — the one of the plan's two
+/// trigger points that happens at app startup; the other is
+/// `AppLifecycleState.resumed`, handled directly in
+/// `_HumanStatusAppState.didChangeAppLifecycleState`. A failure here is
+/// already handled internally by the controller (recorded, optionally
+/// notified) and must never fail startup, so it's deliberately not wrapped
+/// in a try/catch that would swallow a *different* real bug — the
+/// controller itself guarantees it never throws.
 Future<void> runStartupSequence(
   DailyRefreshController refreshController,
   StorageService storage, {
+  required AutoBackupController autoBackupController,
   NotificationService? notificationService,
 }) async {
   await refreshController.refreshIfDue();
+  await autoBackupController.backupIfDue();
   await scheduleNotifications(
     storage,
     notificationService: notificationService,
@@ -377,9 +411,18 @@ Future<void> scheduleNotifications(
 }
 
 class HumanStatusApp extends ConsumerStatefulWidget {
-  const HumanStatusApp({super.key, this.refreshController});
+  const HumanStatusApp({
+    super.key,
+    this.refreshController,
+    this.autoBackupController,
+  });
 
   final DailyRefreshController? refreshController;
+
+  /// `null` only in tests that don't exercise the auto-backup resume path
+  /// (mirrors [refreshController]'s optionality) — production always
+  /// supplies the single instance built in [AppBootstrap].
+  final AutoBackupController? autoBackupController;
 
   @override
   ConsumerState<HumanStatusApp> createState() => _HumanStatusAppState();
@@ -412,6 +455,7 @@ class _HumanStatusAppState extends ConsumerState<HumanStatusApp>
     if (state == AppLifecycleState.resumed) {
       ref.invalidate(nowProvider);
       widget.refreshController?.refreshIfDue();
+      widget.autoBackupController?.backupIfDue();
     }
   }
 

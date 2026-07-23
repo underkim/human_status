@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:human_status/main.dart';
 import 'package:human_status/models/quest.dart';
+import 'package:human_status/services/auto_backup_controller.dart';
+import 'package:human_status/services/backup_service.dart';
 import 'package:human_status/services/daily_refresh_controller.dart';
 import 'package:human_status/services/notification_service.dart';
 
@@ -84,9 +86,16 @@ void main() {
     );
 
     final fakeNotifications = _RecordingNotificationService();
+    // storage에 자동 백업이 꺼져 있는 기본값이라 backupIfDue()는 즉시 반환되는
+    // no-op이다 — 이 테스트는 순전히 refresh → 알림 순서를 검증한다.
+    final autoBackupController = AutoBackupController(
+      storage: storage,
+      backupService: BackupService(storage: storage),
+    );
     final sequence = runStartupSequence(
       controller,
       storage,
+      autoBackupController: autoBackupController,
       notificationService: fakeNotifications,
     );
 

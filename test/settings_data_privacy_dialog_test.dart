@@ -9,6 +9,10 @@ void main() {
   testWidgets('데이터 및 개인정보 다이얼로그는 로컬 저장·백업 제외·웹 경고를 모두 보여주고 데이터를 바꾸지 않는다', (
     tester,
   ) async {
+    // 자동 백업 섹션이 추가되며 목록이 길어져, '데이터 및 개인정보'가 기본
+    // 뷰포트의 가상화 캐시 범위 밖으로 밀려난다 — 처음부터 전부 mount되도록
+    // 화면을 세로로 넉넉하게 잡는다.
+    setScreenSize(tester, const Size(800, 1400));
     final storage = await createTestStorage();
     await storage.saveClaudeApiKey('sk-ant-untouched');
     await storage.saveQuest(
@@ -31,10 +35,16 @@ void main() {
     await tester.tap(find.text('데이터 및 개인정보'));
     await tester.pumpAndSettle();
 
-    // 사실 진술 네 가지가 모두 보인다.
+    // 사실 진술 다섯 가지가 모두 보인다.
     expect(find.textContaining('계정이나 서버 동기화 없이'), findsOneWidget);
-    expect(find.textContaining('백업 파일에는 포함되지 않아요'), findsOneWidget);
+    // 자동 백업 문단도 "...백업 파일에는 포함되지 않아요"로 끝나 textContaining만으로는
+    // 두 문단이 함께 걸리므로, API 키 문단에서만 나오는 구절로 특정한다.
+    expect(
+      find.textContaining('Linux libsecret)에 저장되고, 백업 파일에는 포함되지 않아요'),
+      findsOneWidget,
+    );
     expect(find.textContaining('먼저 내보내두는 걸 권장'), findsOneWidget);
+    expect(find.textContaining('동기화 폴더라면 해당 서비스 정책에 따라'), findsOneWidget);
     expect(find.textContaining('웹에서는 API 키 보호 수준'), findsOneWidget);
     // 크래시 리포팅은 기본 꺼짐/선택 전송/Sentry 처리자/정책 문구도 보인다.
     expect(find.textContaining('기본적으로 꺼져 있고'), findsOneWidget);

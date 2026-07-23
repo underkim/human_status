@@ -11,6 +11,57 @@ import '../models/transaction.dart';
 import '../models/user_profile.dart';
 import 'secret_store.dart';
 
+/// How often a due automatic backup should run. Device-local — never part of
+/// [BackupService.encode()]'s output (see [StorageService.settingsBox]'s
+/// class doc), same as [StorageService.crashReportingEnabled].
+enum AutoBackupFrequency {
+  daily,
+  weekly;
+
+  /// Resolves a stored Hive value back to a frequency. Anything other than
+  /// exactly one of these names (missing key, corrupted box, a value from a
+  /// future app version) falls back to [daily] rather than throwing, so a
+  /// damaged setting can never block reading the rest of [StorageService].
+  static AutoBackupFrequency fromStored(Object? value) {
+    for (final f in values) {
+      if (f.name == value) return f;
+    }
+    return AutoBackupFrequency.daily;
+  }
+}
+
+/// Why the most recent automatic backup attempt failed. Deliberately
+/// contains no paths or raw error text — see
+/// `docs/plans/phase2_auto_backup_plan.md` section 6.2's warning against
+/// leaking absolute paths into Sentry breadcrumbs.
+enum AutoBackupFailureCode {
+  directoryMissing,
+  permissionDenied,
+  noSpace,
+  writeFailed,
+  invalidConfiguration,
+  unsupportedPlatform,
+  // The backup file itself was written successfully, but the durable
+  // last-success record (this box's `_autoBackupLastSuccessAtKey`, etc.)
+  // failed to save — plan section 6.2's "설정 Hive 기록 실패" row. Kept
+  // distinct from [writeFailed] so this specific "file exists, state
+  // untracked" case stays diagnosable rather than looking like an ordinary
+  // write failure.
+  stateSaveFailed;
+
+  /// Resolves a stored Hive value back to a code, or `null` for anything
+  /// unrecognized (including a missing key) — callers must treat that as
+  /// "no known failure" rather than crash on a corrupted/forward-incompatible
+  /// value.
+  static AutoBackupFailureCode? fromStored(Object? value) {
+    if (value is! String) return null;
+    for (final c in values) {
+      if (c.name == value) return c;
+    }
+    return null;
+  }
+}
+
 class StorageService {
   static const _claudeApiKeySecretKey = 'claude_api_key';
 
@@ -25,6 +76,20 @@ class StorageService {
   static const settingsBoxName = 'settings';
 
   static const _crashReportingEnabledKey = 'crashReportingEnabled';
+
+  // 자동 백업 설정 키. 전부 기기별 폴더/권한에 묶여 있어 _crashReportingEnabledKey와
+  // 동일하게 settingsBox에만 저장하고 BackupService.encode()의 preferences에는
+  // 절대 포함하지 않는다 — 다른 기기로 백업이 복제될 때 존재하지 않는 로컬 폴더
+  // 경로가 함께 옮겨가는 것을 막기 위함이다.
+  static const _autoBackupEnabledKey = 'autoBackupEnabled';
+  static const _autoBackupDirectoryPathKey = 'autoBackupDirectoryPath';
+  static const _autoBackupFrequencyKey = 'autoBackupFrequency';
+  static const _autoBackupLastSuccessAtKey = 'autoBackupLastSuccessAt';
+  static const _autoBackupLastAttemptAtKey = 'autoBackupLastAttemptAt';
+  static const _autoBackupLastFailureCodeKey = 'autoBackupLastFailureCode';
+  static const _autoBackupLastFailureAtKey = 'autoBackupLastFailureAt';
+  static const _autoBackupLastFailureNotifiedAtKey =
+      'autoBackupLastFailureNotifiedAt';
 
   late Box<Stat> statsBox;
   late Box<Quest> questsBox;
@@ -320,4 +385,110 @@ class StorageService {
 
   Future<void> setCrashReportingEnabled(bool value) =>
       settingsBox.put(_crashReportingEnabledKey, value);
+
+  /// Automatic backup opt-in. Fail-closed (same rationale as
+  /// [crashReportingEnabled]): a fresh install, a restored backup (this key
+  /// is excluded from the schema), or a damaged read must never be treated
+  /// as opted-in.
+  bool get autoBackupEnabled {
+    try {
+      return settingsBox.get(_autoBackupEnabledKey) == true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// The folder the user picked for automatic backups, or `null` if never
+  /// set/cleared or the stored value is corrupted/of the wrong type.
+  String? get autoBackupDirectoryPath {
+    try {
+      final value = settingsBox.get(_autoBackupDirectoryPathKey);
+      return (value is String && value.isNotEmpty) ? value : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  AutoBackupFrequency get autoBackupFrequency {
+    try {
+      return AutoBackupFrequency.fromStored(
+        settingsBox.get(_autoBackupFrequencyKey),
+      );
+    } catch (_) {
+      return AutoBackupFrequency.daily;
+    }
+  }
+
+  DateTime? get autoBackupLastSuccessAt =>
+      _readAutoBackupDateTime(_autoBackupLastSuccessAtKey);
+
+  DateTime? get autoBackupLastAttemptAt =>
+      _readAutoBackupDateTime(_autoBackupLastAttemptAtKey);
+
+  DateTime? get autoBackupLastFailureAt =>
+      _readAutoBackupDateTime(_autoBackupLastFailureAtKey);
+
+  DateTime? get autoBackupLastFailureNotifiedAt =>
+      _readAutoBackupDateTime(_autoBackupLastFailureNotifiedAtKey);
+
+  AutoBackupFailureCode? get autoBackupLastFailureCode {
+    try {
+      return AutoBackupFailureCode.fromStored(
+        settingsBox.get(_autoBackupLastFailureCodeKey),
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Reads a stored instant, accepting either a Hive-native [DateTime] or an
+  /// ISO-8601 string (the plan allows either representation). Any other
+  /// shape, or a box read throwing outright, is treated as "unset" rather
+  /// than propagating a corrupted-settings failure into callers that just
+  /// want to know when the last automatic backup happened.
+  DateTime? _readAutoBackupDateTime(String key) {
+    try {
+      final value = settingsBox.get(key);
+      if (value is DateTime) return value;
+      if (value is String) return DateTime.tryParse(value);
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> setAutoBackupDirectoryPath(String? path) =>
+      settingsBox.put(_autoBackupDirectoryPathKey, path);
+
+  Future<void> setAutoBackupEnabled(bool value) =>
+      settingsBox.put(_autoBackupEnabledKey, value);
+
+  Future<void> setAutoBackupFrequency(AutoBackupFrequency value) =>
+      settingsBox.put(_autoBackupFrequencyKey, value.name);
+
+  /// Records a successful automatic backup. Bundled into one [Box.putAll] so
+  /// a crash between individual `put()` calls can never leave the success
+  /// timestamp updated while a stale failure marker lingers (or vice versa).
+  Future<void> recordAutoBackupSuccess(DateTime at) => settingsBox.putAll({
+    _autoBackupLastSuccessAtKey: at,
+    _autoBackupLastAttemptAtKey: at,
+    _autoBackupLastFailureCodeKey: null,
+    _autoBackupLastFailureAtKey: null,
+  });
+
+  /// Records a failed automatic backup attempt. Deliberately leaves
+  /// [autoBackupLastSuccessAt] untouched — the plan requires the last
+  /// *successful* backup to stay visible alongside a failed retry, so the
+  /// user never loses track of when data was last durably saved.
+  Future<void> recordAutoBackupFailure({
+    required DateTime attemptAt,
+    required AutoBackupFailureCode code,
+  }) => settingsBox.putAll({
+    _autoBackupLastAttemptAtKey: attemptAt,
+    _autoBackupLastFailureCodeKey: code.name,
+    _autoBackupLastFailureAtKey: attemptAt,
+  });
+
+  Future<void> recordAutoBackupFailureNotified(DateTime at) =>
+      settingsBox.put(_autoBackupLastFailureNotifiedAtKey, at);
 }

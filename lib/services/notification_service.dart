@@ -101,6 +101,7 @@ class NotificationService {
   static const _dailyReminderId = 1;
   static const _weeklyReportId = 2;
   static const _budgetExceededId = 3;
+  static const _autoBackupFailedId = 4;
   static const _windowsGuid = 'f6f4d1a0-6b7a-4b0e-9c8a-6b2b6a2e0e01';
 
   /// 주간 리포트 알림이 울리는 요일·시각 — 한 주를 마감하는 일요일 저녁.
@@ -340,6 +341,32 @@ class NotificationService {
           'budget_alert',
           '예산 알림',
           channelDescription: '월 지출이 예산을 넘으면 알려드려요.',
+        ),
+        iOS: DarwinNotificationDetails(),
+        macOS: DarwinNotificationDetails(),
+        linux: LinuxNotificationDetails(),
+      ),
+    );
+  }
+
+  /// Fires immediately when an automatic backup attempt fails. This is an
+  /// at-the-moment-of-failure ping, not a scheduled task — it has nothing to
+  /// do with `zonedSchedule()` and never runs the backup itself.
+  /// [AutoBackupController] throttles repeat calls (at most once per 24h per
+  /// plan section 3.3), so this method itself fires unconditionally each
+  /// time it's called.
+  Future<void> showAutoBackupFailed() async {
+    if (kIsWeb) return;
+    await init();
+    await _plugin.show(
+      id: _autoBackupFailedId,
+      title: '자동 백업 실패',
+      body: '자동 백업에 실패했어요. 설정에서 백업 폴더를 확인해주세요.',
+      notificationDetails: const NotificationDetails(
+        android: AndroidNotificationDetails(
+          'auto_backup_failed',
+          '자동 백업 실패',
+          channelDescription: '자동 백업이 실패하면 알려드려요.',
         ),
         iOS: DarwinNotificationDetails(),
         macOS: DarwinNotificationDetails(),

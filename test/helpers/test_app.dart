@@ -101,3 +101,40 @@ void setScreenSize(WidgetTester tester, Size size) {
   tester.view.devicePixelRatio = 1.0;
   addTearDown(tester.view.reset);
 }
+
+/// Lets a just-triggered chain of real `dart:io` calls (e.g. auto-backup's
+/// directory probe/write) actually run to completion, then flushes the
+/// resulting widget rebuild.
+///
+/// `testWidgets` runs inside a `FakeAsync` zone, so `tester.pump()`/
+/// `pumpAndSettle()` only ever advance a fake clock and flush that zone's own
+/// microtask queue — they never give the real event loop a turn. Real
+/// `dart:io` operations complete via the actual OS thread pool, and each step
+/// of a multi-step chain (write → delete, or write → rename → read) needs its
+/// own real event-loop turn before the *next* step even starts. A single
+/// `tester.runAsync(() => Future.delayed(...))` only buys one such turn, so a
+/// two-or-more-step chain stalls partway through. Alternating a short real
+/// delay with a fake-zone microtask flush, inside one `runAsync` call, lets
+/// each step unblock the next until the whole chain settles.
+///
+/// [isDone] must reflect the operation's *actual* completion — e.g.
+/// `() => !notifier.state.isBackingUp` — rather than relying purely on a
+/// fixed time budget, so this stays reliable on a slow/loaded CI runner
+/// instead of racing an arbitrary iteration count. [timeout] is only a
+/// safety net against a genuinely hung operation (a real bug), not the
+/// success condition itself.
+Future<void> settleRealIO(
+  WidgetTester tester, {
+  required bool Function() isDone,
+  Duration step = const Duration(milliseconds: 20),
+  Duration timeout = const Duration(seconds: 10),
+}) async {
+  await tester.runAsync(() async {
+    final deadline = DateTime.now().add(timeout);
+    while (!isDone() && DateTime.now().isBefore(deadline)) {
+      await Future<void>.delayed(step);
+      await tester.pump();
+    }
+  });
+  await tester.pumpAndSettle();
+}

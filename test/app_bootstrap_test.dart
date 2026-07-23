@@ -73,7 +73,7 @@ void main() {
       await tester.pumpWidget(
         AppBootstrap(
           createStorage: () => completer.future,
-          startupSequenceRunner: (refreshController, storage) async {
+          startupSequenceRunner: (refreshController, storage, {required autoBackupController}) async {
             runCount++;
           },
         ),
@@ -135,7 +135,7 @@ void main() {
     await tester.pumpWidget(
       AppBootstrap(
         createStorage: () => createTestStorage(),
-        startupSequenceRunner: (refreshController, storage) async {
+        startupSequenceRunner: (refreshController, storage, {required autoBackupController}) async {
           runCount++;
         },
       ),
@@ -182,7 +182,7 @@ void main() {
       AppBootstrap(
         createStorage: () async => storage,
         crashReporter: reporter,
-        startupSequenceRunner: (refreshController, storage) async {
+        startupSequenceRunner: (refreshController, storage, {required autoBackupController}) async {
           runCount++;
         },
       ),

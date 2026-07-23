@@ -282,7 +282,11 @@ void main() {
   });
 
   group('안전한 백업 가져오기 (미리보기·확인·중복 탭 방지)', () {
+    // 자동 백업 섹션이 추가되며 목록이 길어져, '백업 가져오기'/'백업 내보내기' 등이
+    // 기본 뷰포트의 가상화 캐시 범위 밖으로 밀려난다 — 이 그룹의 모든 테스트에서
+    // 화면을 세로로 넉넉하게 잡아 처음부터 전부 mount되도록 한다.
     testWidgets('유효한 백업은 미리보기를 보여준 뒤 확인해야만 실제로 교체된다', (tester) async {
+      setScreenSize(tester, const Size(800, 1200));
       final storage = await createTestStorage();
       await storage.saveQuest(
         Quest(
@@ -324,6 +328,7 @@ void main() {
     });
 
     testWidgets('유효하지 않은(malformed) 백업은 확인 없이 일반화된 오류만 보여준다', (tester) async {
+      setScreenSize(tester, const Size(800, 1200));
       final storage = await createTestStorage();
       await storage.saveQuest(
         Quest(
@@ -350,6 +355,7 @@ void main() {
     });
 
     testWidgets('지원하지 않는 schemaVersion 백업도 확인 없이 오류만 보여준다', (tester) async {
+      setScreenSize(tester, const Size(800, 1200));
       final storage = await createTestStorage();
       final future = jsonEncode({
         'schemaVersion': 99,
@@ -371,6 +377,7 @@ void main() {
     });
 
     testWidgets('빈 백업 내용은 확인 없이 오류만 보여준다', (tester) async {
+      setScreenSize(tester, const Size(800, 1200));
       final storage = await createTestStorage();
 
       await pumpApp(
@@ -387,6 +394,7 @@ void main() {
     });
 
     testWidgets('가져오기 버튼을 빠르게 두 번 눌러도 소스 선택이 한 번만 실행된다', (tester) async {
+      setScreenSize(tester, const Size(800, 1200));
       final storage = await createTestStorage();
       var pickCalls = 0;
       final completer = Completer<String?>();
@@ -415,6 +423,7 @@ void main() {
     });
 
     testWidgets('내보내기 버튼을 빠르게 두 번 눌러도 저장이 한 번만 실행된다', (tester) async {
+      setScreenSize(tester, const Size(800, 1200));
       final storage = await createTestStorage();
       var saveCalls = 0;
       final completer = Completer<void>();
@@ -445,6 +454,7 @@ void main() {
     testWidgets(
       'apply 실패 후 rollback이 성공하면 되돌림 메시지를 보여주고 provider가 storage와 동기화된다',
       (tester) async {
+        setScreenSize(tester, const Size(800, 1200));
         final storage = await createTestStorage();
         await storage.saveQuest(
           Quest(
@@ -506,6 +516,7 @@ void main() {
     testWidgets(
       'apply와 rollback이 모두 실패하면 강한 경고를 보여주고 provider가 storage와 동기화된다',
       (tester) async {
+        setScreenSize(tester, const Size(800, 1200));
         final storage = await createTestStorage();
         await storage.saveQuest(
           Quest(
@@ -568,6 +579,7 @@ void main() {
     );
 
     testWidgets('가져오기 소스 선택 중 예외가 나도 일반화된 오류만 보여주고 원문은 새지 않는다', (tester) async {
+      setScreenSize(tester, const Size(800, 1200));
       final storage = await createTestStorage();
       await storage.saveQuest(
         Quest(
@@ -599,6 +611,7 @@ void main() {
     });
 
     testWidgets('encode() 실패 시 일반화된 오류만 보여주고 원문은 새지 않는다', (tester) async {
+      setScreenSize(tester, const Size(800, 1200));
       final storage = await createTestStorage();
       final backupService = _ThrowingEncodeBackupService(storage: storage);
 
@@ -629,6 +642,7 @@ void main() {
     });
 
     testWidgets('저장 단계(디스크 쓰기) 실패 시 일반화된 오류만 보여주고 원문은 새지 않는다', (tester) async {
+      setScreenSize(tester, const Size(800, 1200));
       final storage = await createTestStorage();
 
       await pumpApp(
@@ -651,6 +665,7 @@ void main() {
     testWidgets('provider reload 하나가 실패해도 나머지 reload와 실패 경고 메시지가 그대로 유지된다', (
       tester,
     ) async {
+      setScreenSize(tester, const Size(800, 1200));
       final storage = _FlakyFinancialPlanStorage(inMemory: true);
       await storage.init();
       addTearDown(Hive.close);
