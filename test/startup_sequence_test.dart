@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:human_status/main.dart';
 import 'package:human_status/models/quest.dart';
@@ -14,17 +15,24 @@ import 'helpers/test_app.dart';
 /// weekly_report_toggle_test.dart와 동일한 패턴.
 class _RecordingNotificationService extends NotificationService {
   final scheduleCalls = <int>[];
+  final completionTargets = <DailyReminderQuestTarget?>[];
 
   @override
-  Future<void> init() async {}
+  Future<void> init({
+    DidReceiveNotificationResponseCallback? onDidReceiveNotificationResponse,
+    DidReceiveBackgroundNotificationResponseCallback?
+    onDidReceiveBackgroundNotificationResponse,
+  }) async {}
 
   @override
   Future<bool> scheduleDailyReminder({
     required int hour,
     required int minute,
     int activeQuestCount = 0,
+    DailyReminderQuestTarget? completionTarget,
   }) async {
     scheduleCalls.add(activeQuestCount);
+    completionTargets.add(completionTarget);
     return true;
   }
 

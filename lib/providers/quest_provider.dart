@@ -4,6 +4,7 @@ import '../data/achievement_definitions.dart';
 import '../models/quest.dart';
 import '../services/achievement_service.dart';
 import '../services/daily_summary_service.dart';
+import '../services/quest_completion_execution_lock.dart';
 import '../services/quest_priority_service.dart';
 import '../services/quest_recommendation_service.dart';
 import '../services/reward_transaction.dart';
@@ -415,14 +416,27 @@ class QuestsNotifier extends StateNotifier<List<Quest>> {
   /// any achievement newly unlocked during this call) is rolled back before
   /// the error is rethrown, so a retry after a genuine failure can never
   /// double-award.
+  ///
+  /// Also acquires [questCompletionExecutionLockProvider] *before*
+  /// [rewardLockProvider] — never the reverse, to avoid a lock-order
+  /// deadlock with the background notification-action handler, which
+  /// reuses this same method (see `notification_action_handler.dart`) and
+  /// acquires the two locks in the same order. [rewardLockProvider] alone
+  /// only serializes calls within this isolate; the execution lock is the
+  /// outer boundary meant to also cover a background isolate/process
+  /// completing a (possibly different) quest concurrently — see
+  /// `docs/plans/phase4_notification_action_plan.md` section 4.4 for why
+  /// that outer boundary is necessary and its known limits.
   Future<QuestCompletionResult> completeQuest(String id) {
-    return ref.read(rewardLockProvider).synchronized(() async {
-      final rollback = RollbackScope();
-      try {
-        return await _completeQuestLocked(id, rollback);
-      } catch (error, stackTrace) {
-        await rollback.rollbackAndThrow(error, stackTrace);
-      }
+    return ref.read(questCompletionExecutionLockProvider).synchronized(() {
+      return ref.read(rewardLockProvider).synchronized(() async {
+        final rollback = RollbackScope();
+        try {
+          return await _completeQuestLocked(id, rollback);
+        } catch (error, stackTrace) {
+          await rollback.rollbackAndThrow(error, stackTrace);
+        }
+      });
     });
   }
 

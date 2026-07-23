@@ -3,8 +3,12 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_timezone/flutter_timezone.dart';
 import 'package:timezone/data/latest_all.dart' as tz_data;
 import 'package:timezone/timezone.dart' as tz;
+import 'package:uuid/uuid.dart';
 
+import '../models/quest.dart';
 import '../utils/formatters.dart';
+import 'notification_action_payload.dart';
+import 'storage_service.dart';
 
 /// Thrown when the device's timezone identifier can't be resolved to a
 /// known IANA location. Callers must not fall back to scheduling in
@@ -81,7 +85,70 @@ typedef ZonedScheduleCall =
       required NotificationDetails notificationDetails,
       required AndroidScheduleMode androidScheduleMode,
       DateTimeComponents? matchDateTimeComponents,
+      String? payload,
     });
+
+/// The single active quest a daily reminder should offer an immediate
+/// "complete" action for. Only ever built when exactly one quest is active
+/// at schedule time — see plan section 2.3 — and folds in
+/// [StorageService.installationId] so [scheduleDailyReminderCall] has
+/// everything it needs to build a [DailyQuestNotificationPayload] without
+/// also depending on [StorageService] itself.
+class DailyReminderQuestTarget {
+  const DailyReminderQuestTarget({
+    required this.questId,
+    required this.questTitle,
+    required this.installationId,
+  });
+
+  final String questId;
+  final String questTitle;
+  final String installationId;
+}
+
+/// Builds the [DailyReminderQuestTarget] a daily reminder should carry for
+/// [activeQuests] — non-null only when there's exactly one, per plan section
+/// 2.3 ("0개: 액션 없음. 1개: 완료 액션 노출. 2개 이상: 액션 없음, 앱에서 선택하도록 안내").
+///
+/// [actionsEnabled] gates the whole feature (see
+/// [kQuestCompletionNotificationActionEnabled]) — while `false`, this always
+/// returns `null` regardless of the active-quest count, so
+/// `scheduleDailyReminderCall` never attaches an action/category/payload.
+/// Defaults to the compile-time flag; tests override it explicitly to
+/// exercise both states without flipping the production default.
+DailyReminderQuestTarget? buildDailyReminderCompletionTarget(
+  StorageService storage,
+  List<Quest> activeQuests, {
+  bool actionsEnabled = kQuestCompletionNotificationActionEnabled,
+}) {
+  if (!actionsEnabled) return null;
+  if (activeQuests.length != 1) return null;
+  final quest = activeQuests.single;
+  return DailyReminderQuestTarget(
+    questId: quest.id,
+    questTitle: quest.title,
+    installationId: storage.installationId,
+  );
+}
+
+// ============================================================================
+// WARNING — DO NOT flip this to `true` without first passing the real-device
+// cross-isolate Go/No-Go check required by
+// docs/plans/phase4_notification_action_plan.md section 4.4 (two Flutter
+// engines/isolates writing the same Hive files, verified on an actual
+// Android and iOS device/emulator — never available in this environment).
+// Until that check has passed, this MUST stay `false`.
+// ============================================================================
+/// Master switch for the whole Phase 4 "complete quest from notification"
+/// feature: attaching the completion action/category/payload to the daily
+/// reminder ([buildDailyReminderCompletionTarget]) and processing that
+/// action in the background/foreground dispatcher
+/// (`dispatchNotificationResponse`). Fail-closed default — while `false`,
+/// the daily reminder only ever gets the existing count-based body, no
+/// action/category/payload is ever attached, and the dispatcher no-ops
+/// immediately without touching storage. See plan section 11 ("롤백") for
+/// the rollback story this flag exists to support.
+const bool kQuestCompletionNotificationActionEnabled = false;
 
 /// Local (on-device) daily reminder notifications. No-op on web, where the
 /// underlying plugin has no native scheduling support.
@@ -98,11 +165,26 @@ class NotificationService {
        // ignore: prefer_initializing_formals
        _zonedScheduleCall = zonedScheduleCall;
 
-  static const _dailyReminderId = 1;
+  /// Public (not `_`-prefixed) — shared with `notification_action_handler.dart`
+  /// and its tests, which need to know exactly which id the daily reminder
+  /// uses to cancel/reschedule it. See plan section 3.1.
+  static const dailyReminderNotificationId = 1;
   static const _weeklyReportId = 2;
   static const _budgetExceededId = 3;
   static const _autoBackupFailedId = 4;
+  /// A result notification for a notification-action quest completion. Never
+  /// collides with the four ids above.
+  static const questCompletionConfirmationNotificationId = 5;
   static const _windowsGuid = 'f6f4d1a0-6b7a-4b0e-9c8a-6b2b6a2e0e01';
+
+  /// The Android notification action id for "오늘의 퀘스트 완료", shared by the
+  /// scheduler (which attaches it to a single-target daily reminder) and the
+  /// handler (which checks `NotificationResponse.actionId` against it).
+  static const completeQuestActionId = 'complete_quest';
+
+  /// The Darwin (iOS/macOS) notification category carrying
+  /// [completeQuestActionId] — see plan section 3.3.
+  static const dailyQuestCategoryId = 'daily_quest_single';
 
   /// 주간 리포트 알림이 울리는 요일·시각 — 한 주를 마감하는 일요일 저녁.
   static const weeklyReportWeekday = DateTime.sunday;
@@ -112,7 +194,15 @@ class NotificationService {
       FlutterLocalNotificationsPlugin();
   final TimezoneIdentifierResolver _timezoneIdentifierResolver;
   final ZonedScheduleCall? _zonedScheduleCall;
-  bool _initialized = false;
+  // `static`, not per-instance: the underlying [FlutterLocalNotificationsPlugin]
+  // is itself a process-wide singleton (see its `factory` constructor), so a
+  // second `NotificationService()` instance calling `init()` again must still
+  // be recognized as "already initialized" — otherwise a bare, callback-less
+  // `init()` call from an unrelated code path (e.g. `showBudgetExceeded` on a
+  // fresh instance) could silently re-run `_plugin.initialize()` and drop the
+  // background/foreground notification-response callbacks registered by the
+  // first, real init.
+  static bool _initialized = false;
 
   ZonedScheduleCall get _scheduleCall =>
       _zonedScheduleCall ?? _plugin.zonedSchedule;
@@ -121,7 +211,20 @@ class NotificationService {
   /// identifier can't be resolved — never silently schedules in UTC or the
   /// wrong zone. Does not request the notification permission; that only
   /// happens when actually scheduling a reminder.
-  Future<void> init() async {
+  ///
+  /// [onDidReceiveNotificationResponse]/[onDidReceiveBackgroundNotificationResponse]
+  /// are only ever actually registered on the *first* call to reach this
+  /// point (see [_initialized]'s doc comment) — production wires the real
+  /// dispatcher/background entry point from `main.dart`'s startup sequence,
+  /// which always runs before any other code path can call [init] with no
+  /// callbacks and win the race. Both default to `null` (no dispatch), which
+  /// is what every existing call site that doesn't care about notification
+  /// actions continues to get.
+  Future<void> init({
+    DidReceiveNotificationResponseCallback? onDidReceiveNotificationResponse,
+    DidReceiveBackgroundNotificationResponseCallback?
+    onDidReceiveBackgroundNotificationResponse,
+  }) async {
     if (kIsWeb || _initialized) return;
 
     tz_data.initializeTimeZones();
@@ -141,7 +244,28 @@ class NotificationService {
     const androidSettings = AndroidInitializationSettings(
       '@mipmap/ic_launcher',
     );
-    const darwinSettings = DarwinInitializationSettings();
+    // The single-active-quest daily reminder is the only notification that
+    // ever attaches `dailyQuestCategoryId` (see scheduleDailyReminderCall) —
+    // registering it here is required by the plugin regardless (Darwin
+    // categories/actions must be declared up front at init time, see
+    // DarwinInitializationSettings.notificationCategories's doc comment on
+    // immutability). `DarwinNotificationActionOption.foreground` is
+    // deliberately never included, so tapping the action never brings the
+    // app to the foreground (plan section 3.3).
+    // Not `const`: DarwinNotificationAction.plain is a factory constructor.
+    final darwinSettings = DarwinInitializationSettings(
+      notificationCategories: [
+        DarwinNotificationCategory(
+          dailyQuestCategoryId,
+          actions: [
+            DarwinNotificationAction.plain(
+              completeQuestActionId,
+              '오늘의 퀘스트 완료',
+            ),
+          ],
+        ),
+      ],
+    );
     const linuxSettings = LinuxInitializationSettings(
       defaultActionName: 'Open',
     );
@@ -152,13 +276,16 @@ class NotificationService {
     );
 
     await _plugin.initialize(
-      settings: const InitializationSettings(
+      settings: InitializationSettings(
         android: androidSettings,
         iOS: darwinSettings,
         macOS: darwinSettings,
         linux: linuxSettings,
         windows: windowsSettings,
       ),
+      onDidReceiveNotificationResponse: onDidReceiveNotificationResponse,
+      onDidReceiveBackgroundNotificationResponse:
+          onDidReceiveBackgroundNotificationResponse,
     );
     _initialized = true;
   }
@@ -176,7 +303,10 @@ class NotificationService {
   }
 
   /// Schedules (or reschedules) a daily reminder at [hour]:[minute]. The
-  /// notification body reflects how many quests are currently active.
+  /// notification body reflects how many quests are currently active, and —
+  /// only when [completionTarget] is given (exactly one active quest, see
+  /// [buildDailyReminderCompletionTarget]) — offers a "오늘의 퀘스트 완료" action
+  /// that completes it without opening the app (plan section 2.3).
   ///
   /// Returns false when the user denied the notification permission — the
   /// alarm is still registered, but the OS will silently swallow it, so
@@ -185,6 +315,7 @@ class NotificationService {
     required int hour,
     required int minute,
     int activeQuestCount = 0,
+    DailyReminderQuestTarget? completionTarget,
   }) async {
     if (kIsWeb) return false;
     await init();
@@ -198,6 +329,7 @@ class NotificationService {
       hour: hour,
       minute: minute,
       activeQuestCount: activeQuestCount,
+      completionTarget: completionTarget,
     );
 
     // null means the platform can't report permission (iOS/desktop) — assume
@@ -215,6 +347,7 @@ class NotificationService {
     required int hour,
     required int minute,
     int activeQuestCount = 0,
+    DailyReminderQuestTarget? completionTarget,
   }) async {
     final now = tz.TZDateTime.now(tz.local);
     var scheduled = tz.TZDateTime(
@@ -229,24 +362,51 @@ class NotificationService {
       scheduled = scheduled.add(const Duration(days: 1));
     }
 
-    final body = activeQuestCount > 0
-        ? '진행중인 퀘스트가 $activeQuestCount개 있어요!'
-        : '오늘의 퀘스트를 확인해보세요!';
+    final String body;
+    String? payload;
+    List<AndroidNotificationAction> actions = const [];
+    String? categoryIdentifier;
+
+    if (completionTarget != null) {
+      body = '${completionTarget.questTitle}을 완료했나요?';
+      payload = DailyQuestNotificationPayload(
+        actionToken: const Uuid().v4(),
+        installationId: completionTarget.installationId,
+        questId: completionTarget.questId,
+        questTitle: completionTarget.questTitle,
+        scheduledAt: DateTime.now().toUtc(),
+      ).toJsonString();
+      actions = const [
+        AndroidNotificationAction(
+          completeQuestActionId,
+          '오늘의 퀘스트 완료',
+          showsUserInterface: false,
+          cancelNotification: true,
+        ),
+      ];
+      categoryIdentifier = dailyQuestCategoryId;
+    } else if (activeQuestCount > 0) {
+      body = '진행중인 퀘스트가 $activeQuestCount개 있어요!';
+    } else {
+      body = '오늘의 퀘스트를 확인해보세요!';
+    }
 
     await _scheduleCall(
-      id: _dailyReminderId,
+      id: dailyReminderNotificationId,
       title: 'Human Status',
       body: body,
       scheduledDate: scheduled,
-      notificationDetails: const NotificationDetails(
+      payload: payload,
+      notificationDetails: NotificationDetails(
         android: AndroidNotificationDetails(
           'daily_reminder',
           '일일 리마인더',
           channelDescription: '매일 정해진 시간에 퀘스트를 알려드려요.',
+          actions: actions,
         ),
-        iOS: DarwinNotificationDetails(),
-        macOS: DarwinNotificationDetails(),
-        linux: LinuxNotificationDetails(),
+        iOS: DarwinNotificationDetails(categoryIdentifier: categoryIdentifier),
+        macOS: const DarwinNotificationDetails(),
+        linux: const LinuxNotificationDetails(),
       ),
       androidScheduleMode: androidNotificationScheduleMode,
       matchDateTimeComponents: DateTimeComponents.time,
@@ -255,7 +415,7 @@ class NotificationService {
 
   Future<void> cancelReminder() async {
     if (kIsWeb) return;
-    await _plugin.cancel(id: _dailyReminderId);
+    await _plugin.cancel(id: dailyReminderNotificationId);
   }
 
   /// Schedules (or reschedules) the weekly report notification for Sunday
@@ -373,5 +533,78 @@ class NotificationService {
         linux: LinuxNotificationDetails(),
       ),
     );
+  }
+
+  /// Reports the outcome of a notification-action quest completion — see
+  /// plan section 5. [title]/[body] are fully pre-formatted by the caller
+  /// (`notification_action_handler.dart`, which knows about stats/
+  /// achievements/goals); this method only renders them, deliberately
+  /// without ever attaching [completeQuestActionId]/[dailyQuestCategoryId] —
+  /// a result notification must never itself offer a completion action.
+  Future<void> showQuestCompletionResult({
+    required String title,
+    required String body,
+  }) async {
+    if (kIsWeb) return;
+    await init();
+    await _plugin.show(
+      id: questCompletionConfirmationNotificationId,
+      title: title,
+      body: body,
+      notificationDetails: const NotificationDetails(
+        android: AndroidNotificationDetails(
+          'quest_action_result',
+          '퀘스트 액션 결과',
+          channelDescription: '알림에서 완료한 퀘스트의 처리 결과를 알려드려요.',
+        ),
+        iOS: DarwinNotificationDetails(),
+        macOS: DarwinNotificationDetails(),
+        linux: LinuxNotificationDetails(),
+      ),
+    );
+  }
+}
+
+/// Rebuilds the daily reminder's active-quest snapshot from current storage
+/// and reschedules it under the same [NotificationService.dailyReminderNotificationId],
+/// or leaves it alone if no reminder time is configured. Never throws — a
+/// reschedule (whether after a background completion or at app startup) must
+/// never surface as a user-facing error for something already successful.
+///
+/// Shared by `main.dart`'s startup sequence and
+/// `notification_action_handler.dart`'s post-completion reschedule (plan
+/// section 2.4 point 3), so both build the exact same snapshot the same way.
+///
+/// [actionsEnabled] is forwarded to [buildDailyReminderCompletionTarget] —
+/// defaults to the compile-time [kQuestCompletionNotificationActionEnabled]
+/// flag, so a reschedule triggered while the feature is disabled never
+/// re-attaches the completion action either.
+Future<void> rescheduleDailyReminderFromStorage(
+  StorageService storage, {
+  NotificationService? notificationService,
+  bool actionsEnabled = kQuestCompletionNotificationActionEnabled,
+}) async {
+  try {
+    final profile = storage.getProfile();
+    final reminderMinutes = profile.reminderMinutesSinceMidnight;
+    if (reminderMinutes == null) return;
+
+    final service = notificationService ?? NotificationService();
+    final activeQuests = storage
+        .getQuests()
+        .where((q) => q.status == QuestStatus.active)
+        .toList();
+    await service.scheduleDailyReminder(
+      hour: reminderMinutes ~/ 60,
+      minute: reminderMinutes % 60,
+      activeQuestCount: activeQuests.length,
+      completionTarget: buildDailyReminderCompletionTarget(
+        storage,
+        activeQuests,
+        actionsEnabled: actionsEnabled,
+      ),
+    );
+  } catch (_) {
+    // Best-effort — see doc comment above.
   }
 }

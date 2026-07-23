@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hive/hive.dart';
@@ -29,13 +30,18 @@ class _ThrowingNotificationService extends NotificationService {
   int cancelCalls = 0;
 
   @override
-  Future<void> init() async {}
+  Future<void> init({
+    DidReceiveNotificationResponseCallback? onDidReceiveNotificationResponse,
+    DidReceiveBackgroundNotificationResponseCallback?
+    onDidReceiveBackgroundNotificationResponse,
+  }) async {}
 
   @override
   Future<bool> scheduleDailyReminder({
     required int hour,
     required int minute,
     int activeQuestCount = 0,
+    DailyReminderQuestTarget? completionTarget,
   }) async {
     scheduleCalls++;
     if (permissionDenied) return false;
@@ -72,13 +78,18 @@ class _StatefulNotificationService extends NotificationService {
   int cancelCalls = 0;
 
   @override
-  Future<void> init() async {}
+  Future<void> init({
+    DidReceiveNotificationResponseCallback? onDidReceiveNotificationResponse,
+    DidReceiveBackgroundNotificationResponseCallback?
+    onDidReceiveBackgroundNotificationResponse,
+  }) async {}
 
   @override
   Future<bool> scheduleDailyReminder({
     required int hour,
     required int minute,
     int activeQuestCount = 0,
+    DailyReminderQuestTarget? completionTarget,
   }) async {
     scheduledMinutes = hour * 60 + minute;
     scheduleHistory.add(scheduledMinutes!);

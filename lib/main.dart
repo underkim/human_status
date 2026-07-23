@@ -1,9 +1,9 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'models/quest.dart';
 import 'providers/auto_backup_provider.dart';
 import 'providers/financial_advisor_provider.dart';
 import 'providers/observability_provider.dart';
@@ -14,6 +14,7 @@ import 'screens/home_shell.dart';
 import 'services/auto_backup_controller.dart';
 import 'services/crash_reporting_service.dart';
 import 'services/daily_refresh_controller.dart';
+import 'services/notification_action_handler.dart';
 import 'services/notification_service.dart';
 import 'services/storage_service.dart';
 import 'theme/app_theme.dart';
@@ -384,26 +385,57 @@ Future<void> runStartupSequence(
   );
 }
 
+/// Routes a foreground notification tap/action through the same
+/// `dispatchNotificationResponse` the background entry point uses (plan
+/// section 4.1) — a plain body tap (no `actionId`) is a no-op here exactly
+/// like the background path, since opening the app is already the OS's
+/// default behavior for tapping a notification and needs no extra code.
+/// Fire-and-forget: the plugin's callback type is synchronous (`void
+/// Function(NotificationResponse)`), so the dispatch's own `Future` is
+/// intentionally not awaited here.
+///
+/// Unlike the background entry point, this reuses [storage] — the single
+/// long-lived instance the running app is already built on — instead of
+/// opening a new one, and never closes it. This callback fires in the same
+/// isolate as the rest of the running app, so a fresh `StorageService` that
+/// later called `close()` (as the background path does) would tear down the
+/// Hive singleton the live app UI still depends on. See
+/// `dispatchNotificationResponse`'s doc comment for the full explanation.
+void _dispatchForegroundNotificationResponse(
+  NotificationResponse response,
+  StorageService storage,
+) {
+  unawaited(
+    dispatchNotificationResponse(
+      response,
+      createStorage: () async => storage,
+      closeStorage: false,
+    ),
+  );
+}
+
+/// Registers the notification-action dispatcher (both the foreground
+/// callback and the background entry point, see
+/// `notification_action_handler.dart`) and (re)schedules the daily reminder
+/// and weekly report from current storage. This is always the first code
+/// path to call [NotificationService.init] each app run — see that method's
+/// doc comment on why callback registration depends on that ordering.
 Future<void> scheduleNotifications(
   StorageService storage, {
   NotificationService? notificationService,
 }) async {
   try {
     final service = notificationService ?? NotificationService();
-    await service.init();
+    await service.init(
+      onDidReceiveNotificationResponse: (response) =>
+          _dispatchForegroundNotificationResponse(response, storage),
+      onDidReceiveBackgroundNotificationResponse: notificationTapBackground,
+    );
+    await rescheduleDailyReminderFromStorage(
+      storage,
+      notificationService: service,
+    );
     final profile = storage.getProfile();
-    final reminderMinutes = profile.reminderMinutesSinceMidnight;
-    if (reminderMinutes != null) {
-      final activeQuestCount = storage
-          .getQuests()
-          .where((q) => q.status == QuestStatus.active)
-          .length;
-      await service.scheduleDailyReminder(
-        hour: reminderMinutes ~/ 60,
-        minute: reminderMinutes % 60,
-        activeQuestCount: activeQuestCount,
-      );
-    }
     if (profile.weeklyReportReminderEnabled) {
       await service.scheduleWeeklyReportReminder();
     }

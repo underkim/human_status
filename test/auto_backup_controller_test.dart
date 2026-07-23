@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hive/hive.dart';
 import 'package:human_status/services/auto_backup_controller.dart';
@@ -15,7 +16,11 @@ class _RecordingNotificationService extends NotificationService {
   int showAutoBackupFailedCalls = 0;
 
   @override
-  Future<void> init() async {}
+  Future<void> init({
+    DidReceiveNotificationResponseCallback? onDidReceiveNotificationResponse,
+    DidReceiveBackgroundNotificationResponseCallback?
+    onDidReceiveBackgroundNotificationResponse,
+  }) async {}
 
   @override
   Future<void> showAutoBackupFailed() async {

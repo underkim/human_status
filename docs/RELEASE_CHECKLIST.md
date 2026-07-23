@@ -304,6 +304,14 @@ CI와 로컬 모두 에뮬레이터/시뮬레이터 이상의 실기기 검증�
       확인한다
 - [ ] 두 플랫폼 모두 저전력 모드/배터리 최적화 상태에서도 예약된 알림이
       과도하게 지연되지 않는지 확인한다
+- [ ] **Phase 4 알림 액션(알림에서 바로 퀘스트 완료) 게이트** —
+      `docs/plans/phase4_notification_action_plan.md` 4.4절이 요구하는
+      실기기 cross-isolate 검증(두 Flutter 엔진이 같은 Hive 파일을 동시에
+      쓰는 상황)을 통과하기 전까지는
+      `lib/services/notification_service.dart`의
+      `kQuestCompletionNotificationActionEnabled`를 `true`로 바꾸지 않는다.
+      이 검증을 통과하고 플래그를 켜기 전에는 이 기능(알림의 완료 액션,
+      백그라운드/포그라운드 완료 처리)을 배포하지 않는다.
 
 이 여섯 가지가 모두 끝나야 "모바일 스토어 출시 준비 완료"라고 말할 수
 있습니다. 그 전까지는 Windows/Web 아티팩트만 배포 가능한 상태입니다.

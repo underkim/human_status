@@ -529,10 +529,22 @@ void main() {
       final notifier = container.read(questsProvider.notifier);
 
       storage.deleteQuestCalls = 0;
-      await Future.wait([
-        notifier.completeQuest('q1'),
-        notifier.deleteQuest('q1'),
-      ]);
+      // completeQuest() now acquires questCompletionExecutionLockProvider
+      // *before* rewardLockProvider (see plan section 4.4) — unlike
+      // deleteQuest(), which only ever touches rewardLockProvider directly.
+      // That extra lock's own acquisition is itself async (a real microtask
+      // hop even on the uncontested fast path), so completeQuest() no
+      // longer claims rewardLockProvider's queue slot synchronously inline
+      // the instant it's called. A bare `Future.wait([complete(), delete()])`
+      // would let delete's synchronous, hop-free claim win the queue even
+      // though complete was dispatched first. Yielding once here lets
+      // complete actually reach and claim its rewardLockProvider queue slot
+      // before delete is dispatched, restoring "dispatched first ==
+      // acquires first" determinism for this specific pairing.
+      final completeFuture = notifier.completeQuest('q1');
+      await Future<void>.delayed(Duration.zero);
+      final deleteFuture = notifier.deleteQuest('q1');
+      await Future.wait([completeFuture, deleteFuture]);
 
       final result = storage.getQuest('q1');
       expect(result, isNotNull);

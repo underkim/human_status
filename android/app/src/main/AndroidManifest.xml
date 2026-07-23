@@ -45,6 +45,15 @@
                 <action android:name="com.htc.intent.action.QUICKBOOT_POWERON"/>
             </intent-filter>
         </receiver>
+
+        <!-- Delivers a tapped notification action (e.g. "오늘의 퀘스트 완료") to the
+             plugin's background isolate dispatcher even when the app process
+             isn't running. Required for showsUserInterface: false actions —
+             see notification_action_handler.dart and
+             docs/plans/phase4_notification_action_plan.md section 6. -->
+        <receiver
+            android:exported="false"
+            android:name="com.dexterous.flutterlocalnotifications.ActionBroadcastReceiver" />
     </application>
 
     <!-- RECEIVE_BOOT_COMPLETED lets the receiver above run. NotificationService

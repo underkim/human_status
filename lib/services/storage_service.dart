@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:hive_flutter/hive_flutter.dart';
+import 'package:uuid/uuid.dart';
 
 import '../models/asset_snapshot.dart';
 import '../models/financial_plan.dart';
@@ -10,6 +12,38 @@ import '../models/stat.dart';
 import '../models/transaction.dart';
 import '../models/user_profile.dart';
 import 'secret_store.dart';
+
+/// The outcome the background notification-action handler (or the UI path)
+/// last recorded for one `actionToken`. See
+/// `docs/plans/phase4_notification_action_plan.md` section 4.5 — this alone
+/// never guarantees exactly-once completion; the real guarantee comes from
+/// [QuestCompletionExecutionLock] plus re-validating the quest's current
+/// [QuestStatus] inside that lock. This is only a best-effort fast dedupe so
+/// a redelivered/double-tapped action doesn't even attempt a second run.
+enum ActionTokenStatus {
+  processing,
+  completed,
+  failed;
+
+  static ActionTokenStatus? fromStored(Object? value) {
+    if (value is! String) return null;
+    for (final s in values) {
+      if (s.name == value) return s;
+    }
+    return null;
+  }
+}
+
+/// A stored [ActionTokenStatus] plus the instant it was recorded at, so a
+/// caller can tell a fresh `processing` mark (still likely in-flight) apart
+/// from a stale one left behind by a process that died mid-transaction — see
+/// [StorageService.actionTokenProcessingExpiry].
+class ActionTokenRecord {
+  const ActionTokenRecord({required this.status, required this.at});
+
+  final ActionTokenStatus status;
+  final DateTime at;
+}
 
 /// How often a due automatic backup should run. Device-local — never part of
 /// [BackupService.encode()]'s output (see [StorageService.settingsBox]'s
@@ -90,6 +124,16 @@ class StorageService {
   static const _autoBackupLastFailureAtKey = 'autoBackupLastFailureAt';
   static const _autoBackupLastFailureNotifiedAtKey =
       'autoBackupLastFailureNotifiedAt';
+
+  static const _installationIdKey = 'installationId';
+  static const _actionTokenKeyPrefix = 'notificationActionToken:';
+
+  /// How long a `processing` mark is trusted before a redelivered action is
+  /// allowed to re-evaluate the quest instead of being ignored outright —
+  /// long enough to cover a real in-flight completion, short enough that a
+  /// process that died mid-transaction doesn't block the user forever. See
+  /// plan section 4.5.
+  static const actionTokenProcessingExpiry = Duration(minutes: 2);
 
   late Box<Stat> statsBox;
   late Box<Quest> questsBox;
@@ -491,4 +535,107 @@ class StorageService {
 
   Future<void> recordAutoBackupFailureNotified(DateTime at) =>
       settingsBox.put(_autoBackupLastFailureNotifiedAtKey, at);
+
+  /// Stable per-install identifier, generated once and persisted in
+  /// [settingsBox]. Used to reject a notification payload scheduled by a
+  /// previous install (see plan section 3.2/edge cases) — a fresh install
+  /// gets a new id, so any leftover OS notification from before an
+  /// uninstall/reinstall no-ops instead of acting on stale/foreign state.
+  ///
+  /// Generates and persists a new id on first read if none exists yet. The
+  /// persist is fire-and-forget: Hive's in-memory keystore is updated
+  /// synchronously inside [Box.put] before its disk flush completes, so an
+  /// immediately-following read already sees the new value even though this
+  /// getter itself can't be `async`. A failure to durably persist only means
+  /// a *new* id might be generated again on the next cold start — never a
+  /// correctness problem, only a slightly stricter (never looser) foreign-
+  /// payload check.
+  String get installationId {
+    final existing = settingsBox.get(_installationIdKey);
+    if (existing is String && existing.isNotEmpty) return existing;
+
+    final generated = const Uuid().v4();
+    unawaited(settingsBox.put(_installationIdKey, generated).catchError((_) {}));
+    return generated;
+  }
+
+  String _actionTokenKey(String token) => '$_actionTokenKeyPrefix$token';
+
+  /// The last recorded status for [token], or `null` if never recorded or
+  /// the stored record is corrupted/of an unexpected shape.
+  ActionTokenRecord? getActionTokenRecord(String token) {
+    try {
+      final raw = settingsBox.get(_actionTokenKey(token));
+      if (raw is! Map) return null;
+      final status = ActionTokenStatus.fromStored(raw['status']);
+      final atRaw = raw['at'];
+      final at = atRaw is DateTime
+          ? atRaw
+          : (atRaw is String ? DateTime.tryParse(atRaw) : null);
+      if (status == null || at == null) return null;
+      return ActionTokenRecord(status: status, at: at);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> recordActionToken(
+    String token,
+    ActionTokenStatus status,
+    DateTime at,
+  ) => settingsBox.put(_actionTokenKey(token), {
+    'status': status.name,
+    'at': at,
+  });
+
+  /// Closes every box this instance opened. Intended for the background
+  /// notification-action handler's temporary [StorageService], which must
+  /// not leave file handles open once the completion attempt finishes — the
+  /// long-lived main-isolate instance never calls this.
+  Future<void> close() async {
+    await Hive.close();
+  }
+
+  /// Closes and reopens every box, discarding this isolate's in-memory Hive
+  /// cache and forcing a fresh read from disk on the next access. Intended
+  /// for `AppLifecycleState.resumed`, to resync after a background isolate
+  /// may have written to the same underlying files while this isolate's app
+  /// was backgrounded — see plan section 4.4 point 6. A no-op for
+  /// [inMemory] storage (nothing on disk to resync from) and for secure
+  /// storage/the cached Claude API key, which this does not touch.
+  ///
+  /// Whether this reopen is actually *necessary* on every platform this app
+  /// ships on — i.e. whether a Hive 2.2.3 box opened in one isolate can ever
+  /// observe another isolate's writes without one — was not verified against
+  /// a real second engine/isolate in this environment (no Android/iOS
+  /// device or emulator available here). Nothing calls this yet — it is not
+  /// wired into `AppLifecycleState.resumed` or any other call site. It is
+  /// intentionally left unconnected until the Phase 4 plan's section 4.4
+  /// Go/No-Go cross-isolate check has actually passed on real devices; wire
+  /// it in only after that.
+  Future<void> reopenForExternalChanges() async {
+    if (inMemory) return;
+
+    await statsBox.close();
+    await questsBox.close();
+    await profileBox.close();
+    await achievementsBox.close();
+    await goalsBox.close();
+    await transactionsBox.close();
+    await assetSnapshotsBox.close();
+    await financialPlanBox.close();
+    await settingsBox.close();
+
+    statsBox = await Hive.openBox<Stat>(statsBoxName);
+    questsBox = await Hive.openBox<Quest>(questsBoxName);
+    profileBox = await Hive.openBox<UserProfile>(profileBoxName);
+    achievementsBox = await Hive.openBox<DateTime>(achievementsBoxName);
+    goalsBox = await Hive.openBox<Goal>(goalsBoxName);
+    transactionsBox = await Hive.openBox<Transaction>(transactionsBoxName);
+    assetSnapshotsBox = await Hive.openBox<AssetSnapshot>(
+      assetSnapshotsBoxName,
+    );
+    financialPlanBox = await Hive.openBox<FinancialPlan>(financialPlanBoxName);
+    settingsBox = await Hive.openBox<dynamic>(settingsBoxName);
+  }
 }
