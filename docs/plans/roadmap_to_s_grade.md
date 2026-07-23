@@ -42,8 +42,12 @@
   - ⚠️ [TODO] 배포 전 필수: kQuestCompletionNotificationActionEnabled(기본값 false)는
     Android/iOS 실기기 cross-isolate Hive 동시성 검증을 통과하기 전까지 true로
     바꾸면 안 됨(XP 중복 지급 위험). RELEASE_CHECKLIST.md에 게이트 문서화됨
-- [ ] Phase 5 — 감성적 훅 강화 (마이크로 애니메이션, 공유 카드)
+- [~] Phase 5 — 감성적 훅 강화 (마이크로 애니메이션, 공유 카드)
   - 상세 계획: [`docs/plans/phase5_delight_polish_plan.md`](phase5_delight_polish_plan.md)
+  - Part A(마이크로 애니메이션) 완료: 커밋 443c893. QuestCompletionButton,
+    CelebrationDialogShell, 레벨업/업적 다이얼로그 애니메이션, flutter test 985개 통과
+  - [보류] Part B(완료/레벨업 공유 카드)는 share_plus 등 의존성·플랫폼 검증 필요로
+    별도 Phase. 진입 조건은 계획 문서 3.4절 참조
 - [ ] Phase 6 — 엔지니어링 마감 (파일 분할, 접근성, 데스크톱 단축키)
   - 상세 계획: [`docs/plans/phase6_engineering_polish_plan.md`](phase6_engineering_polish_plan.md)
 

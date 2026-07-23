@@ -35,11 +35,11 @@ S급은 기능 수가 많은 상태가 아니라 아래 네 축의 게이트를 
 | 2 | 완료 | `docs/plans/phase2_auto_backup_plan.md` | Windows/Linux에 실패 폐쇄형 자동 백업 제공 | Phase 1 settings storage | 자동 백업 service/provider/UI/테스트; 커밋 `8dbefa9` |
 | 3 | 대기 | `docs/plans/phase3_production_release_plan.md` | 서명·개인정보·실기기·스토어 자산·릴리즈 증적의 배포 블로커 해소 | Phase 1, 2, 4 결과 및 계정/실기기/서명 owner | readiness 통과, signed artifacts, 6플랫폼 증적, 스토어 제출 후보, release evidence index |
 | 4 | 완료(기능 플래그 제한) | `docs/plans/phase4_notification_action_plan.md` | 알림에서 퀘스트를 정확히 한 번 완료하는 경로 구현 | Phase 1/2 storage 안정성 | typed payload, execution lock, dedupe/dispatcher/tests; 커밋 `7d4aca9`; 플래그는 `false` |
-| 5 | 진행 | `docs/plans/phase5_delight_polish_plan.md` | 외부 패키지 없이 완료·레벨업·업적의 접근 가능한 마이크로 인터랙션 강화 | Phase 4 완료 흐름 | `QuestCompletionButton`, `CelebrationDialogShell`, 회귀/모션/semantics 테스트; 공유 카드는 제외 |
+| 5 | Part A 완료 / Part B 보류 | `docs/plans/phase5_delight_polish_plan.md` | 외부 패키지 없이 완료·레벨업·업적의 접근 가능한 마이크로 인터랙션 강화 | Phase 4 완료 흐름 | `QuestCompletionButton`, `CelebrationDialogShell`, 회귀/모션/semantics 테스트; 커밋 `443c893`; 공유 카드(Part B)는 별도 Phase 보류 |
 | 6 | 대기 | `docs/plans/phase6_engineering_polish_plan.md` | 동작 고정 후 파일 분할, 접근성, 데스크톱 단축키 마감 | Phase 5 UI 계약 확정 | 책임별 파일, a11y harness/개선, typed shortcuts, 6플랫폼 QA 기록 |
 
-Phase 3 계획 문서와 Phase 6 계획 문서는 현재 untracked다. “계획이 존재함”과 “Phase가
-완료됨”을 혼동하지 않는다. Phase 4의 홈 화면 위젯은 네이티브 Kotlin/Swift 및
+Phase 3/5/6 계획 문서와 마스터 플레이북·`tool/verify_phase.sh`는 커밋 `6efdedc`/`443c893`로
+tracked 상태다. “계획이 존재함”과 “Phase가 완료됨”을 혼동하지 않는다. Phase 4의 홈 화면 위젯은 네이티브 Kotlin/Swift 및
 Xcode/실기기 검증 제약으로 별도 Phase에 보류되었다.
 
 ## 3. 현재 상태 스냅샷
