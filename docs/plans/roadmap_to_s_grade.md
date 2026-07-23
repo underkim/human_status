@@ -23,7 +23,11 @@
   - Codex 리뷰 3회 반복(반려→부분해소→최종 승인). dart analyze 0건, flutter test 834개 통과
   - [TODO] 배포 전: 실제 Sentry 계정/DSN, 개인정보처리방침 문의처/보관기간 확정,
     Android/iOS/macOS/Linux 실기기 빌드 검증, Windows Release 네이티브 빌드 재검증
-- [ ] Phase 2 — 클라우드 백업/동기화
+- [x] Phase 2 — 자동 백업 (완료: 커밋 8dbefa9, 2026-07-23)
+  - Windows/Linux만 지원(현실적 범위 조정), Android/iOS/macOS/Web은 기존 수동 백업 유지
+  - Claude Code 자체 검증 미흡으로 재작업 2회, Codex 리뷰 1회(조건부통과→Should-fix 2건→승인)
+  - dart analyze 0건, flutter test 909개 통과
+  - [TODO] Windows/Linux 실기기 검증, Flatpak/Snap 패키징 검증, macOS는 별도 Phase
 - [ ] Phase 3 — 프로덕션 배포 블로커 해소 (서명, 실기기 검증, 스토어 자산)
 - [ ] Phase 4 — 알림 액션 완료 + 홈 화면 위젯
 - [ ] Phase 5 — 감성적 훅 강화 (마이크로 애니메이션, 공유 카드)
