@@ -75,6 +75,7 @@ ReleaseReadinessReport checkReleaseReadiness(
     ..._checkMacosBundleId(root),
     ..._checkLinuxApplicationId(root),
     ..._checkVersion(root),
+    ..._checkPrivacyPolicy(root),
   ];
   return ReleaseReadinessReport(issues);
 }
@@ -682,4 +683,58 @@ List<ReleaseReadinessIssue> _checkVersion(Directory root) {
   }
 
   return [];
+}
+
+/// Non-secret drift check for `docs/privacy_policy.md`: flags the
+/// still-a-draft title/banner and any remaining `[TODO: ...]` placeholder,
+/// matching the manual gate `phase3_production_release_plan.md` 3.6절
+/// describes (`rg -n '\[TODO|초안' docs/privacy_policy.md` must report 0
+/// hits before release). This never inspects Sentry/account credentials --
+/// only the checked-in Markdown text -- so it's safe to run in any CI job
+/// without secrets.
+List<ReleaseReadinessIssue> _checkPrivacyPolicy(Directory root) {
+  const path = 'docs/privacy_policy.md';
+  final file = _file(root, path);
+  if (!file.existsSync()) {
+    return [
+      ReleaseReadinessIssue(
+        id: 'privacy_policy_missing',
+        category: 'privacy',
+        message:
+            '$path 파일을 찾을 수 없습니다. 앱의 "데이터 및 개인정보" 화면이 '
+            '참조하는 문서가 없으면 실제 배포에서 링크가 깨집니다.',
+        filePath: path,
+      ),
+    ];
+  }
+
+  final content = file.readAsStringSync();
+  final todoCount = RegExp(r'\[TODO[:\]]').allMatches(content).length;
+  final issues = <ReleaseReadinessIssue>[];
+  if (todoCount > 0) {
+    issues.add(
+      ReleaseReadinessIssue(
+        id: 'privacy_policy_todo_remaining',
+        category: 'privacy',
+        message:
+            '$path 에 [TODO: ...] 표시가 $todoCount개 남아 있습니다. 운영자가 '
+            '승인한 실제 값(문의처, 시행일, Sentry 운영 법인/region/보관기간 등)으로 '
+            '모두 채워야 배포할 수 있습니다.',
+        filePath: path,
+      ),
+    );
+  }
+  if (content.contains('(초안)') || content.contains('이 문서는 초안입니다')) {
+    issues.add(
+      ReleaseReadinessIssue(
+        id: 'privacy_policy_draft_marker',
+        category: 'privacy',
+        message:
+            '$path 제목/안내문에 "초안" 표시가 남아 있습니다. 운영자 승인 후 '
+            '이 표시를 제거해야 배포할 수 있습니다.',
+        filePath: path,
+      ),
+    );
+  }
+  return issues;
 }

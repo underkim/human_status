@@ -60,6 +60,18 @@ abstract class QuestCompletionLockBackend {
 /// [lockFilePathResolver] is resolved lazily (and cached) on first
 /// [acquire] rather than eagerly, so constructing this backend never itself
 /// requires an async plugin call.
+///
+/// CAVEAT ABOVE FIXED IN-PROCESS: the OS-level advisory lock alone cannot
+/// exclude two callers *inside this same process/isolate* on Linux/macOS
+/// (see caveat above) — a second `open()+lock()` from the very same process
+/// simply succeeds instead of blocking, since the process already holds the
+/// lock. Two same-isolate callers racing `QuestCompletionExecutionLock`
+/// directly (before ever reaching the separate `rewardLockProvider`) must
+/// still be serialized, so this backend layers an in-process FIFO queue
+/// (identical in spirit to [InMemoryQuestCompletionLockBackend]) *underneath*
+/// the OS file lock: only one in-process caller attempts the file lock at a
+/// time, and the OS lock remains the only thing that excludes genuinely
+/// separate processes from each other.
 class FileQuestCompletionLockBackend implements QuestCompletionLockBackend {
   FileQuestCompletionLockBackend(
     this.lockFilePathResolver, {
@@ -73,38 +85,88 @@ class FileQuestCompletionLockBackend implements QuestCompletionLockBackend {
 
   Future<String> get _lockFilePath => _pathFuture ??= lockFilePathResolver();
 
+  // In-process FIFO gate, mirroring InMemoryQuestCompletionLockBackend: grants
+  // exactly one caller in this isolate the right to attempt the OS file lock
+  // at a time.
+  bool _inProcessLocked = false;
+  final _inProcessWaiters = <Completer<void>>[];
+
+  Future<void> _acquireInProcessSlot(DateTime deadline) async {
+    if (!_inProcessLocked) {
+      // No `await` between the check and the flip — nothing else can
+      // interleave here under Dart's single-threaded-per-isolate guarantee.
+      _inProcessLocked = true;
+      return;
+    }
+
+    final waiter = Completer<void>();
+    _inProcessWaiters.add(waiter);
+    final remaining = deadline.difference(DateTime.now());
+    if (remaining.isNegative || remaining == Duration.zero) {
+      _inProcessWaiters.remove(waiter);
+      throw const QuestCompletionLockTimeoutException();
+    }
+    try {
+      await waiter.future.timeout(remaining);
+    } on TimeoutException {
+      _inProcessWaiters.remove(waiter);
+      throw const QuestCompletionLockTimeoutException();
+    }
+    // The waiter was handed the slot directly (FIFO) by
+    // `_releaseInProcessSlot` — re-checking `_inProcessLocked` here would
+    // wrongly send an already-granted waiter back through the queue.
+  }
+
+  void _releaseInProcessSlot() {
+    _inProcessLocked = false;
+    if (_inProcessWaiters.isNotEmpty) {
+      _inProcessLocked = true;
+      _inProcessWaiters.removeAt(0).complete();
+    }
+  }
+
   @override
   Future<QuestCompletionLockHandle> acquire(DateTime deadline) async {
-    final path = await _lockFilePath;
-    while (true) {
-      RandomAccessFile? raf;
-      try {
-        // writeOnlyAppend: creates the file if missing, never truncates it —
-        // this file's only purpose is to be lock()ed, its contents (if any)
-        // are irrelevant, but truncating it on every open (as FileMode.write
-        // would) is needless churn on a file another process might currently
-        // hold open.
-        raf = await File(path).open(mode: FileMode.writeOnlyAppend);
-        // Non-blocking: throws immediately if another process holds the
-        // lock, instead of queuing indefinitely inside the OS/event loop
-        // where a later successful-but-abandoned acquisition could leak.
-        await raf.lock(FileLock.exclusive);
-        return _FileLockHandle(raf);
-      } on FileSystemException {
-        await raf?.close();
-        if (!DateTime.now().isBefore(deadline)) {
-          throw const QuestCompletionLockTimeoutException();
+    await _acquireInProcessSlot(deadline);
+    try {
+      final path = await _lockFilePath;
+      while (true) {
+        RandomAccessFile? raf;
+        try {
+          // writeOnlyAppend: creates the file if missing, never truncates it
+          // — this file's only purpose is to be lock()ed, its contents (if
+          // any) are irrelevant, but truncating it on every open (as
+          // FileMode.write would) is needless churn on a file another
+          // process might currently hold open.
+          raf = await File(path).open(mode: FileMode.writeOnlyAppend);
+          // Non-blocking: throws immediately if another process holds the
+          // lock, instead of queuing indefinitely inside the OS/event loop
+          // where a later successful-but-abandoned acquisition could leak.
+          await raf.lock(FileLock.exclusive);
+          return _FileLockHandle(raf, this);
+        } on FileSystemException {
+          await raf?.close();
+          if (!DateTime.now().isBefore(deadline)) {
+            throw const QuestCompletionLockTimeoutException();
+          }
+          await Future<void>.delayed(pollInterval);
         }
-        await Future<void>.delayed(pollInterval);
       }
+    } catch (_) {
+      // The in-process slot must not leak if the OS-level acquisition
+      // itself fails (e.g. timed out) — a later caller must still be able
+      // to proceed.
+      _releaseInProcessSlot();
+      rethrow;
     }
   }
 }
 
 class _FileLockHandle implements QuestCompletionLockHandle {
-  _FileLockHandle(this._raf);
+  _FileLockHandle(this._raf, this._backend);
 
   final RandomAccessFile _raf;
+  final FileQuestCompletionLockBackend _backend;
   bool _released = false;
 
   @override
@@ -115,6 +177,7 @@ class _FileLockHandle implements QuestCompletionLockHandle {
       await _raf.unlock();
     } finally {
       await _raf.close();
+      _backend._releaseInProcessSlot();
     }
   }
 }
@@ -236,11 +299,11 @@ Future<String> defaultQuestCompletionLockFilePathResolver() async {
 /// backend everywhere else.
 final questCompletionExecutionLockProvider =
     Provider<QuestCompletionExecutionLock>((ref) {
-  final storage = ref.watch(storageServiceProvider);
-  final backend = (storage.inMemory || kIsWeb)
-      ? InMemoryQuestCompletionLockBackend()
-      : FileQuestCompletionLockBackend(
-          defaultQuestCompletionLockFilePathResolver,
-        );
-  return QuestCompletionExecutionLock(backend: backend);
-});
+      final storage = ref.watch(storageServiceProvider);
+      final backend = (storage.inMemory || kIsWeb)
+          ? InMemoryQuestCompletionLockBackend()
+          : FileQuestCompletionLockBackend(
+              defaultQuestCompletionLockFilePathResolver,
+            );
+      return QuestCompletionExecutionLock(backend: backend);
+    });

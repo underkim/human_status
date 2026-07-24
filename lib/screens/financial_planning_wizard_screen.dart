@@ -3,11 +3,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/financial_plan.dart';
 import '../providers/financial_planning_provider.dart';
-import '../services/financial_planning_service.dart';
-import '../theme/app_colors.dart';
 import '../theme/app_spacing.dart';
-import '../utils/formatters.dart';
 import '../widgets/page_content_bounds.dart';
+import 'financial_planning/goal_select_step.dart';
+import 'financial_planning/home_purchase_step.dart';
+import 'financial_planning/result_step.dart';
+import 'financial_planning/retirement_step.dart';
+import 'financial_planning/return_rate_step.dart';
 
 /// Identifies what a built [Step] actually asks for, in the same order
 /// [_FinancialPlanningWizardScreenState._buildSteps] assembles them —
@@ -33,7 +35,6 @@ class _FinancialPlanningWizardScreenState
   int _currentStep = 0;
   bool _calculated = false;
   bool _isSaving = false;
-  Set<String> _creatingGoalTitles = {};
 
   bool _retirementEnabled = false;
   bool _homePurchaseEnabled = false;
@@ -202,40 +203,17 @@ class _FinancialPlanningWizardScreenState
       Step(
         title: const Text('목표 선택'),
         isActive: _currentStep >= 0,
-        content: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              '계획하고 싶은 목표를 선택하세요. 두 목표를 함께 계산할 수도 있어요.',
-              style: Theme.of(context).textTheme.bodyMedium,
-            ),
-            const SizedBox(height: AppSpacing.md),
-            Card(
-              child: CheckboxListTile(
-                secondary: const Icon(Icons.beach_access_outlined),
-                title: const Text('은퇴 준비'),
-                subtitle: const Text('은퇴 시점과 필요한 생활비를 기준으로 계산해요.'),
-                value: _retirementEnabled,
-                onChanged: (v) => setState(() {
-                  _retirementEnabled = v ?? false;
-                  _calculated = false;
-                }),
-              ),
-            ),
-            const SizedBox(height: AppSpacing.sm),
-            Card(
-              child: CheckboxListTile(
-                secondary: const Icon(Icons.home_work_outlined),
-                title: const Text('주택 구입'),
-                subtitle: const Text('목표 시점과 마련할 금액을 기준으로 계산해요.'),
-                value: _homePurchaseEnabled,
-                onChanged: (v) => setState(() {
-                  _homePurchaseEnabled = v ?? false;
-                  _calculated = false;
-                }),
-              ),
-            ),
-          ],
+        content: GoalSelectStep(
+          retirementEnabled: _retirementEnabled,
+          homePurchaseEnabled: _homePurchaseEnabled,
+          onRetirementChanged: (v) => setState(() {
+            _retirementEnabled = v;
+            _calculated = false;
+          }),
+          onHomePurchaseChanged: (v) => setState(() {
+            _homePurchaseEnabled = v;
+            _calculated = false;
+          }),
         ),
       ),
     ];
@@ -247,57 +225,14 @@ class _FinancialPlanningWizardScreenState
         Step(
           title: const Text('은퇴 준비'),
           isActive: _currentStep >= steps.length,
-          content: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              TextField(
-                controller: _currentAgeController,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(labelText: '현재 나이'),
-                onChanged: (_) => setState(() => _calculated = false),
-              ),
-              const SizedBox(height: 8),
-              TextField(
-                controller: _retirementAgeController,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(labelText: '목표 은퇴 나이'),
-                onChanged: (_) => setState(() => _calculated = false),
-              ),
-              const SizedBox(height: 8),
-              TextField(
-                controller: _monthlyLivingCostController,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(labelText: '은퇴 후 월 생활비'),
-                onChanged: (_) => setState(() => _calculated = false),
-              ),
-              const SizedBox(height: 8),
-              TextField(
-                controller: _retirementSavingsController,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(
-                  labelText: '이미 모아둔 은퇴자금 (선택)',
-                ),
-                onChanged: (_) => setState(() => _calculated = false),
-              ),
-              if (monthlyLivingCost != null && monthlyLivingCost > 0) ...[
-                const SizedBox(height: 8),
-                Text(
-                  '필요 은퇴자금(월 생활비 × 12 × 25 공식): '
-                  '${formatWon(FinancialPlanningService.requiredRetirementFund(monthlyLivingCost))}',
-                  style: const TextStyle(fontWeight: FontWeight.bold),
-                ),
-              ],
-              if (!_isRetirementStepValid()) ...[
-                const SizedBox(height: 8),
-                Text(
-                  '나이(1~119), 현재 나이보다 큰 목표 은퇴 나이, 0보다 큰 월 생활비를 모두 입력해야 다음으로 넘어갈 수 있어요.',
-                  style: TextStyle(
-                    color: Theme.of(context).colorScheme.error,
-                    fontSize: 12,
-                  ),
-                ),
-              ],
-            ],
+          content: RetirementStep(
+            currentAgeController: _currentAgeController,
+            retirementAgeController: _retirementAgeController,
+            monthlyLivingCostController: _monthlyLivingCostController,
+            retirementSavingsController: _retirementSavingsController,
+            monthlyLivingCost: monthlyLivingCost,
+            isValid: _isRetirementStepValid(),
+            onFieldChanged: () => setState(() => _calculated = false),
           ),
         ),
       );
@@ -309,60 +244,26 @@ class _FinancialPlanningWizardScreenState
         Step(
           title: const Text('주택 구입'),
           isActive: _currentStep >= steps.length,
-          content: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                title: const Text('목표 시점'),
-                subtitle: Text(
-                  _homeTargetDate != null
-                      ? _homeTargetDate!.toString().split(' ').first
-                      : '설정 안 됨',
-                ),
-                trailing: const Icon(Icons.calendar_today),
-                onTap: () async {
-                  final picked = await showDatePicker(
-                    context: context,
-                    initialDate: DateTime.now().add(const Duration(days: 365)),
-                    firstDate: DateTime.now(),
-                    lastDate: DateTime.now().add(
-                      const Duration(days: 365 * 40),
-                    ),
-                  );
-                  if (picked != null) {
-                    setState(() {
-                      _homeTargetDate = picked;
-                      _calculated = false;
-                    });
-                  }
-                },
-              ),
-              const SizedBox(height: 8),
-              TextField(
-                controller: _homeTargetAmountController,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(labelText: '목표 금액'),
-                onChanged: (_) => setState(() => _calculated = false),
-              ),
-              const SizedBox(height: 8),
-              TextField(
-                controller: _homeSavedController,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(labelText: '이미 마련된 금액 (선택)'),
-                onChanged: (_) => setState(() => _calculated = false),
-              ),
-              if (!_isHomeStepValid()) ...[
-                const SizedBox(height: 8),
-                Text(
-                  '목표 시점과 0보다 큰 목표 금액을 모두 입력해야 다음으로 넘어갈 수 있어요.',
-                  style: TextStyle(
-                    color: Theme.of(context).colorScheme.error,
-                    fontSize: 12,
-                  ),
-                ),
-              ],
-            ],
+          content: HomePurchaseStep(
+            homeTargetDate: _homeTargetDate,
+            homeTargetAmountController: _homeTargetAmountController,
+            homeSavedController: _homeSavedController,
+            isValid: _isHomeStepValid(),
+            onFieldChanged: () => setState(() => _calculated = false),
+            onPickDate: (context) async {
+              final picked = await showDatePicker(
+                context: context,
+                initialDate: DateTime.now().add(const Duration(days: 365)),
+                firstDate: DateTime.now(),
+                lastDate: DateTime.now().add(const Duration(days: 365 * 40)),
+              );
+              if (picked != null) {
+                setState(() {
+                  _homeTargetDate = picked;
+                  _calculated = false;
+                });
+              }
+            },
           ),
         ),
       );
@@ -373,26 +274,9 @@ class _FinancialPlanningWizardScreenState
       Step(
         title: const Text('예상 수익률'),
         isActive: _currentStep >= steps.length,
-        content: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            TextField(
-              controller: _returnRateController,
-              keyboardType: const TextInputType.numberWithOptions(
-                decimal: true,
-              ),
-              decoration: const InputDecoration(labelText: '연 예상 수익률 (%)'),
-              onChanged: (_) => setState(() => _calculated = false),
-            ),
-            const SizedBox(height: AppSpacing.sm),
-            Text(
-              '직접 입력한 가정치로 계산에만 사용돼요. 특정 투자 상품을 추천하지 않아요.',
-              style: TextStyle(
-                fontSize: 12,
-                color: context.appColors.textMuted,
-              ),
-            ),
-          ],
+        content: ReturnRateStep(
+          returnRateController: _returnRateController,
+          onFieldChanged: () => setState(() => _calculated = false),
         ),
       ),
     );
@@ -403,121 +287,16 @@ class _FinancialPlanningWizardScreenState
         title: const Text('결과'),
         isActive: _currentStep >= steps.length,
         content: _calculated
-            ? _buildResults()
+            ? ResultStep(
+                retirementEnabled: _retirementEnabled,
+                homePurchaseEnabled: _homePurchaseEnabled,
+              )
             : const Text('이전 단계를 채우고 "계산하기"를 눌러주세요.'),
       ),
     );
 
     _stepKinds = kinds;
     return steps;
-  }
-
-  Widget _buildResults() {
-    final recommendations = ref.watch(planRecommendationsProvider);
-    if (recommendations.isEmpty) {
-      final message = (_retirementEnabled || _homePurchaseEnabled)
-          ? '입력한 값으로는 계산할 수 없어요. 이전 단계로 돌아가 필수 항목을 확인해주세요.'
-          : '선택한 목표가 없어요. 첫 단계에서 하나 이상 선택해주세요.';
-      return Text(message);
-    }
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: recommendations
-          .map(
-            (rec) => Card(
-              margin: const EdgeInsets.symmetric(vertical: 6),
-              child: Padding(
-                padding: const EdgeInsets.all(14),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      rec.goalTitle,
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
-                    const SizedBox(height: 6),
-                    Text('목표 금액: ${formatWon(rec.requiredTargetAmount)}'),
-                    Text('필요 월 저축액: ${formatWon(rec.requiredMonthlySaving)}'),
-                    Text(
-                      '최근 평균 월 저축액: ${formatWon(rec.currentAverageMonthlySaving)}',
-                    ),
-                    const SizedBox(height: 6),
-                    Row(
-                      children: [
-                        Icon(
-                          rec.isOnTrack
-                              ? Icons.check_circle
-                              : Icons.warning_amber,
-                          color: rec.isOnTrack
-                              ? context.appColors.success
-                              : context.appColors.warning,
-                          size: AppIconSize.md,
-                        ),
-                        const SizedBox(width: 6),
-                        Expanded(
-                          child: Text(
-                            rec.isOnTrack
-                                ? '현재 페이스로 충분해요'
-                                : '월 ${formatWon(rec.requiredMonthlySaving - rec.currentAverageMonthlySaving)} 더 모아야 해요',
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    Align(
-                      alignment: Alignment.centerRight,
-                      child: FilledButton(
-                        onPressed: _creatingGoalTitles.contains(rec.goalTitle)
-                            ? null
-                            : () async {
-                                setState(
-                                  () => _creatingGoalTitles = {
-                                    ..._creatingGoalTitles,
-                                    rec.goalTitle,
-                                  },
-                                );
-                                try {
-                                  await ref
-                                      .read(financialPlanProvider.notifier)
-                                      .createGoalFrom(rec);
-                                  if (!mounted) return;
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(
-                                      content: Text(
-                                        '"${rec.goalTitle}" 목표가 생성되었어요.',
-                                      ),
-                                    ),
-                                  );
-                                } catch (_) {
-                                  if (!mounted) return;
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(
-                                      content: Text(
-                                        '목표를 생성하지 못했어요. 잠시 후 다시 시도해주세요.',
-                                      ),
-                                    ),
-                                  );
-                                } finally {
-                                  if (mounted) {
-                                    setState(
-                                      () => _creatingGoalTitles = {
-                                        ..._creatingGoalTitles,
-                                      }..remove(rec.goalTitle),
-                                    );
-                                  }
-                                }
-                              },
-                        child: const Text('재무 목표로 만들기'),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          )
-          .toList(),
-    );
   }
 
   @override

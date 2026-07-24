@@ -33,8 +33,18 @@
   - Claude Code 자체 검증 미흡으로 재작업 2회, Codex 리뷰 1회(조건부통과→Should-fix 2건→승인)
   - dart analyze 0건, flutter test 909개 통과
   - [TODO] Windows/Linux 실기기 검증, Flatpak/Snap 패키징 검증, macOS는 별도 Phase
-- [ ] Phase 3 — 프로덕션 배포 블로커 해소 (서명, 실기기 검증, 스토어 자산)
+- [~] Phase 3 — 프로덕션 배포 블로커 해소 (서명, 실기기 검증, 스토어 자산)
   - 상세 계획: [`docs/plans/phase3_production_release_plan.md`](phase3_production_release_plan.md)
+  - 커밋 1(저장소만으로 가능한 범위) 완료: `RELEASE_CHECKLIST.md`의 존재하지
+    않는 로컬 keystore 단정 문구 제거, 27개 항목 owner/evidence/date/SHA
+    기록 컨벤션 추가, `tool/release_readiness/checker.dart`에
+    `docs/privacy_policy.md`의 TODO/초안 표시를 검사하는 privacy category
+    추가(커밋 c62b787)
+  - [차단] 나머지 전부(Android keystore/Play 계정, Apple 개발자 계정·
+    macOS·iPhone, 실제 Sentry 계정, 개인정보처리방침 실제 값과 공개
+    HTTPS 호스팅, Windows/macOS/Linux 실기기·VM 스모크, 스토어 제출)는
+    계정 소유권·실기기·업무상 결정이 필요해 에이전트가 대신할 수 없다.
+    S_GRADE_MASTER_PLAYBOOK.md 3.3절과 phase3 계획서 0.2절 참고
 - [x] Phase 4 — 알림 액션 완료 + 홈 화면 위젯 (완료: 커밋 7d4aca9, 2026-07-23)
   - 알림 액션으로 퀘스트 즉시 완료만 구현. 홈 화면 위젯(네이티브 Kotlin/Swift)은
     실기기/Xcode 빌드 검증 불가로 범위에서 제외, 별도 Phase로 보류
@@ -48,8 +58,38 @@
     CelebrationDialogShell, 레벨업/업적 다이얼로그 애니메이션, flutter test 985개 통과
   - [보류] Part B(완료/레벨업 공유 카드)는 share_plus 등 의존성·플랫폼 검증 필요로
     별도 Phase. 진입 조건은 계획 문서 3.4절 참조
-- [ ] Phase 6 — 엔지니어링 마감 (파일 분할, 접근성, 데스크톱 단축키)
+- [~] Phase 6 — 엔지니어링 마감 (파일 분할, 접근성, 데스크톱 단축키)
   - 상세 계획: [`docs/plans/phase6_engineering_polish_plan.md`](phase6_engineering_polish_plan.md)
+  - Part A(파일 분할) 완료: `finance_screen.dart`(1,386줄)를 `lib/screens/finance/` 7개
+    파일로, `settings_screen.dart`(1,320줄)를 `lib/screens/settings/` 6개 섹션으로,
+    `main.dart`(505줄)를 `lib/app/` 3개 파일로, wizard를
+    `lib/screens/financial_planning/` 5개 단계 위젯으로 분할(공개 진입점·동작 불변,
+    커밋 f3e6487/b364df5/0873636/a8d901f)
+  - Part B(접근성) 완료: 접근성 테스트 하네스, IndexedStack semantics 검증,
+    text-scale/tap-target/contrast 가드, 아이콘 tooltip, 차트 semantics 요약,
+    검색 autofocus·다이얼로그 키보드 조작성 확인(커밋 672e383/2f57f47/f8ee255).
+    자동 검사 중 다크 테마 FilledButton 대비 미달(2.53:1)을 실제로 발견해
+    onPrimary 토큰을 고쳤다
+  - Part C(데스크톱 단축키) 완료: 탭 전환(Ctrl/Cmd+1..5), 퀘스트 검색
+    (Ctrl/Cmd+F), 새 퀘스트(Ctrl/Cmd+N), 검색 닫기(Escape), 퀘스트 탭 순환
+    (Ctrl/Cmd+Tab, 네이티브 데스크톱 전용)을 구현하고 Windows/macOS/Linux/
+    Android 분기까지 테스트로 확인(커밋 4266201/01ab432). 포커스된 퀘스트
+    완료(Ctrl+Enter)는 "포커스된 QuestCard"라는 개념 자체가 코드에 없어
+    새 설계가 필요한 기능이라 판단해 별도로 남겨둠(phase6 계획서 9.1절)
+  - [재검토 2026-07-24] "코드로 더 할 게 없냐"는 지적에 다시 훑어, 차트
+    semantics 요약을 나머지 3개 화면(NetWorthChart/통계 XP/리포트 XP)까지
+    확장하고 Ctrl+Tab 탭 순환을 추가로 구현(커밋 00c3863/01ab432) — 둘 다
+    "실기기가 없어서"가 아니라 단순히 이전 패스에서 안 하고 넘어간
+    code-only 작업이었다. 상세 판단 근거는 phase6 계획서 9.1절 참고
+  - [보류] TalkBack/VoiceOver/Narrator/macOS VoiceOver/Orca/Web screen reader
+    6플랫폼 수동 QA, Windows/macOS 키보드 실기기 확인, 라우트 명명
+    (IndexedStack 탭의 namesRoute), Ctrl+Enter 퀘스트 완료는 각각 실기기
+    부재 또는 신규 설계가 필요해 미실행 — S_GRADE_MASTER_PLAYBOOK.md 3.3절과
+    phase6 계획서 9.1절에 항목별 사유 기록
+  - flutter analyze 0건, flutter test 1016개 중 1009 통과·6 스킵(이 환경에
+    PowerShell 없음)·2 실패(quest_completion_execution_lock_test.dart file
+    backend — 이 컨테이너의 파일 advisory lock 특성 차이로 추정되는 기존
+    환경 이슈, Phase 6 착수 전부터 동일하게 실패)
 
 ## Phase 1 상세 계획 (진행 중)
 
