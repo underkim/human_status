@@ -22,7 +22,13 @@ class AppTheme {
         : const Color(0xFFF7F8FC);
     final surface = isDark ? const Color(0xFF121A28) : const Color(0xFFFFFFFF);
     final primary = isDark ? const Color(0xFF8B9CFF) : const Color(0xFF5B5FEF);
-    final onPrimary = Colors.white;
+    // 다크 테마의 primary(0xFF8B9CFF)는 배경과 대비되도록 일부러 밝게
+    // 고른 색이라, 그 위에 흰 글자를 얹으면 실제 대비가 2.53:1까지
+    // 떨어져 WCAG AA 텍스트 기준(4.5:1)에 못 미친다(FlutterError로 자동
+    // 감지: test/accessibility/tap_target_and_contrast_test.dart). 라이트
+    // 테마의 짙은 primary(0xFF5B5FEF)에는 흰 글자가 그대로 맞으므로
+    // onPrimary는 밝기별로 다르게 정한다.
+    final onPrimary = isDark ? background : Colors.white;
 
     final colorScheme =
         ColorScheme.fromSeed(
