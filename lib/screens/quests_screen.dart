@@ -7,6 +7,8 @@ import '../models/stat.dart';
 import '../providers/goal_provider.dart';
 import '../providers/profile_provider.dart';
 import '../providers/quest_provider.dart';
+import '../shortcuts/app_intents.dart';
+import '../shortcuts/app_shortcut_bindings.dart';
 import '../theme/app_spacing.dart';
 import '../widgets/achievement_dialog.dart';
 import '../widgets/empty_state.dart';
@@ -27,6 +29,7 @@ class _QuestsScreenState extends ConsumerState<QuestsScreen>
     with SingleTickerProviderStateMixin {
   late final TabController _tabController;
   final TextEditingController _searchController = TextEditingController();
+  final FocusNode _searchFocusNode = FocusNode();
   bool _isSearching = false;
 
   @override
@@ -39,6 +42,7 @@ class _QuestsScreenState extends ConsumerState<QuestsScreen>
   void dispose() {
     _tabController.dispose();
     _searchController.dispose();
+    _searchFocusNode.dispose();
     // questSearchQueryProvider는 autoDispose라서 이 화면(그리고 파생
     // Provider들)을 아무도 watch하지 않게 되는 즉시 스스로 폐기되고, 다시
     // 들어오면 초기값('')부터 새로 시작한다 — 여기서 직접 clear()를
@@ -71,6 +75,28 @@ class _QuestsScreenState extends ConsumerState<QuestsScreen>
     ref.read(questSearchQueryProvider.notifier).setQuery(value);
   }
 
+  /// Ctrl/Cmd+F: 검색이 닫혀 있으면 열고, 이미 열려 있으면 입력에 포커스만
+  /// 다시 준다. `_openSearch`의 setState 직후에는 검색 TextField가 아직
+  /// 빌드되지 않았을 수 있어, 포커스 요청은 다음 프레임으로 미룬다(이미
+  /// 열려 있을 때는 TextField가 이미 있으므로 바로 요청해도 안전하다).
+  void _openSearchAndFocus() {
+    if (!_isSearching) {
+      _openSearch();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _searchFocusNode.requestFocus();
+      });
+    } else {
+      _searchFocusNode.requestFocus();
+    }
+  }
+
+  /// Ctrl/Cmd+N과 기존 FAB이 공유하는 새 퀘스트 진입점.
+  void _createQuest(BuildContext context) {
+    Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (_) => const QuestFormScreen()));
+  }
+
   @override
   Widget build(BuildContext context) {
     final stats = ref.watch(statsProvider);
@@ -86,11 +112,12 @@ class _QuestsScreenState extends ConsumerState<QuestsScreen>
     final query = ref.watch(questSearchQueryProvider);
     final isSearching = query.trim().isNotEmpty;
 
-    return Scaffold(
+    final scaffold = Scaffold(
       appBar: AppBar(
         title: _isSearching
             ? TextField(
                 controller: _searchController,
+                focusNode: _searchFocusNode,
                 autofocus: true,
                 decoration: const InputDecoration(
                   hintText: '퀘스트 검색',
@@ -117,7 +144,7 @@ class _QuestsScreenState extends ConsumerState<QuestsScreen>
                 IconButton(
                   icon: const Icon(Icons.search, size: AppIconSize.md),
                   tooltip: '퀘스트 검색',
-                  onPressed: _openSearch,
+                  onPressed: _openSearchAndFocus,
                 ),
               ],
         bottom: TabBar(
@@ -164,10 +191,43 @@ class _QuestsScreenState extends ConsumerState<QuestsScreen>
         // 탭의 FAB과 태그가 겹쳐 Hero 어서션이 발생한다 — 탭마다 고유
         // heroTag를 줘서 피한다.
         heroTag: 'quests_fab',
-        onPressed: () => Navigator.of(
-          context,
-        ).push(MaterialPageRoute(builder: (_) => const QuestFormScreen())),
+        onPressed: () => _createQuest(context),
         child: const Icon(Icons.add),
+      ),
+    );
+
+    return Shortcuts(
+      shortcuts: questsScreenShortcuts(),
+      child: Actions(
+        actions: {
+          SearchQuestsIntent: CallbackAction<SearchQuestsIntent>(
+            onInvoke: (intent) {
+              _openSearchAndFocus();
+              return null;
+            },
+          ),
+          CreateQuestIntent: CallbackAction<CreateQuestIntent>(
+            onInvoke: (intent) {
+              _createQuest(context);
+              return null;
+            },
+          ),
+          DismissLocalUiIntent: CallbackAction<DismissLocalUiIntent>(
+            onInvoke: (intent) {
+              if (_isSearching) _closeSearch();
+              return null;
+            },
+          ),
+        },
+        // HomeShell 안에서는 HomeShell 자신의 autofocus가 먼저 scope를
+        // 차지해 이 요청은 조용히 무시된다(둘 다 FocusScope가 아닌 평범한
+        // Focus라 같은 scope를 공유하고, 이미 focusedChild가 있으면
+        // 나중 autofocus는 적용되지 않는다) — 그 상태에서 이 화면의
+        // 단축키는 사용자가 이 화면 안 요소를 한 번이라도 눌러 포커스가
+        // 안으로 들어온 뒤부터 동작한다. QuestsScreen을 단독 라우트로 쓰는
+        // 경로(예: 검색 진입점 자체 테스트)에서는 이 autofocus가 그대로
+        // 적용된다.
+        child: Focus(autofocus: true, child: scaffold),
       ),
     );
   }
