@@ -1,3 +1,6 @@
+import 'dart:io';
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -20,6 +23,28 @@ const _wide = Size(1440, 900);
 const _captureKey = Key('l-m3-capture');
 
 typedef ScreenFactory = Widget Function();
+
+/// Skia rasterization differs slightly between Windows (where these evidence
+/// images are generated) and the Ubuntu CI runner. Keep a strict-enough 2%
+/// structural threshold: the observed cross-OS baseline is at most 1.47%,
+/// while render/overflow exceptions are asserted separately and exactly.
+class _CrossPlatformGoldenComparator extends LocalFileComparator {
+  _CrossPlatformGoldenComparator(super.testFile);
+
+  static const maxDiffPercent = 0.02;
+
+  @override
+  Future<bool> compare(Uint8List imageBytes, Uri golden) async {
+    final result = await GoldenFileComparator.compareLists(
+      imageBytes,
+      await getGoldenBytes(golden),
+    );
+    final accepted = result.diffPercent <= maxDiffPercent;
+    result.dispose();
+    if (accepted) return true;
+    return super.compare(imageBytes, golden);
+  }
+}
 
 Future<void> _pumpCapture(
   WidgetTester tester, {
@@ -56,6 +81,15 @@ Future<void> _pumpCapture(
 }
 
 void main() {
+  final originalComparator = goldenFileComparator;
+  setUpAll(() {
+    goldenFileComparator = _CrossPlatformGoldenComparator(
+      Uri.file(
+        '${Directory.current.path}/test/local_s_grade_visual_matrix_test.dart',
+      ),
+    );
+  });
+  tearDownAll(() => goldenFileComparator = originalComparator);
   tearDown(Hive.close);
 
   final screens = <String, ScreenFactory>{
