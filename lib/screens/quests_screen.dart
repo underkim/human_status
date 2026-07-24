@@ -218,6 +218,15 @@ class _QuestsScreenState extends ConsumerState<QuestsScreen>
               return null;
             },
           ),
+          CycleQuestTabIntent: CallbackAction<CycleQuestTabIntent>(
+            onInvoke: (intent) {
+              final length = _tabController.length;
+              final next =
+                  (_tabController.index + intent.direction + length) % length;
+              _tabController.animateTo(next);
+              return null;
+            },
+          ),
         },
         // HomeShell 안에서는 HomeShell 자신의 autofocus가 먼저 scope를
         // 차지해 이 요청은 조용히 무시된다(둘 다 FocusScope가 아닌 평범한

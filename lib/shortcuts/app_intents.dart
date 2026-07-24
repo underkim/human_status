@@ -23,3 +23,11 @@ class CreateQuestIntent extends Intent {
 class DismissLocalUiIntent extends Intent {
   const DismissLocalUiIntent();
 }
+
+/// 퀘스트 화면의 진행중/추천/완료 탭을 [direction]만큼 순환한다(+1: 다음,
+/// -1: 이전).
+class CycleQuestTabIntent extends Intent {
+  final int direction;
+
+  const CycleQuestTabIntent(this.direction);
+}

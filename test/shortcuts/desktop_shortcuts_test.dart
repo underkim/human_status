@@ -236,4 +236,97 @@ void main() {
       });
     });
   });
+
+  group('퀘스트 탭 순환 (Ctrl+Tab, 네이티브 데스크톱 전용)', () {
+    testWidgets('Linux에서 Ctrl+Tab은 다음 탭으로, Ctrl+Shift+Tab은 이전 탭으로 순환한다', (
+      tester,
+    ) async {
+      await _runWithPlatform(TargetPlatform.linux, () async {
+        final storage = await createTestStorage();
+        await pumpApp(tester, storage, const QuestsScreen());
+        await tester.pumpAndSettle();
+
+        expect(find.text('진행중 (0)'), findsOneWidget);
+        final controller = tester
+            .widget<TabBar>(find.byType(TabBar))
+            .controller!;
+        expect(controller.index, 0);
+
+        await _pressChord(
+          tester,
+          LogicalKeyboardKey.controlLeft,
+          LogicalKeyboardKey.tab,
+        );
+        expect(controller.index, 1);
+
+        await _pressChord(
+          tester,
+          LogicalKeyboardKey.controlLeft,
+          LogicalKeyboardKey.tab,
+        );
+        expect(controller.index, 2);
+
+        // 마지막 탭에서 다음으로 가면 처음 탭으로 순환한다.
+        await _pressChord(
+          tester,
+          LogicalKeyboardKey.controlLeft,
+          LogicalKeyboardKey.tab,
+        );
+        expect(controller.index, 0);
+
+        // 첫 탭에서 이전으로 가면 마지막 탭으로 순환한다.
+        await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+        await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+        await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+        await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+        await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+        await tester.pumpAndSettle();
+        expect(controller.index, 2);
+      });
+    });
+
+    testWidgets('macOS에서는 Ctrl+Tab이 아니라 Cmd(meta)+Tab이 순환한다', (tester) async {
+      await _runWithPlatform(TargetPlatform.macOS, () async {
+        final storage = await createTestStorage();
+        await pumpApp(tester, storage, const QuestsScreen());
+        await tester.pumpAndSettle();
+        final controller = tester
+            .widget<TabBar>(find.byType(TabBar))
+            .controller!;
+
+        // Ctrl+Tab(잘못된 modifier)은 아무 효과가 없다.
+        await _pressChord(
+          tester,
+          LogicalKeyboardKey.controlLeft,
+          LogicalKeyboardKey.tab,
+        );
+        expect(controller.index, 0);
+
+        await _pressChord(
+          tester,
+          LogicalKeyboardKey.metaLeft,
+          LogicalKeyboardKey.tab,
+        );
+        expect(controller.index, 1);
+      });
+    });
+
+    testWidgets('Android에서는 Ctrl+Tab이 아무 효과가 없다', (tester) async {
+      await _runWithPlatform(TargetPlatform.android, () async {
+        final storage = await createTestStorage();
+        await pumpApp(tester, storage, const QuestsScreen());
+        await tester.pumpAndSettle();
+        final controller = tester
+            .widget<TabBar>(find.byType(TabBar))
+            .controller!;
+
+        await _pressChord(
+          tester,
+          LogicalKeyboardKey.controlLeft,
+          LogicalKeyboardKey.tab,
+        );
+        expect(controller.index, 0);
+      });
+    });
+  });
 }
