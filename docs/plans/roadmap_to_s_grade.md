@@ -70,16 +70,23 @@
     검색 autofocus·다이얼로그 키보드 조작성 확인(커밋 672e383/2f57f47/f8ee255).
     자동 검사 중 다크 테마 FilledButton 대비 미달(2.53:1)을 실제로 발견해
     onPrimary 토큰을 고쳤다
-  - Part C(데스크톱 단축키) 부분 완료: 탭 전환(Ctrl/Cmd+1..5), 퀘스트 검색
-    (Ctrl/Cmd+F), 새 퀘스트(Ctrl/Cmd+N), 검색 닫기(Escape)를 구현하고
-    Windows/macOS/Android 분기까지 테스트로 확인(커밋 4266201). Ctrl+Tab 탭
-    순환과 포커스된 퀘스트 완료(Ctrl+Enter)는 계획서가 허용한 대로 이번
-    범위에서 제외
+  - Part C(데스크톱 단축키) 완료: 탭 전환(Ctrl/Cmd+1..5), 퀘스트 검색
+    (Ctrl/Cmd+F), 새 퀘스트(Ctrl/Cmd+N), 검색 닫기(Escape), 퀘스트 탭 순환
+    (Ctrl/Cmd+Tab, 네이티브 데스크톱 전용)을 구현하고 Windows/macOS/Linux/
+    Android 분기까지 테스트로 확인(커밋 4266201/01ab432). 포커스된 퀘스트
+    완료(Ctrl+Enter)는 "포커스된 QuestCard"라는 개념 자체가 코드에 없어
+    새 설계가 필요한 기능이라 판단해 별도로 남겨둠(phase6 계획서 9.1절)
+  - [재검토 2026-07-24] "코드로 더 할 게 없냐"는 지적에 다시 훑어, 차트
+    semantics 요약을 나머지 3개 화면(NetWorthChart/통계 XP/리포트 XP)까지
+    확장하고 Ctrl+Tab 탭 순환을 추가로 구현(커밋 00c3863/01ab432) — 둘 다
+    "실기기가 없어서"가 아니라 단순히 이전 패스에서 안 하고 넘어간
+    code-only 작업이었다. 상세 판단 근거는 phase6 계획서 9.1절 참고
   - [보류] TalkBack/VoiceOver/Narrator/macOS VoiceOver/Orca/Web screen reader
     6플랫폼 수동 QA, Windows/macOS 키보드 실기기 확인, 라우트 명명
-    (IndexedStack 탭의 namesRoute)은 실기기 없이는 검증 신뢰도가 낮아 미실행 —
-    S_GRADE_MASTER_PLAYBOOK.md 3.3절에 남은 항목 기록
-  - flutter analyze 0건, flutter test 1014개 중 1006 통과·6 스킵(이 환경에
+    (IndexedStack 탭의 namesRoute), Ctrl+Enter 퀘스트 완료는 각각 실기기
+    부재 또는 신규 설계가 필요해 미실행 — S_GRADE_MASTER_PLAYBOOK.md 3.3절과
+    phase6 계획서 9.1절에 항목별 사유 기록
+  - flutter analyze 0건, flutter test 1016개 중 1009 통과·6 스킵(이 환경에
     PowerShell 없음)·2 실패(quest_completion_execution_lock_test.dart file
     backend — 이 컨테이너의 파일 advisory lock 특성 차이로 추정되는 기존
     환경 이슈, Phase 6 착수 전부터 동일하게 실패)

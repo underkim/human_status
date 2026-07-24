@@ -88,7 +88,7 @@ analyze+test)를 완료했고 6플랫폼 수동 QA만 남았다(3.3절).
 | Phase 3 | 운영자 승인으로 `docs/privacy_policy.md`의 11개 `[TODO: ...]`와 “초안” 제거, 공개 HTTPS URL·앱 내 문서·콘솔 선언 일치 |
 | Phase 4/roadmap | Android/iOS cross-isolate Hive 동시성, 중복 탭·stale payload·종료 상태·저전력 matrix 통과 전 `kQuestCompletionNotificationActionEnabled`를 `true`로 바꾸지 않음 |
 | Phase 5 | 공유 카드 Part B 보류: 카드 정책/aspect ratio, Linux 대체 UX, Web fallback, `share_plus` 감사, 플랫폼 행렬, 임시 PNG/개인정보 정책이 진입 조건 |
-| Phase 6 | 자동화 범위(파일 분할·접근성·단축키 구현+테스트)는 완료. TalkBack/VoiceOver/Narrator/macOS VoiceOver/Orca/Web screen reader 6플랫폼 수동 QA, Windows/macOS 실제 키보드 확인, IndexedStack 탭의 route 명명(실기기 검증 없이 추가하면 오히려 혼란 위험 판단), Ctrl+Tab 퀘스트 탭 순환(Web 예약키 충돌), 포커스된 퀘스트 완료(Ctrl+Enter, QuestCard 포커스 개념 신설 필요), report/asset/budget 화면의 나머지 차트(NetWorthChart/XP 차트/completion heatmap) semantics 요약이 미실행·미구현 |
+| Phase 6 | 자동화 범위(파일 분할·접근성·단축키 구현+테스트)는 완료. 2026-07-24 재검토로 나머지 차트(NetWorthChart/통계 XP/리포트 XP) semantics 요약과 Ctrl+Tab 퀘스트 탭 순환(네이티브 데스크톱 한정, Web은 브라우저가 이벤트를 페이지로 넘기지 않아 실제로 불가능)까지 마저 구현했다(phase6 계획서 9.1절). 남은 것: TalkBack/VoiceOver/Narrator/macOS VoiceOver/Orca/Web screen reader 6플랫폼 수동 QA, Windows/macOS 실제 키보드 확인(둘 다 실기기 부재로 차단), IndexedStack 탭의 route 명명(실기기 검증 없이 추가하면 오히려 혼란 위험 판단), 포커스된 퀘스트 완료(Ctrl+Enter — QuestCard에 없는 "포커스된 카드" 개념을 새로 설계해야 하는 별도 기능, 재검토 후에도 의도적으로 이번 범위에서 제외) |
 
 `docs/privacy_policy.md`의 11개 실제 값은 운영자/문의 채널, 시행일, 변경 고지 방법,
 Sentry 운영 법인, 처리 region, Sentry 정책 링크, 이벤트 보관 기간, 프로젝트
@@ -307,7 +307,7 @@ Part B**다. Phase 6의 구현·자동 테스트 범위(Part A/B/C)는 완료됐
 
 | 순서 | 작업 | 병렬 가능 여부 | 종료 신호 |
 |---:|---|---|---|
-| 1 | Phase 6 잔여: TalkBack/VoiceOver/Narrator/macOS VoiceOver/Orca/Web screen reader 6플랫폼 수동 QA, Windows/macOS 키보드 실기기 확인, Ctrl+Tab/Ctrl+Enter 단축키 및 나머지 차트 semantics 요약 여부 결정 | 플랫폼별 수동 QA는 서로 다른 기기/브라우저에서 병렬 가능 | 플랫폼별 QA 기록 또는 명시적 미실행 사유, 필요 시 후속 커밋 |
+| 1 | Phase 6 잔여: TalkBack/VoiceOver/Narrator/macOS VoiceOver/Orca/Web screen reader 6플랫폼 수동 QA, Windows/macOS 키보드 실기기 확인. (Ctrl+Tab과 나머지 차트 semantics는 2026-07-24 재검토로 code-only 범위에서 이미 구현·완료됨 — phase6 계획서 9.1절) | 플랫폼별 수동 QA는 서로 다른 기기/브라우저에서 병렬 가능 | 플랫폼별 QA 기록 또는 명시적 미실행 사유, 필요 시 후속 커밋 |
 | 2 | Phase 3 저장소 gate: (완료) 체크리스트 드리프트·privacy readiness category → (남음) 실제 Android keystore/Sentry DSN 주입, privacy 실제 값, 버전·ID·secret audit | privacy/계정 owner의 실제 값 승인은 병렬 가능; 파일 반영은 단일 작성자 | readiness ready, TODO/초안 0, analyze/test 녹색 |
 | 3 | 6플랫폼 RC build·스모크, 이전 백업 복원, Sentry 실제 네트워크 검증 | 서로 다른 외부 플랫폼 실행은 같은 immutable SHA에서 병렬 가능 | artifact hash와 플랫폼별 evidence |
 | 4 | Android/iOS signed build·실기기 및 Phase 4 cross-isolate/저전력 matrix | Android/iOS 실험은 같은 RC에서 병렬 가능 | 통과 시에만 flag 단일 커밋; 실패 시 false·자산 제외 |

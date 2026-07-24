@@ -370,6 +370,49 @@ Hive schema와 provider/service public 계약은 건드리지 않으므로 데�
   추가한 `focus_test.dart`가 이를 잡아냈고, 검색 진입점을 단축키와 같은
   `_openSearchAndFocus`(명시적 `requestFocus()`)로 통일해 해결했다.
 
+### 9.1 재검토(2026-07-24, 같은 세션 내 후속)
+
+"코드적으로 더 이상 할 게 없는가"라는 질문에 위 기록을 그대로 재확인만 하고
+넘어갔던 최초 답변이 부정확했다 — "실기기/계정이 있어야 한다"와 "이번에
+안 했다"를 구분하지 않고 뭉뚱그렸다. 다시 훑어 실제로 code-only인 두 항목을
+더 처리했다(커밋 `00c3863`/`01ab432`):
+
+- **차트 semantics 요약 3건 추가**: `MonthlyExpenseChartCard` 1개만 하고
+  "범위 밖"이라 적었던 나머지 3개 차트(`NetWorthChart`, 통계 화면 최근 7일
+  XP, 리포트 XP 추이)에 같은 `Semantics`+`ExcludeSemantics` 패턴을 그대로
+  적용했다. 새 패턴이 필요하지 않았다 — 단순히 아직 안 한 반복 작업이었다.
+- **Ctrl+Tab 퀘스트 탭 순환**: 계획 문서가 "Web 예약키 충돌 위험"을 이유로
+  전체를 제외하라고 한 게 아니라 "충돌이 크면 Web만 제외"라고 이미 적어
+  뒀는데, 구현 때는 이를 검토하지 않고 통째로 건너뛰었다. Ctrl+Tab은
+  브라우저(모든 주요 브라우저가 페이지 JS에 이벤트를 넘기지 않고 자체 탭
+  전환으로 소비)에서만 실제로 가로챌 수 없고, Windows/macOS/Linux 네이티브
+  빌드에는 그런 제약이 없다. `isNativeDesktopPlatform`으로 Web만 뺀 뒤
+  기존 `TabController`를 순환시켜 구현했다.
+
+반대로 아래 두 항목은 다시 검토한 뒤에도 이번 범위에 넣지 않기로 했다 —
+이번엔 "실기기가 없어서"가 아니라 각각 구체적인 이유가 있다:
+
+- **Ctrl+Enter로 포커스된 퀘스트 완료**: 계획이 전제한 "포커스를 가진
+  QuestCard"라는 개념 자체가 코드에 없다. `QuestCard`는 완료 콜백을 소유하지
+  않고(`_ActiveTabState`가 소유), 카드 자체에 `Focus` 경계도 없다. 이걸
+  만들려면 포커스 트래버설 순서를 어떻게 잡을지, 포커스 표시를 시각적으로
+  어떻게 줄지, 콜백을 `QuestsScreen`까지 끌어올릴지 등 여러 설계 결정이
+  필요한 신규 기능이다 — "이미 있는 기능에 접근성 대체 텍스트를 붙이는"
+  이번 재검토의 나머지 항목들과 성격이 다르므로, 급하게 끼워넣기보다
+  별도로 설계하고 스코프를 잡는 게 맞다고 판단해 미루었다.
+- **route 명명(`namesRoute`)과 6플랫폼 수동 QA**: 기존 기록대로 유지한다.
+  `HomeShell`의 `IndexedStack`은 `Navigator` route 경계가 없어 `namesRoute`가
+  실제 화면 전환 시 TalkBack/VoiceOver에 어떻게 안내되는지는 정적 semantics
+  트리 검사만으로 확정할 수 없고, 잘못 붙이면 없는 것보다 나쁜 안내가 될 수
+  있다. 6플랫폼 수동 QA는 이 컨테이너에 실기기·스크린리더가 전혀 없어
+  그대로 차단된 상태다.
+
+이 재검토 이후에는 `lib/` 전체에 TODO/FIXME 마커가 없고, fl_chart를 쓰는
+4개 파일 모두 semantics 대체 텍스트를 갖췄으며, 계획서에 적힌 6개 단축키 중
+5개(Ctrl+Enter 제외)가 구현·테스트됐다. `flutter analyze` 0건,
+`flutter test`는 여전히 같은 2개(파일 backend 잠금 테스트, 착수 전부터
+있던 환경 이슈)만 실패한다.
+
 ### 확인하지 못한 것 (6플랫폼 수동 QA)
 
 TalkBack(Android), VoiceOver(iOS/macOS), Narrator(Windows), Orca(Linux), Web
