@@ -89,6 +89,13 @@ keyPassword=test-only-key-password
       'android/fake-release.jks',
       'not a real keystore, test fixture only',
     );
+    // TODO/초안 표시가 없는 개인정보처리방침 -- namespace/버전 등을 다루는
+    // 다른 테스트가 이 privacy 검사 때문에 우연히 실패하지 않도록 한다.
+    writeFile('docs/privacy_policy.md', '''
+# Human Status 개인정보처리방침
+
+모든 데이터는 기기에 로컬로 저장됩니다.
+''');
   }
 
   /// checkReleaseReadiness with an explicit empty environment by default, so
@@ -330,5 +337,51 @@ version: 2.0.0-beta.1+7
     expect(ids, contains('macos_appinfo_missing'));
     expect(ids, contains('linux_cmake_missing'));
     expect(ids, contains('pubspec_missing'));
+    expect(ids, contains('privacy_policy_missing'));
+  });
+
+  test('개인정보처리방침이 없으면 실패한다', () {
+    writeReadyFixture();
+    File('${tempRoot.path}/docs/privacy_policy.md').deleteSync();
+    final report = check(tempRoot);
+    expect(report.isReady, isFalse);
+    expect(report.issues.map((i) => i.id), contains('privacy_policy_missing'));
+  });
+
+  test('개인정보처리방침에 [TODO 표시가 남아 있으면 실패하고 개수를 보고한다', () {
+    writeReadyFixture();
+    writeFile('docs/privacy_policy.md', '''
+# Human Status 개인정보처리방침
+
+- 운영자/문의 채널: [TODO: 실제 배포 전 채워야 함]
+- 시행일: [TODO: 실제 배포 전 채워야 함]
+''');
+    final report = check(tempRoot);
+    expect(report.isReady, isFalse);
+    final issue = report.issues.singleWhere(
+      (i) => i.id == 'privacy_policy_todo_remaining',
+    );
+    expect(issue.message, contains('2개'));
+  });
+
+  test('개인정보처리방침 제목에 "초안" 표시가 남아 있으면 실패한다', () {
+    writeReadyFixture();
+    writeFile('docs/privacy_policy.md', '''
+# Human Status 개인정보처리방침 (초안)
+
+모든 데이터는 기기에 로컬로 저장됩니다.
+''');
+    final report = check(tempRoot);
+    expect(report.isReady, isFalse);
+    expect(
+      report.issues.map((i) => i.id),
+      contains('privacy_policy_draft_marker'),
+    );
+  });
+
+  test('TODO도 초안 표시도 없는 개인정보처리방침은 통과한다', () {
+    writeReadyFixture();
+    final report = check(tempRoot);
+    expect(report.isReady, isTrue);
   });
 }
