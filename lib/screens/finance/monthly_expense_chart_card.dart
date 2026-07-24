@@ -30,6 +30,17 @@ class MonthlyExpenseChartCard extends StatelessWidget {
       return '${parts[0]}년 ${int.parse(parts[1])}월';
     }
 
+    // 막대 그래프는 시각적으로만 값을 전달하므로, 보조기술 사용자가 같은
+    // 정보(기간별 지출과 최고 지출 달)를 문장으로 얻을 수 있게 대체
+    // 텍스트를 만든다. 차트 자체는 ExcludeSemantics로 중복 낭독을 막는다.
+    final peak = entries.reduce((a, b) => a.value >= b.value ? a : b);
+    final monthlyList = entries
+        .map((e) => '${fullLabel(e.key)} ${formatWon(e.value)}')
+        .join(', ');
+    final chartSummary =
+        '최근 ${entries.length}개월 지출: $monthlyList. '
+        '가장 많이 쓴 달은 ${fullLabel(peak.key)}, ${formatWon(peak.value)}.';
+
     return Card(
       child: Padding(
         padding: const EdgeInsets.fromLTRB(
@@ -49,96 +60,101 @@ class MonthlyExpenseChartCard extends StatelessWidget {
               ),
             ),
             const SizedBox(height: AppSpacing.md),
-            SizedBox(
-              height: 160,
-              child: BarChart(
-                BarChartData(
-                  maxY: maxY,
-                  alignment: BarChartAlignment.spaceAround,
-                  gridData: FlGridData(
-                    show: true,
-                    drawVerticalLine: false,
-                    horizontalInterval: maxY / 2,
-                    getDrawingHorizontalLine: (v) =>
-                        FlLine(color: colors.outline, strokeWidth: 1),
-                  ),
-                  borderData: FlBorderData(show: false),
-                  titlesData: FlTitlesData(
-                    topTitles: const AxisTitles(
-                      sideTitles: SideTitles(showTitles: false),
-                    ),
-                    rightTitles: const AxisTitles(
-                      sideTitles: SideTitles(showTitles: false),
-                    ),
-                    leftTitles: AxisTitles(
-                      sideTitles: SideTitles(
-                        showTitles: true,
-                        reservedSize: 48,
-                        interval: maxY / 2,
-                        getTitlesWidget: (value, meta) => Padding(
-                          padding: const EdgeInsets.only(right: 4),
-                          child: Text(
-                            formatWonCompact(value),
-                            style: AppTypography.dataSmall(
-                              color: colors.textMuted,
+            Semantics(
+              label: chartSummary,
+              child: ExcludeSemantics(
+                child: SizedBox(
+                  height: 160,
+                  child: BarChart(
+                    BarChartData(
+                      maxY: maxY,
+                      alignment: BarChartAlignment.spaceAround,
+                      gridData: FlGridData(
+                        show: true,
+                        drawVerticalLine: false,
+                        horizontalInterval: maxY / 2,
+                        getDrawingHorizontalLine: (v) =>
+                            FlLine(color: colors.outline, strokeWidth: 1),
+                      ),
+                      borderData: FlBorderData(show: false),
+                      titlesData: FlTitlesData(
+                        topTitles: const AxisTitles(
+                          sideTitles: SideTitles(showTitles: false),
+                        ),
+                        rightTitles: const AxisTitles(
+                          sideTitles: SideTitles(showTitles: false),
+                        ),
+                        leftTitles: AxisTitles(
+                          sideTitles: SideTitles(
+                            showTitles: true,
+                            reservedSize: 48,
+                            interval: maxY / 2,
+                            getTitlesWidget: (value, meta) => Padding(
+                              padding: const EdgeInsets.only(right: 4),
+                              child: Text(
+                                formatWonCompact(value),
+                                style: AppTypography.dataSmall(
+                                  color: colors.textMuted,
+                                ),
+                                textAlign: TextAlign.right,
+                              ),
                             ),
-                            textAlign: TextAlign.right,
+                          ),
+                        ),
+                        bottomTitles: AxisTitles(
+                          sideTitles: SideTitles(
+                            showTitles: true,
+                            reservedSize: 24,
+                            getTitlesWidget: (value, meta) {
+                              final index = value.toInt();
+                              if (index < 0 || index >= entries.length) {
+                                return const SizedBox.shrink();
+                              }
+                              return Padding(
+                                padding: const EdgeInsets.only(top: 6),
+                                child: Text(
+                                  monthLabel(entries[index].key),
+                                  style: AppTypography.dataSmall(
+                                    color: colors.textMuted,
+                                  ),
+                                ),
+                              );
+                            },
                           ),
                         ),
                       ),
-                    ),
-                    bottomTitles: AxisTitles(
-                      sideTitles: SideTitles(
-                        showTitles: true,
-                        reservedSize: 24,
-                        getTitlesWidget: (value, meta) {
-                          final index = value.toInt();
-                          if (index < 0 || index >= entries.length) {
-                            return const SizedBox.shrink();
-                          }
-                          return Padding(
-                            padding: const EdgeInsets.only(top: 6),
-                            child: Text(
-                              monthLabel(entries[index].key),
-                              style: AppTypography.dataSmall(
-                                color: colors.textMuted,
+                      barTouchData: BarTouchData(
+                        touchTooltipData: BarTouchTooltipData(
+                          getTooltipItem: (group, groupIndex, rod, rodIndex) =>
+                              BarTooltipItem(
+                                '${fullLabel(entries[group.x].key)}\n${formatWon(rod.toY)}',
+                                TextStyle(
+                                  color: Theme.of(
+                                    context,
+                                  ).colorScheme.onInverseSurface,
+                                  fontSize: 12,
+                                ),
                               ),
-                            ),
-                          );
-                        },
+                        ),
                       ),
+                      barGroups: [
+                        for (var i = 0; i < entries.length; i++)
+                          BarChartGroupData(
+                            x: i,
+                            barRods: [
+                              BarChartRodData(
+                                toY: entries[i].value,
+                                color: accent,
+                                width: 16,
+                                borderRadius: const BorderRadius.vertical(
+                                  top: Radius.circular(4),
+                                ),
+                              ),
+                            ],
+                          ),
+                      ],
                     ),
                   ),
-                  barTouchData: BarTouchData(
-                    touchTooltipData: BarTouchTooltipData(
-                      getTooltipItem: (group, groupIndex, rod, rodIndex) =>
-                          BarTooltipItem(
-                            '${fullLabel(entries[group.x].key)}\n${formatWon(rod.toY)}',
-                            TextStyle(
-                              color: Theme.of(
-                                context,
-                              ).colorScheme.onInverseSurface,
-                              fontSize: 12,
-                            ),
-                          ),
-                    ),
-                  ),
-                  barGroups: [
-                    for (var i = 0; i < entries.length; i++)
-                      BarChartGroupData(
-                        x: i,
-                        barRods: [
-                          BarChartRodData(
-                            toY: entries[i].value,
-                            color: accent,
-                            width: 16,
-                            borderRadius: const BorderRadius.vertical(
-                              top: Radius.circular(4),
-                            ),
-                          ),
-                        ],
-                      ),
-                  ],
                 ),
               ),
             ),

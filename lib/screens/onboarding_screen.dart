@@ -322,6 +322,7 @@ class _ChooseGoalStep extends StatelessWidget {
               IconButton(
                 onPressed: isSubmitting ? null : onBack,
                 icon: const Icon(Icons.arrow_back),
+                tooltip: '이전 단계로',
               ),
               const SizedBox(width: AppSpacing.xs),
               Expanded(

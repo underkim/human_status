@@ -196,6 +196,7 @@ class _AssetSnapshotListViewState extends ConsumerState<AssetSnapshotListView> {
               subtitle: Text('순자산 ${formatWon(s.netWorth)}'),
               trailing: IconButton(
                 icon: const Icon(Icons.delete_outline),
+                tooltip: '자산 스냅샷 삭제',
                 onPressed: deleting
                     ? null
                     : () => _confirmDelete(s.id, dateLabel),

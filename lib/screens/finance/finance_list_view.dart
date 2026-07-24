@@ -336,6 +336,7 @@ class _FinanceListViewState extends ConsumerState<FinanceListView> {
           transaction: t,
           trailing: IconButton(
             icon: const Icon(Icons.delete_outline, size: AppIconSize.md),
+            tooltip: '거래 삭제',
             onPressed: isDeleting
                 ? null
                 : () =>
