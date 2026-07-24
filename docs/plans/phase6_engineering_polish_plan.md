@@ -330,3 +330,52 @@ Hive schema와 provider/service public 계약은 건드리지 않으므로 데�
 - Android/iOS에서는 application shortcut layer가 비활성/무해하며 touch와 기본 keyboard semantics가 회귀하지 않는다.
 - TalkBack, VoiceOver, Narrator, macOS VoiceOver, Orca, Web screen reader 수동 체크 결과가 기록된다.
 - `dart format`, `flutter analyze`, 전체 `flutter test`, 가능한 6개 플랫폼 build smoke가 모두 통과한다.
+
+## 9. 실행 기록(2026-07-24, Linux 컨테이너)
+
+실제 실기기·브라우저·6플랫폼 build 환경이 없는 원격 세션에서 자동화 가능한 범위를
+순차 커밋 10개로 완료했다. `flutter analyze` 0건, `flutter test` 1,014개 중 1,006
+통과·6 스킵(PowerShell 없음)·2 실패(착수 전부터 있던 환경 이슈, 회귀 아님)를
+매 커밋마다 확인했다. 커밋 `f3e6487`~`4266201`.
+
+### 계획 대비 실제 구현
+
+- **Part A(파일 분할)**: 계획한 4개 대상(finance/settings/main+wizard) 그대로 분할.
+  `_CategoryBudgetRow`처럼 같은 파일 안에서만 쓰이는 위젯은 계획대로 private 유지,
+  다른 파일에서 참조되는 것만 public 승격. `privacy_settings_section.dart`는 원래
+  화면에서 크래시 리포팅 토글과 "데이터 및 개인정보" 항목이 서로 멀리 떨어져 있어,
+  순서 보존을 위해 계획에 없던 `CrashReportingSettingsTile`/`DataPrivacyTile` 두
+  위젯으로 분리했다.
+- **Part B(접근성)**: route 명명은 구현하지 않았다 — `HomeShell`의 `IndexedStack`은
+  실제 `Navigator` route 경계가 없어, `namesRoute`를 붙였을 때 실기기 screen
+  reader가 어떻게 반응할지 검증할 방법이 이 환경에 없었고, 잘못된 semantics가
+  아예 없는 것보다 나쁠 수 있다고 판단해 보류했다. 대신 `RenderIndexedStack`이
+  비활성 탭을 semantics tree에서 이미 제외한다는 기존 동작을 테스트로 확인했다.
+  차트 semantics 요약은 `MonthlyExpenseChartCard` 1개만 구현했다 — report/asset/
+  budget 화면의 나머지 차트(NetWorthChart, XP 차트, completion heatmap)는 범위
+  밖으로 남겼다. 대비 자동 검사(`textContrastGuideline`)가 실제 버그(다크 테마
+  `FilledButton` 대비 2.53:1, WCAG AA 4.5:1 미달)를 하나 찾아냈고 `onPrimary` 토큰
+  수정으로 해결했다; 같은 검사가 대시보드 "스텟" 제목에서도 실패를 보고했지만
+  두 테마에서 색이 다른데도 비율이 거의 동일(1.17/1.09)하고 rect가 두 글자
+  텍스트치고 지나치게 넓어(폭 784) 실제 시각 문제가 아니라 semantics 병합으로
+  인한 sampling 오탐으로 판단해 코드를 바꾸지 않고 테스트에서 그 화면만 제외했다.
+- **Part C(단축키)**: 계획한 6개 단축키 중 4개(탭 전환, 검색, 새 퀘스트, Escape)를
+  구현했다. Ctrl+Tab 퀘스트 탭 순환은 계획서가 이미 예상한 대로 Web 브라우저
+  예약키 충돌 위험으로 제외했다. Ctrl+Enter로 포커스된 퀘스트를 완료하는
+  단축키는 `QuestCard`에 "포커스된 퀘스트"라는 새 개념 자체를 도입해야 하는데,
+  실기기 키보드 검증 없이 완료 보상 경로에 손대는 것으로 판단해 보류했다.
+  구현 중 `Shortcuts`가 `primaryFocus`의 조상 체인에서만 반응한다는 점 때문에
+  화면 루트에 `Focus(autofocus: true)`를 추가했더니, 검색을 나중에 여는
+  TextField 자신의 `autofocus`가 무시되는 실제 회귀가 발생했다 — Phase 6-7에서
+  추가한 `focus_test.dart`가 이를 잡아냈고, 검색 진입점을 단축키와 같은
+  `_openSearchAndFocus`(명시적 `requestFocus()`)로 통일해 해결했다.
+
+### 확인하지 못한 것 (6플랫폼 수동 QA)
+
+TalkBack(Android), VoiceOver(iOS/macOS), Narrator(Windows), Orca(Linux), Web
+screen reader 낭독 순서/내용, 실제 키보드로 Windows/macOS/Linux/Web에서 단축키
+동작, 200% Web zoom, 6개 플랫폼 build smoke는 이 세션의 컨테이너 환경(실기기·
+브라우저·GUI 없음)에서 실행할 방법이 없어 시도하지 않았다. `flutter test`의
+`meetsGuideline`/시맨틱스 트리 검사는 정적·자동화된 근사치일 뿐, 실제 보조기술
+낭독을 대신하지 않는다. 이 항목들은 실기기/브라우저가 있는 환경에서 별도로
+수행해야 한다.

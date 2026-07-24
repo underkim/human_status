@@ -48,8 +48,31 @@
     CelebrationDialogShell, 레벨업/업적 다이얼로그 애니메이션, flutter test 985개 통과
   - [보류] Part B(완료/레벨업 공유 카드)는 share_plus 등 의존성·플랫폼 검증 필요로
     별도 Phase. 진입 조건은 계획 문서 3.4절 참조
-- [ ] Phase 6 — 엔지니어링 마감 (파일 분할, 접근성, 데스크톱 단축키)
+- [~] Phase 6 — 엔지니어링 마감 (파일 분할, 접근성, 데스크톱 단축키)
   - 상세 계획: [`docs/plans/phase6_engineering_polish_plan.md`](phase6_engineering_polish_plan.md)
+  - Part A(파일 분할) 완료: `finance_screen.dart`(1,386줄)를 `lib/screens/finance/` 7개
+    파일로, `settings_screen.dart`(1,320줄)를 `lib/screens/settings/` 6개 섹션으로,
+    `main.dart`(505줄)를 `lib/app/` 3개 파일로, wizard를
+    `lib/screens/financial_planning/` 5개 단계 위젯으로 분할(공개 진입점·동작 불변,
+    커밋 f3e6487/b364df5/0873636/a8d901f)
+  - Part B(접근성) 완료: 접근성 테스트 하네스, IndexedStack semantics 검증,
+    text-scale/tap-target/contrast 가드, 아이콘 tooltip, 차트 semantics 요약,
+    검색 autofocus·다이얼로그 키보드 조작성 확인(커밋 672e383/2f57f47/f8ee255).
+    자동 검사 중 다크 테마 FilledButton 대비 미달(2.53:1)을 실제로 발견해
+    onPrimary 토큰을 고쳤다
+  - Part C(데스크톱 단축키) 부분 완료: 탭 전환(Ctrl/Cmd+1..5), 퀘스트 검색
+    (Ctrl/Cmd+F), 새 퀘스트(Ctrl/Cmd+N), 검색 닫기(Escape)를 구현하고
+    Windows/macOS/Android 분기까지 테스트로 확인(커밋 4266201). Ctrl+Tab 탭
+    순환과 포커스된 퀘스트 완료(Ctrl+Enter)는 계획서가 허용한 대로 이번
+    범위에서 제외
+  - [보류] TalkBack/VoiceOver/Narrator/macOS VoiceOver/Orca/Web screen reader
+    6플랫폼 수동 QA, Windows/macOS 키보드 실기기 확인, 라우트 명명
+    (IndexedStack 탭의 namesRoute)은 실기기 없이는 검증 신뢰도가 낮아 미실행 —
+    S_GRADE_MASTER_PLAYBOOK.md 3.3절에 남은 항목 기록
+  - flutter analyze 0건, flutter test 1014개 중 1006 통과·6 스킵(이 환경에
+    PowerShell 없음)·2 실패(quest_completion_execution_lock_test.dart file
+    backend — 이 컨테이너의 파일 advisory lock 특성 차이로 추정되는 기존
+    환경 이슈, Phase 6 착수 전부터 동일하게 실패)
 
 ## Phase 1 상세 계획 (진행 중)
 

@@ -1,7 +1,9 @@
 # Human Status S급 달성 마스터 실행 플레이북
 
-> 기준 시점: 2026-07-23  
-> 기준 환경: Windows, Flutter 3.44.6, Dart 3.12.2, 실기기 없음  
+> 기준 시점: 2026-07-24(Phase 6 Part A/B/C 반영)  
+> 기준 환경: Windows, Flutter 3.44.6, Dart 3.12.2, 실기기 없음. Phase 6은 Linux 컨테이너
+> (Flutter 3.44.8, Dart 3.12.2, 한글 경로 문제 없음, 실기기·브라우저 없음)에서 수행했다 —
+> 환경마다 도구 가용성이 다르므로 새 담당자는 자신의 실제 환경에서 재검증한다.  
 > 목적: 새 에이전트가 이 문서 하나로 목표, 현황, 다음 작업, 검증 및 인수인계 방식을 파악하게 한다.
 
 이 문서는 `docs/plans/roadmap_to_s_grade.md`, Phase 1~6 계획, `docs/RELEASE_CHECKLIST.md`,
@@ -36,7 +38,7 @@ S급은 기능 수가 많은 상태가 아니라 아래 네 축의 게이트를 
 | 3 | 대기 | `docs/plans/phase3_production_release_plan.md` | 서명·개인정보·실기기·스토어 자산·릴리즈 증적의 배포 블로커 해소 | Phase 1, 2, 4 결과 및 계정/실기기/서명 owner | readiness 통과, signed artifacts, 6플랫폼 증적, 스토어 제출 후보, release evidence index |
 | 4 | 완료(기능 플래그 제한) | `docs/plans/phase4_notification_action_plan.md` | 알림에서 퀘스트를 정확히 한 번 완료하는 경로 구현 | Phase 1/2 storage 안정성 | typed payload, execution lock, dedupe/dispatcher/tests; 커밋 `7d4aca9`; 플래그는 `false` |
 | 5 | Part A 완료 / Part B 보류 | `docs/plans/phase5_delight_polish_plan.md` | 외부 패키지 없이 완료·레벨업·업적의 접근 가능한 마이크로 인터랙션 강화 | Phase 4 완료 흐름 | `QuestCompletionButton`, `CelebrationDialogShell`, 회귀/모션/semantics 테스트; 커밋 `443c893`; 공유 카드(Part B)는 별도 Phase 보류 |
-| 6 | 대기 | `docs/plans/phase6_engineering_polish_plan.md` | 동작 고정 후 파일 분할, 접근성, 데스크톱 단축키 마감 | Phase 5 UI 계약 확정 | 책임별 파일, a11y harness/개선, typed shortcuts, 6플랫폼 QA 기록 |
+| 6 | Part A/B 완료, Part C 부분 완료, 6플랫폼 수동 QA 보류 | `docs/plans/phase6_engineering_polish_plan.md` | 동작 고정 후 파일 분할, 접근성, 데스크톱 단축키 마감 | Phase 5 UI 계약 확정 | 책임별 파일 15개, a11y harness/테스트/개선, typed shortcuts 4종; 커밋 `f3e6487`~`4266201`; 6플랫폼 QA 기록은 미실행 |
 
 Phase 3/5/6 계획 문서와 마스터 플레이북·`tool/verify_phase.sh`는 커밋 `6efdedc`/`443c893`로
 tracked 상태다. “계획이 존재함”과 “Phase가 완료됨”을 혼동하지 않는다. Phase 4의 홈 화면 위젯은 네이티브 Kotlin/Swift 및
@@ -46,22 +48,16 @@ Xcode/실기기 검증 제약으로 별도 Phase에 보류되었다.
 
 ### 3.1 Git과 작업 중 상태
 
-- 브랜치: `master...origin/master [ahead 11]`.
-- 수정됨: `lib/screens/dashboard_screen.dart`, `lib/screens/quests_screen.dart`,
-  `lib/widgets/achievement_dialog.dart`, `lib/widgets/action_hub_card.dart`,
-  `lib/widgets/level_up_dialog.dart`, `test/action_hub_card_test.dart`,
-  `test/dashboard_remaining_quest_test.dart`, `test/helpers/test_app.dart`.
-- 추가됨: `lib/widgets/celebration_dialog_shell.dart`,
-  `lib/widgets/quest_completion_button.dart`, `test/delight_animation_test.dart`.
-- untracked: `docs/plans/_codex_prompt_master.md`,
-  `docs/plans/phase3_production_release_plan.md`,
-  `docs/plans/phase6_engineering_polish_plan.md`.
-- 위 변경은 Phase 5 구현 진행과 일치한다. 소유 에이전트와 프로세스 종료를 확인하기
-  전에는 어떤 에이전트도 파일을 쓰면 안 된다.
+- 브랜치: `claude/check-work-plan-swgff5`, 원격에 푸시됨. 워킹 트리 clean —
+  Phase 6 Part A/B/C 작업은 커밋 `f3e6487`부터 `4266201`까지 10개 커밋으로
+  전부 커밋·푸시됐다(각 커밋 앞뒤로 analyze/test 재실행 확인).
+- 이 실행 환경은 Flutter SDK가 사전 설치돼 있지 않아 `/opt/flutter`에 stable
+  채널(3.44.8, Dart 3.12.2)을 직접 클론해 사용했다 — 새 세션에서 같은
+  환경이면 `git clone https://github.com/flutter/flutter.git -b stable
+  /opt/flutter`로 동일하게 준비한다. 이 환경은 한글 경로 문제가 없어
+  Phase 3 기록의 analysis server 255 오류가 재현되지 않았다.
 
 ### 3.2 기록된 품질 기준선
-
-이번 문서 작성 중 `flutter test`는 실행하지 않았다.
 
 | 기록 지점 | 정적 분석 | 테스트 |
 |---|---:|---:|
@@ -69,11 +65,17 @@ Xcode/실기기 검증 제약으로 별도 Phase에 보류되었다.
 | Phase 2 완료 | 0건 | 909개 통과 |
 | Phase 4 완료 | 0건 | 971개 통과 |
 | Phase 3 계획의 현재 작업 트리 실측 기록 | 한글 경로의 analysis server `FormatException`으로 종료 255 | 985개 통과 |
+| Phase 5 Part A 완료 | 0건 | 985개 통과 |
+| Phase 6 Part A/B/C 완료(이 문서 작성 시점) | 0건 | 1,014개 중 1,006 통과·6 스킵·2 실패 |
 
-따라서 최신 **기록 기준선**은 985개다. 다만 현재 Phase 5 미커밋 변경의 합격 수치는
-아니며, 새 담당자는 ASCII 경로 또는 CI에서 분석을 재실행하고 전체 테스트 결과를
-새로 보고해야 한다. 현재 미완료 Phase는 Phase 3, 5, 6이며, 실행상 Phase 5가 진행
-중이고 Phase 3과 6은 대기다.
+따라서 최신 **기록 기준선**은 1,006개 통과다. 6 스킵은 이 컨테이너에 PowerShell이
+없어 `release_artifacts_version_label_test.dart`의 PowerShell 스크립트 테스트가
+건너뛴 것이고, 2 실패는 `quest_completion_execution_lock_test.dart`의 file
+backend 동시성 테스트로 Phase 6 착수 **이전**(첫 베이스라인 측정 시점)부터 동일하게
+실패해온 환경 이슈다(이 컨테이너의 파일 advisory lock 특성 차이로 추정, 코드
+결함 아님) — Phase 6의 어떤 커밋도 이 2건을 새로 발생시키지 않았다. 현재
+미완료 Phase는 Phase 3과 5 Part B이며, Phase 6은 자동화 가능한 범위(구현+
+analyze+test)를 완료했고 6플랫폼 수동 QA만 남았다(3.3절).
 
 ### 3.3 배포 전 미해결 TODO 전수
 
@@ -86,7 +88,7 @@ Xcode/실기기 검증 제약으로 별도 Phase에 보류되었다.
 | Phase 3 | 운영자 승인으로 `docs/privacy_policy.md`의 11개 `[TODO: ...]`와 “초안” 제거, 공개 HTTPS URL·앱 내 문서·콘솔 선언 일치 |
 | Phase 4/roadmap | Android/iOS cross-isolate Hive 동시성, 중복 탭·stale payload·종료 상태·저전력 matrix 통과 전 `kQuestCompletionNotificationActionEnabled`를 `true`로 바꾸지 않음 |
 | Phase 5 | 공유 카드 Part B 보류: 카드 정책/aspect ratio, Linux 대체 UX, Web fallback, `share_plus` 감사, 플랫폼 행렬, 임시 PNG/개인정보 정책이 진입 조건 |
-| Phase 6 | 구현·검증 전체 대기: 동작 고정, 순수 분할, 접근성, 단축키, 6플랫폼 QA |
+| Phase 6 | 자동화 범위(파일 분할·접근성·단축키 구현+테스트)는 완료. TalkBack/VoiceOver/Narrator/macOS VoiceOver/Orca/Web screen reader 6플랫폼 수동 QA, Windows/macOS 실제 키보드 확인, IndexedStack 탭의 route 명명(실기기 검증 없이 추가하면 오히려 혼란 위험 판단), Ctrl+Tab 퀘스트 탭 순환(Web 예약키 충돌), 포커스된 퀘스트 완료(Ctrl+Enter, QuestCard 포커스 개념 신설 필요), report/asset/budget 화면의 나머지 차트(NetWorthChart/XP 차트/completion heatmap) semantics 요약이 미실행·미구현 |
 
 `docs/privacy_policy.md`의 11개 실제 값은 운영자/문의 채널, 시행일, 변경 고지 방법,
 Sentry 운영 법인, 처리 region, Sentry 정책 링크, 이벤트 보관 기간, 프로젝트
@@ -298,20 +300,20 @@ GitHub Release 생성이나 배포는 하지 않는다.
 
 ## 9. S급 달성까지 남은 전체 경로(요약)
 
-권장 주 경로는 **현재 Phase 5 마무리 → Phase 6 → Phase 3 RC/출시 게이트**다.
-Phase 3의 계정·기기·자산 준비는 파일을 쓰지 않는 범위에서 병렬 준비할 수 있지만,
-저장소 수정은 항상 단일 작성자만 수행한다.
+권장 주 경로는 **Phase 6 잔여 수동 QA → Phase 3 RC/출시 게이트 → (여유 있으면) Phase 5
+Part B**다. Phase 6의 구현·자동 테스트 범위(Part A/B/C)는 완료됐고, 남은 것은 실기기·
+브라우저에서만 확인 가능한 항목이다. Phase 3의 계정·기기·자산 준비는 파일을 쓰지
+않는 범위에서 병렬 준비할 수 있지만, 저장소 수정은 항상 단일 작성자만 수행한다.
 
 | 순서 | 작업 | 병렬 가능 여부 | 종료 신호 |
 |---:|---|---|---|
-| 1 | 현재 Phase 5 dirty worktree의 소유권 확인, 순차 커밋 1~3 완결, 공유 카드 제외 확인 | 다른 에이전트는 읽기 전용 리뷰만 가능 | analyze 0, 전체 테스트 수 보고, 가능한 build/QA, 커밋 |
-| 2 | Phase 6 characterisation test → finance/settings/app 순수 분할 → a11y → typed shortcuts → QA | 각 커밋은 순차. 플랫폼 QA 환경 예약은 병렬 준비 가능 | Phase 6 DoD 전체와 6플랫폼 기록 |
-| 3 | Phase 3 저장소 gate: readiness/CI/release 절차, privacy 실제 값, 버전·ID·secret audit | privacy/계정 owner의 실제 값 승인은 병렬 가능; 파일 반영은 단일 작성자 | readiness ready, TODO/초안 0, analyze/test 녹색 |
-| 4 | 6플랫폼 RC build·스모크, 이전 백업 복원, Sentry 실제 네트워크 검증 | 서로 다른 외부 플랫폼 실행은 같은 immutable SHA에서 병렬 가능 | artifact hash와 플랫폼별 evidence |
-| 5 | Android/iOS signed build·실기기 및 Phase 4 cross-isolate/저전력 matrix | Android/iOS 실험은 같은 RC에서 병렬 가능 | 통과 시에만 flag 단일 커밋; 실패 시 false·자산 제외 |
-| 6 | Play/App Store 텍스트·그래픽·privacy·등급·심사 필드 freeze, 동일 RC screenshot | 두 스토어 준비는 병렬 가능 | validator required field 0, 2인 검수 |
-| 7 | release evidence index와 최종 독립 리뷰, owner Go/No-Go | 리뷰는 읽기 전용 병렬 가능, 수정은 단일 작성자 | SHA/version/hash/signing identity 일치 및 모든 owner 승인 |
-| 8 | 계정 소유자 승인 후 production rollout/App Review 제출 | 승인 전 불가 | 제출 기록과 rollback owner 확정 |
+| 1 | Phase 6 잔여: TalkBack/VoiceOver/Narrator/macOS VoiceOver/Orca/Web screen reader 6플랫폼 수동 QA, Windows/macOS 키보드 실기기 확인, Ctrl+Tab/Ctrl+Enter 단축키 및 나머지 차트 semantics 요약 여부 결정 | 플랫폼별 수동 QA는 서로 다른 기기/브라우저에서 병렬 가능 | 플랫폼별 QA 기록 또는 명시적 미실행 사유, 필요 시 후속 커밋 |
+| 2 | Phase 3 저장소 gate: readiness/CI/release 절차, privacy 실제 값, 버전·ID·secret audit | privacy/계정 owner의 실제 값 승인은 병렬 가능; 파일 반영은 단일 작성자 | readiness ready, TODO/초안 0, analyze/test 녹색 |
+| 3 | 6플랫폼 RC build·스모크, 이전 백업 복원, Sentry 실제 네트워크 검증 | 서로 다른 외부 플랫폼 실행은 같은 immutable SHA에서 병렬 가능 | artifact hash와 플랫폼별 evidence |
+| 4 | Android/iOS signed build·실기기 및 Phase 4 cross-isolate/저전력 matrix | Android/iOS 실험은 같은 RC에서 병렬 가능 | 통과 시에만 flag 단일 커밋; 실패 시 false·자산 제외 |
+| 5 | Play/App Store 텍스트·그래픽·privacy·등급·심사 필드 freeze, 동일 RC screenshot | 두 스토어 준비는 병렬 가능 | validator required field 0, 2인 검수 |
+| 6 | release evidence index와 최종 독립 리뷰, owner Go/No-Go | 리뷰는 읽기 전용 병렬 가능, 수정은 단일 작성자 | SHA/version/hash/signing identity 일치 및 모든 owner 승인 |
+| 7 | 계정 소유자 승인 후 production rollout/App Review 제출 | 승인 전 불가 | 제출 기록과 rollback owner 확정 |
 
 Phase 1의 Sentry/개인정보/플랫폼 TODO, Phase 2의 Windows/Linux·Flatpak/Snap 및 macOS
 TODO, Phase 4의 알림 flag gate는 Phase 3에서 통합해 닫는다. 홈 화면 위젯과 Phase 5
