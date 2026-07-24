@@ -1,7 +1,9 @@
 # Human Status S급 달성 마스터 실행 플레이북
 
-> 기준 시점: 2026-07-24(Phase 6 Part A/B/C 반영)  
-> 기준 환경: Windows, Flutter 3.44.6, Dart 3.12.2, 실기기 없음. Phase 6은 Linux 컨테이너
+> 기준 시점: 2026-07-24(로컬 개인 사용 범위 재검증)
+> 기준 환경: Windows 10.0.26200.8894, Flutter 3.44.6, Dart 3.12.2,
+> Windows 데스크톱·Chrome·Edge 사용 가능. Android/iOS/macOS/Linux 실기기 없음.
+> Phase 6 최초 구현은 Linux 컨테이너
 > (Flutter 3.44.8, Dart 3.12.2, 한글 경로 문제 없음, 실기기·브라우저 없음)에서 수행했다 —
 > 환경마다 도구 가용성이 다르므로 새 담당자는 자신의 실제 환경에서 재검증한다.  
 > 목적: 새 에이전트가 이 문서 하나로 목표, 현황, 다음 작업, 검증 및 인수인계 방식을 파악하게 한다.
@@ -10,6 +12,44 @@
 `tool/check_release_readiness.dart`, `.github/workflows/`, `pubspec.yaml`의 현재 내용을
 통합한 실행 기준이다. 계획과 실제 코드가 충돌하면 추측하지 말고 실제 코드와 테스트를
 다시 조사한 뒤 해당 Phase 계획 및 이 문서를 함께 갱신한다.
+
+## 0. 현재 목표 범위: 로컬 개인 사용 S급과 스토어 출시 S급의 분리
+
+현재 사용자가 승인한 목표는 **개발자 본인이 Windows에서 로컬로 혼자 사용하는
+앱의 S급**이다. 스토어 제출을 전제로 한 S급은 별도 후속 단계이며, 사용자가
+명시적으로 착수를 지시할 때까지 보류한다.
+
+### 0.1 로컬 개인 사용 기준 S급 판정
+
+2026-07-24에 시작 SHA `a93b405b6f40a3944bb4cdb9de4e7cd6add8f502`를
+Windows 실머신에서 재검증한 결과, **로컬 개인 사용 기준 S급을 선언할 수 있다.**
+
+| 평가축 | 로컬 개인 사용 게이트 | 2026-07-24 증적과 판정 |
+|---|---|---|
+| 엔지니어링 완성도 | 정적 분석 0건, 전체 테스트 1,024개 이상 전부 통과, 접근성·단축키 회귀 없음 | 한글 checkout에서는 Flutter analysis server의 기존 경로 인코딩 오류(종료 255)를 재현했으나, 동일 SHA의 ASCII clone에서 `flutter analyze --no-pub` 0건. 원 checkout에서 `flutter test --no-pub` **1,024개 전부 통과**. 이전 기준선보다 감소 없음. **닫힘** |
+| 프로덕션/운영 안정성(로컬 범위) | Windows release bundle이 빌드·실행되고, 로컬 데이터·백업·기본 off 관측성 계약이 자동 테스트로 보호됨 | 동일 SHA ASCII clone에서 `flutter build windows --release --no-pub` 성공, 생성된 `human_status.exe` 프로세스와 `Human Status` 창 실행 확인. 스토어 서명·실계정 관측성은 로컬 게이트가 아님. **닫힘** |
+| 시장 매력도(로컬 범위) | 완료 즉시 피드백, 레벨업/업적 celebration, reduced motion·중복 완료 방지가 기존 테스트로 보호됨 | Phase 5 Part A 구현과 전체 1,024개 테스트 통과를 재확인. 공유 카드는 개인 로컬 사용에 필요하지 않으므로 제외. **닫힘** |
+| 현대적 편의성 | Windows 단축키·접근성 semantics·Web compile이 자동 검증되고, Windows release가 실제 실행됨 | `test/accessibility`+`test/shortcuts` **28개 전부 통과**, Windows/Web release build 성공. Windows 앱 실제 실행 확인. 자동화 세션에서 Orca 런타임이 없고 Flutter UI Automation tree가 단일 `FLUTTERVIEW`만 노출되어 실제 키 입력 후 화면 변화를 판독하지 못했으므로 단축키와 Narrator 낭독은 **수동 확인 권장**으로 남긴다. 이는 구현/빌드/자동 회귀 게이트를 막는 결함은 아니다. **닫힘** |
+
+Web은 `flutter build web --release --no-pub` 성공까지 확인했다. 실제 Chrome
+인터랙션 스모크는 이번 세션에서 수행하지 않았으며 로컬 Windows 주 사용 목표의
+필수 게이트로 두지 않는다. TalkBack/Android, VoiceOver/iOS·macOS, Orca/Linux는
+해당 실기기/플랫폼 부재로 검증 불가다. 없는 환경을 검증했다고 간주하지 않는다.
+
+### 0.2 스토어 출시 기준 S급: 명시적 지시 전까지 보류
+
+다음 항목은 기존 계획과 체크리스트에 그대로 유지하되 지금 착수하지 않는다.
+
+- 실제 Play/App Store 제출과 스토어 자산 준비
+- Android keystore, `android/key.properties`, iOS 인증서/profile 및 코드 서명
+- Sentry 실운영/테스트 DSN 발급·주입, 실제 네트워크·symbol/source map 검증
+- `docs/privacy_policy.md`의 TODO를 실제 회사·법무·운영 정보로 채우는 작업
+- Android/iPhone 및 6플랫폼 실기기/VM 행렬, Phase 4 cross-isolate 알림 액션 활성화
+- release evidence index, artifact/signing identity 연결, owner 승인 절차
+
+위 보류는 미완료 사실을 숨기기 위한 것이 아니라 목표 범위를 분리한 것이다.
+따라서 **스토어 출시 기준 S급은 아직 선언하지 않는다.** 사용자의 별도 착수
+지시가 오기 전에는 서명 파일·DSN·privacy TODO·스토어 자산을 수정하지 않는다.
 
 ## 1. S급 정의와 4개 평가축
 
@@ -23,7 +63,8 @@ S급은 기능 수가 많은 상태가 아니라 아래 네 축의 게이트를 
 | 시장 매력도 | 퀘스트 완료 즉시 피드백, 레벨업/업적 celebration이 기존 보상·문구·순서를 보존하고 중복 완료 0건, 모션 감소에서도 의미 손실 없음, 실제 RC UI로 스토어 텍스트·아이콘·그래픽·스크린샷·등급·privacy 필드를 완성 | Phase 5 테스트/6플랫폼 QA, Play/App Store 자산 2인 검수 |
 | 현대적 편의성 | 로컬 우선 원칙을 지키며 Windows/Linux 자동 백업, 알림·백업·가져오기 흐름이 회귀하지 않고, 접근성 및 Windows/macOS/Linux/Web 키보드 흐름이 명세대로 동작함. 알림 즉시 완료는 Android/iOS cross-isolate 검증 통과 시에만 제공 | Phase 2/4/6 증적, `RELEASE_CHECKLIST.md`, 실기기·VM·브라우저 행렬 |
 
-공유 카드는 Phase 5 계획에서 의도적으로 제외되었다. Linux 파일 공유 대체 UX, Web
+공유 카드는 Phase 5 계획에서 의도적으로 제외되었다. **로컬 개인 사용 범위에서는
+불필요하며 스토어 배포 시점에 재검토한다.** Linux 파일 공유 대체 UX, Web
 다운로드 fallback, 개인정보 정책, `share_plus` 고정 버전과 6개 플랫폼 검증 환경이
 확정되기 전에는 S급을 이유로 무리하게 넣지 않는다. 현재 S급 시장 매력도 게이트는
 검증 가능한 마이크로 인터랙션과 정확한 스토어 자산을 기준으로 한다.
@@ -48,14 +89,14 @@ Xcode/실기기 검증 제약으로 별도 Phase에 보류되었다.
 
 ### 3.1 Git과 작업 중 상태
 
-- 브랜치: `claude/check-work-plan-swgff5`, 원격에 푸시됨. 워킹 트리 clean —
-  Phase 6 Part A/B/C 작업은 커밋 `f3e6487`부터 `4266201`까지 10개 커밋으로
-  전부 커밋·푸시됐다(각 커밋 앞뒤로 analyze/test 재실행 확인).
-- 이 실행 환경은 Flutter SDK가 사전 설치돼 있지 않아 `/opt/flutter`에 stable
-  채널(3.44.8, Dart 3.12.2)을 직접 클론해 사용했다 — 새 세션에서 같은
-  환경이면 `git clone https://github.com/flutter/flutter.git -b stable
-  /opt/flutter`로 동일하게 준비한다. 이 환경은 한글 경로 문제가 없어
-  Phase 3 기록의 analysis server 255 오류가 재현되지 않았다.
+- 2026-07-24 재검증 시작 상태는 브랜치 `master`, 워킹 트리 clean, HEAD
+  `a93b405b6f40a3944bb4cdb9de4e7cd6add8f502`였다.
+- Windows 실머신의 Flutter 3.44.6/Dart 3.12.2를 사용했다. 원 checkout의 한글
+  경로에서는 analysis server 255 오류를 재현했으므로 같은 SHA를
+  `C:\Users\rlaeh\AppData\Local\Temp\human_status_verify_a93b405`에 clone해
+  analyze와 release build를 검증했다.
+- Phase 6 Part A/B/C 구현 이력은 커밋 `f3e6487`부터 `4266201`까지이며,
+  후속 차트 semantics와 Ctrl+Tab 보완은 `00c3863`/`01ab432`다.
 
 ### 3.2 기록된 품질 기준선
 
@@ -67,15 +108,14 @@ Xcode/실기기 검증 제약으로 별도 Phase에 보류되었다.
 | Phase 3 계획의 현재 작업 트리 실측 기록 | 한글 경로의 analysis server `FormatException`으로 종료 255 | 985개 통과 |
 | Phase 5 Part A 완료 | 0건 | 985개 통과 |
 | Phase 6 Part A/B/C 완료(이 문서 작성 시점) | 0건 | 1,014개 중 1,006 통과·6 스킵·2 실패 |
+| 2026-07-24 Windows 재검증(`a93b405`) | 동일 SHA ASCII clone에서 0건 | **1,024개 전부 통과** |
 
-따라서 최신 **기록 기준선**은 1,006개 통과다. 6 스킵은 이 컨테이너에 PowerShell이
-없어 `release_artifacts_version_label_test.dart`의 PowerShell 스크립트 테스트가
-건너뛴 것이고, 2 실패는 `quest_completion_execution_lock_test.dart`의 file
-backend 동시성 테스트로 Phase 6 착수 **이전**(첫 베이스라인 측정 시점)부터 동일하게
-실패해온 환경 이슈다(이 컨테이너의 파일 advisory lock 특성 차이로 추정, 코드
-결함 아님) — Phase 6의 어떤 커밋도 이 2건을 새로 발생시키지 않았다. 현재
-미완료 Phase는 Phase 3과 5 Part B이며, Phase 6은 자동화 가능한 범위(구현+
-analyze+test)를 완료했고 6플랫폼 수동 QA만 남았다(3.3절).
+따라서 최신 **기록 기준선은 1,024개 전부 통과**다. 과거 Linux 컨테이너의
+6 스킵은 PowerShell 부재, 2 실패는 file backend advisory lock 환경 차이였으며
+이번 Windows 재검증에서는 모두 통과했다. Phase 3과 Phase 5 Part B는 스토어
+출시 범위로 보류한다. Phase 6의 구현·자동 테스트·Windows/Web build smoke는
+완료했고, 실제 Narrator 낭독과 키보드 손 조작 및 다른 플랫폼 수동 QA만
+권장/외부 검증 항목으로 남는다.
 
 ### 3.3 배포 전 미해결 TODO 전수
 
