@@ -217,6 +217,23 @@ class _NetWorthChart extends StatelessWidget {
 
   const _NetWorthChart({required this.snapshots});
 
+  /// 라인 차트는 시각 정보만 전달하므로, 보조기술 사용자가 같은 내용을
+  /// 문장으로 얻을 수 있는 대체 텍스트를 만든다.
+  String _chartSummary() {
+    final first = snapshots.first;
+    final last = snapshots.last;
+    final peak = snapshots.reduce((a, b) => a.netWorth >= b.netWorth ? a : b);
+    String dateLabel(DateTime d) => '${d.month}/${d.day}';
+    final trend = last.netWorth == first.netWorth
+        ? '변화 없음'
+        : last.netWorth > first.netWorth
+        ? '${formatWon(last.netWorth - first.netWorth)} 증가'
+        : '${formatWon(first.netWorth - last.netWorth)} 감소';
+    return '순자산 추이: ${dateLabel(first.importedAt)} ${formatWon(first.netWorth)}부터 '
+        '${dateLabel(last.importedAt)} ${formatWon(last.netWorth)}까지, $trend. '
+        '최고 순자산은 ${dateLabel(peak.importedAt)} ${formatWon(peak.netWorth)}.';
+  }
+
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
@@ -252,99 +269,109 @@ class _NetWorthChart extends StatelessWidget {
       return '${d.month}/${d.day}';
     }
 
-    return SizedBox(
-      height: 180,
-      child: LineChart(
-        LineChartData(
-          minY: minY,
-          maxY: maxY,
-          gridData: FlGridData(
-            show: true,
-            drawVerticalLine: false,
-            horizontalInterval: (maxY - minY) / 2,
-            getDrawingHorizontalLine: (v) =>
-                FlLine(color: colors.outline, strokeWidth: 1),
-          ),
-          borderData: FlBorderData(show: false),
-          titlesData: FlTitlesData(
-            topTitles: const AxisTitles(
-              sideTitles: SideTitles(showTitles: false),
-            ),
-            rightTitles: const AxisTitles(
-              sideTitles: SideTitles(showTitles: false),
-            ),
-            leftTitles: AxisTitles(
-              sideTitles: SideTitles(
-                showTitles: true,
-                reservedSize: 52,
-                interval: (maxY - minY) / 2,
-                getTitlesWidget: (value, meta) => Padding(
-                  padding: const EdgeInsets.only(right: 4),
-                  child: Text(
-                    formatWonCompact(value),
-                    style: AppTypography.dataSmall(color: colors.textMuted),
-                    textAlign: TextAlign.right,
+    return Semantics(
+      label: _chartSummary(),
+      child: ExcludeSemantics(
+        child: SizedBox(
+          height: 180,
+          child: LineChart(
+            LineChartData(
+              minY: minY,
+              maxY: maxY,
+              gridData: FlGridData(
+                show: true,
+                drawVerticalLine: false,
+                horizontalInterval: (maxY - minY) / 2,
+                getDrawingHorizontalLine: (v) =>
+                    FlLine(color: colors.outline, strokeWidth: 1),
+              ),
+              borderData: FlBorderData(show: false),
+              titlesData: FlTitlesData(
+                topTitles: const AxisTitles(
+                  sideTitles: SideTitles(showTitles: false),
+                ),
+                rightTitles: const AxisTitles(
+                  sideTitles: SideTitles(showTitles: false),
+                ),
+                leftTitles: AxisTitles(
+                  sideTitles: SideTitles(
+                    showTitles: true,
+                    reservedSize: 52,
+                    interval: (maxY - minY) / 2,
+                    getTitlesWidget: (value, meta) => Padding(
+                      padding: const EdgeInsets.only(right: 4),
+                      child: Text(
+                        formatWonCompact(value),
+                        style: AppTypography.dataSmall(color: colors.textMuted),
+                        textAlign: TextAlign.right,
+                      ),
+                    ),
+                  ),
+                ),
+                bottomTitles: AxisTitles(
+                  sideTitles: SideTitles(
+                    showTitles: true,
+                    reservedSize: 24,
+                    // 라벨 충돌을 피하기 위해 처음/끝 날짜만 표시.
+                    interval: maxX - minX,
+                    getTitlesWidget: (value, meta) {
+                      if (value != minX && value != maxX) {
+                        return const SizedBox.shrink();
+                      }
+                      return Padding(
+                        padding: const EdgeInsets.only(top: 6),
+                        child: Text(
+                          dateLabel(value),
+                          style: AppTypography.dataSmall(
+                            color: colors.textMuted,
+                          ),
+                        ),
+                      );
+                    },
                   ),
                 ),
               ),
-            ),
-            bottomTitles: AxisTitles(
-              sideTitles: SideTitles(
-                showTitles: true,
-                reservedSize: 24,
-                // 라벨 충돌을 피하기 위해 처음/끝 날짜만 표시.
-                interval: maxX - minX,
-                getTitlesWidget: (value, meta) {
-                  if (value != minX && value != maxX) {
-                    return const SizedBox.shrink();
-                  }
-                  return Padding(
-                    padding: const EdgeInsets.only(top: 6),
-                    child: Text(
-                      dateLabel(value),
-                      style: AppTypography.dataSmall(color: colors.textMuted),
-                    ),
-                  );
-                },
-              ),
-            ),
-          ),
-          lineTouchData: LineTouchData(
-            touchTooltipData: LineTouchTooltipData(
-              getTooltipItems: (touched) => touched
-                  .map(
-                    (t) => LineTooltipItem(
-                      '${dateLabel(t.x)}\n${formatWon(t.y)}',
-                      TextStyle(
-                        color: Theme.of(context).colorScheme.onInverseSurface,
-                        fontSize: 12,
-                      ),
-                    ),
-                  )
-                  .toList(),
-            ),
-          ),
-          lineBarsData: [
-            LineChartBarData(
-              spots: spots,
-              color: accent,
-              barWidth: 2,
-              isCurved: false,
-              dotData: FlDotData(
-                show: true,
-                getDotPainter: (spot, pct, bar, index) => FlDotCirclePainter(
-                  radius: 3,
-                  color: accent,
-                  strokeWidth: 2,
-                  strokeColor: Theme.of(context).colorScheme.surface,
+              lineTouchData: LineTouchData(
+                touchTooltipData: LineTouchTooltipData(
+                  getTooltipItems: (touched) => touched
+                      .map(
+                        (t) => LineTooltipItem(
+                          '${dateLabel(t.x)}\n${formatWon(t.y)}',
+                          TextStyle(
+                            color: Theme.of(
+                              context,
+                            ).colorScheme.onInverseSurface,
+                            fontSize: 12,
+                          ),
+                        ),
+                      )
+                      .toList(),
                 ),
               ),
-              belowBarData: BarAreaData(
-                show: true,
-                color: accent.withValues(alpha: 0.08),
-              ),
+              lineBarsData: [
+                LineChartBarData(
+                  spots: spots,
+                  color: accent,
+                  barWidth: 2,
+                  isCurved: false,
+                  dotData: FlDotData(
+                    show: true,
+                    getDotPainter: (spot, pct, bar, index) =>
+                        FlDotCirclePainter(
+                          radius: 3,
+                          color: accent,
+                          strokeWidth: 2,
+                          strokeColor: Theme.of(context).colorScheme.surface,
+                        ),
+                  ),
+                  belowBarData: BarAreaData(
+                    show: true,
+                    color: accent.withValues(alpha: 0.08),
+                  ),
+                ),
+              ],
             ),
-          ],
+          ),
         ),
       ),
     );

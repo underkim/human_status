@@ -48,11 +48,25 @@ class _ReportScreenState extends ConsumerState<ReportScreen> {
 
     final now = DateTime.now();
     final (start, end) = ReportService.periodRange(_period, now);
-    final (prevStart, prevEnd) = ReportService.periodRange(_period, now, periodsAgo: 1);
+    final (prevStart, prevEnd) = ReportService.periodRange(
+      _period,
+      now,
+      periodsAgo: 1,
+    );
     final current = ReportService.build(
-        quests: quests, goals: goals, transactions: transactions, start: start, end: end);
+      quests: quests,
+      goals: goals,
+      transactions: transactions,
+      start: start,
+      end: end,
+    );
     final previous = ReportService.build(
-        quests: quests, goals: goals, transactions: transactions, start: prevStart, end: prevEnd);
+      quests: quests,
+      goals: goals,
+      transactions: transactions,
+      start: prevStart,
+      end: prevEnd,
+    );
     // 주간은 하루 단위, 월간은 주 단위 버킷 — 한 달을 일 단위로 그리면 너무 촘촘하다.
     final chartData = _period == ReportPeriod.weekly
         ? ReportService.xpByDay(quests: quests, start: start, end: end)
@@ -63,39 +77,43 @@ class _ReportScreenState extends ConsumerState<ReportScreen> {
       body: PageContentBounds(
         maxWidth: PageContentBounds.wide,
         child: ListView(
-        padding: const EdgeInsets.all(AppSpacing.lg),
-        children: [
-          Center(
-            child: SegmentedButton<ReportPeriod>(
-              segments: const [
-                ButtonSegment(value: ReportPeriod.weekly, label: Text('주간')),
-                ButtonSegment(value: ReportPeriod.monthly, label: Text('월간')),
-              ],
-              selected: {_period},
-              onSelectionChanged: (s) => setState(() => _period = s.first),
+          padding: const EdgeInsets.all(AppSpacing.lg),
+          children: [
+            Center(
+              child: SegmentedButton<ReportPeriod>(
+                segments: const [
+                  ButtonSegment(value: ReportPeriod.weekly, label: Text('주간')),
+                  ButtonSegment(value: ReportPeriod.monthly, label: Text('월간')),
+                ],
+                selected: {_period},
+                onSelectionChanged: (s) => setState(() => _period = s.first),
+              ),
             ),
-          ),
-          const SizedBox(height: AppSpacing.lg),
-          _SummaryCard(
-            periodLabel: _periodLabel(current),
-            current: current,
-            previous: previous,
-            previousLabel: _previousLabel,
-          ),
-          if (chartData.values.any((v) => v > 0)) ...[
             const SizedBox(height: AppSpacing.lg),
-            _XpChartCard(period: _period, data: chartData),
-          ],
-          const SizedBox(height: AppSpacing.lg),
-          _StatGrowthCard(current: current, stats: stats),
-          const SizedBox(height: AppSpacing.lg),
-          _FinanceCard(current: current, previous: previous, previousLabel: _previousLabel),
-          if (current.completedGoalTitles.isNotEmpty) ...[
+            _SummaryCard(
+              periodLabel: _periodLabel(current),
+              current: current,
+              previous: previous,
+              previousLabel: _previousLabel,
+            ),
+            if (chartData.values.any((v) => v > 0)) ...[
+              const SizedBox(height: AppSpacing.lg),
+              _XpChartCard(period: _period, data: chartData),
+            ],
             const SizedBox(height: AppSpacing.lg),
-            _CompletedGoalsCard(titles: current.completedGoalTitles),
+            _StatGrowthCard(current: current, stats: stats),
+            const SizedBox(height: AppSpacing.lg),
+            _FinanceCard(
+              current: current,
+              previous: previous,
+              previousLabel: _previousLabel,
+            ),
+            if (current.completedGoalTitles.isNotEmpty) ...[
+              const SizedBox(height: AppSpacing.lg),
+              _CompletedGoalsCard(titles: current.completedGoalTitles),
+            ],
           ],
-        ],
-      ),
+        ),
       ),
     );
   }
@@ -129,25 +147,36 @@ class _SummaryCard extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text('요약', style: Theme.of(context).textTheme.titleMedium),
-                Text(periodLabel, style: TextStyle(color: context.appColors.textMuted)),
+                Text(
+                  periodLabel,
+                  style: TextStyle(color: context.appColors.textMuted),
+                ),
               ],
             ),
             const SizedBox(height: AppSpacing.md),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceAround,
               children: [
-                _SummaryNumber(label: '완료 퀘스트', value: '${current.questsCompleted}개'),
-                _SummaryNumber(label: '획득 XP', value: formatNumber(current.xpEarned)),
-                _SummaryNumber(label: '달성 목표', value: '${current.goalsCompleted}개'),
+                _SummaryNumber(
+                  label: '완료 퀘스트',
+                  value: '${current.questsCompleted}개',
+                ),
+                _SummaryNumber(
+                  label: '획득 XP',
+                  value: formatNumber(current.xpEarned),
+                ),
+                _SummaryNumber(
+                  label: '달성 목표',
+                  value: '${current.goalsCompleted}개',
+                ),
               ],
             ),
             const SizedBox(height: AppSpacing.md),
             Text(
               '$previousLabel 대비 퀘스트 ${_signed(questDelta, '개')} · XP ${_signed(xpDelta, '')}',
-              style: Theme.of(context)
-                  .textTheme
-                  .bodySmall
-                  ?.copyWith(color: context.appColors.textMuted),
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: context.appColors.textMuted,
+              ),
             ),
           ],
         ),
@@ -179,6 +208,23 @@ class _XpChartCard extends StatelessWidget {
     return '${index + 1}주';
   }
 
+  /// 막대 그래프는 시각 정보만 전달하므로, 보조기술 사용자가 같은 내용을
+  /// 문장으로 얻을 수 있는 대체 텍스트를 만든다.
+  String _chartSummary() {
+    if (data.isEmpty) return 'XP 추이 데이터가 없어요.';
+    final entries = data.values.toList();
+    var peakIndex = 0;
+    for (var i = 1; i < entries.length; i++) {
+      if (entries[i] > entries[peakIndex]) peakIndex = i;
+    }
+    final perEntry = [
+      for (var i = 0; i < entries.length; i++)
+        '${_label(i)} ${entries[i].round()}XP',
+    ].join(', ');
+    return 'XP 추이: $perEntry. 가장 많이 획득한 구간은 ${_label(peakIndex)}, '
+        '${entries[peakIndex].round()}XP.';
+  }
+
   @override
   Widget build(BuildContext context) {
     final maxXp = data.values.fold<double>(0, (a, b) => b > a ? b : a);
@@ -191,47 +237,62 @@ class _XpChartCard extends StatelessWidget {
           children: [
             Text('XP 추이', style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: AppSpacing.md),
-            SizedBox(
-              height: 150,
-              child: BarChart(
-                BarChartData(
-                  alignment: BarChartAlignment.spaceAround,
-                  maxY: maxXp <= 0 ? 10 : maxXp * 1.2,
-                  titlesData: FlTitlesData(
-                    leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                    rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                    topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                    bottomTitles: AxisTitles(
-                      sideTitles: SideTitles(
-                        showTitles: true,
-                        getTitlesWidget: (value, meta) {
-                          final index = value.toInt();
-                          if (index < 0 || index >= data.length) return const SizedBox.shrink();
-                          return Padding(
-                            padding: const EdgeInsets.only(top: 4),
-                            child: Text(_label(index),
-                                style: Theme.of(context).textTheme.bodySmall),
-                          );
-                        },
+            Semantics(
+              label: _chartSummary(),
+              child: ExcludeSemantics(
+                child: SizedBox(
+                  height: 150,
+                  child: BarChart(
+                    BarChartData(
+                      alignment: BarChartAlignment.spaceAround,
+                      maxY: maxXp <= 0 ? 10 : maxXp * 1.2,
+                      titlesData: FlTitlesData(
+                        leftTitles: const AxisTitles(
+                          sideTitles: SideTitles(showTitles: false),
+                        ),
+                        rightTitles: const AxisTitles(
+                          sideTitles: SideTitles(showTitles: false),
+                        ),
+                        topTitles: const AxisTitles(
+                          sideTitles: SideTitles(showTitles: false),
+                        ),
+                        bottomTitles: AxisTitles(
+                          sideTitles: SideTitles(
+                            showTitles: true,
+                            getTitlesWidget: (value, meta) {
+                              final index = value.toInt();
+                              if (index < 0 || index >= data.length) {
+                                return const SizedBox.shrink();
+                              }
+                              return Padding(
+                                padding: const EdgeInsets.only(top: 4),
+                                child: Text(
+                                  _label(index),
+                                  style: Theme.of(context).textTheme.bodySmall,
+                                ),
+                              );
+                            },
+                          ),
+                        ),
                       ),
+                      borderData: FlBorderData(show: false),
+                      gridData: const FlGridData(show: false),
+                      barGroups: [
+                        for (final (index, xp) in data.values.indexed)
+                          BarChartGroupData(
+                            x: index,
+                            barRods: [
+                              BarChartRodData(
+                                toY: xp,
+                                color: Theme.of(context).colorScheme.primary,
+                                width: period == ReportPeriod.weekly ? 18 : 28,
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                            ],
+                          ),
+                      ],
                     ),
                   ),
-                  borderData: FlBorderData(show: false),
-                  gridData: const FlGridData(show: false),
-                  barGroups: [
-                    for (final (index, xp) in data.values.indexed)
-                      BarChartGroupData(
-                        x: index,
-                        barRods: [
-                          BarChartRodData(
-                            toY: xp,
-                            color: Theme.of(context).colorScheme.primary,
-                            width: period == ReportPeriod.weekly ? 18 : 28,
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                        ],
-                      ),
-                  ],
                 ),
               ),
             ),
@@ -268,7 +329,8 @@ class _StatGrowthCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final entries = current.xpByStat.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
+    final entries = current.xpByStat.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
 
     String statLabel(String statId) {
       for (final s in stats) {
@@ -291,19 +353,21 @@ class _StatGrowthCard extends StatelessWidget {
                 style: TextStyle(color: context.appColors.textMuted),
               )
             else
-              ...entries.map((e) => Padding(
-                    padding: const EdgeInsets.symmetric(vertical: AppSpacing.xs),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(statLabel(e.key)),
-                        Text(
-                          '+${formatNumber(e.value)} XP',
-                          style: AppTypography.dataSmall(weight: FontWeight.w600),
-                        ),
-                      ],
-                    ),
-                  )),
+              ...entries.map(
+                (e) => Padding(
+                  padding: const EdgeInsets.symmetric(vertical: AppSpacing.xs),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(statLabel(e.key)),
+                      Text(
+                        '+${formatNumber(e.value)} XP',
+                        style: AppTypography.dataSmall(weight: FontWeight.w600),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
           ],
         ),
       ),
@@ -326,7 +390,10 @@ class _FinanceCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = context.appColors;
     final hasAny =
-        current.income != 0 || current.expense != 0 || previous.income != 0 || previous.expense != 0;
+        current.income != 0 ||
+        current.expense != 0 ||
+        previous.income != 0 ||
+        previous.expense != 0;
     final expenseDelta = current.expense - previous.expense;
 
     return Card(
@@ -338,17 +405,29 @@ class _FinanceCard extends StatelessWidget {
             Text('재무', style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: AppSpacing.sm),
             if (!hasAny)
-              Text('이 기간에 기록된 거래가 없어요.', style: TextStyle(color: colors.textMuted))
+              Text(
+                '이 기간에 기록된 거래가 없어요.',
+                style: TextStyle(color: colors.textMuted),
+              )
             else ...[
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceAround,
                 children: [
-                  _MoneyStat(label: '수입', value: current.income, color: colors.success),
-                  _MoneyStat(label: '지출', value: current.expense, color: colors.error),
                   _MoneyStat(
-                      label: '순저축',
-                      value: current.net,
-                      color: Theme.of(context).colorScheme.primary),
+                    label: '수입',
+                    value: current.income,
+                    color: colors.success,
+                  ),
+                  _MoneyStat(
+                    label: '지출',
+                    value: current.expense,
+                    color: colors.error,
+                  ),
+                  _MoneyStat(
+                    label: '순저축',
+                    value: current.net,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
                 ],
               ),
               const SizedBox(height: AppSpacing.md),
@@ -356,14 +435,18 @@ class _FinanceCard extends StatelessWidget {
                 expenseDelta == 0
                     ? '$previousLabel과 지출이 같아요'
                     : expenseDelta > 0
-                        ? '$previousLabel보다 ${formatWon(expenseDelta)} 더 썼어요'
-                        : '$previousLabel보다 ${formatWon(-expenseDelta)} 덜 썼어요',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(color: colors.textMuted),
+                    ? '$previousLabel보다 ${formatWon(expenseDelta)} 더 썼어요'
+                    : '$previousLabel보다 ${formatWon(-expenseDelta)} 덜 썼어요',
+                style: Theme.of(
+                  context,
+                ).textTheme.bodySmall?.copyWith(color: colors.textMuted),
               ),
               if (current.topExpenseCategory != null)
                 Text(
                   '최다 지출: ${current.topExpenseCategory} (${formatWon(current.topExpenseAmount)})',
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(color: colors.textMuted),
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodySmall?.copyWith(color: colors.textMuted),
                 ),
             ],
           ],
@@ -378,7 +461,11 @@ class _MoneyStat extends StatelessWidget {
   final double value;
   final Color color;
 
-  const _MoneyStat({required this.label, required this.value, required this.color});
+  const _MoneyStat({
+    required this.label,
+    required this.value,
+    required this.color,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -386,8 +473,13 @@ class _MoneyStat extends StatelessWidget {
       children: [
         Text(label, style: Theme.of(context).textTheme.bodySmall),
         const SizedBox(height: 2),
-        Text(formatWonCompact(value),
-            style: AppTypography.dataMedium(color: color, weight: FontWeight.bold)),
+        Text(
+          formatWonCompact(value),
+          style: AppTypography.dataMedium(
+            color: color,
+            weight: FontWeight.bold,
+          ),
+        ),
       ],
     );
   }
@@ -408,16 +500,18 @@ class _CompletedGoalsCard extends StatelessWidget {
           children: [
             Text('달성한 목표', style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: AppSpacing.sm),
-            ...titles.map((t) => Padding(
-                  padding: const EdgeInsets.symmetric(vertical: AppSpacing.xs),
-                  child: Row(
-                    children: [
-                      const Text('🏆'),
-                      const SizedBox(width: AppSpacing.sm),
-                      Expanded(child: Text(t)),
-                    ],
-                  ),
-                )),
+            ...titles.map(
+              (t) => Padding(
+                padding: const EdgeInsets.symmetric(vertical: AppSpacing.xs),
+                child: Row(
+                  children: [
+                    const Text('🏆'),
+                    const SizedBox(width: AppSpacing.sm),
+                    Expanded(child: Text(t)),
+                  ],
+                ),
+              ),
+            ),
           ],
         ),
       ),
