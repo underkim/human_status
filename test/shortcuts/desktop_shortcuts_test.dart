@@ -44,8 +44,8 @@ Future<void> _pressChord(
 
 void main() {
   group('탭 전환 (Ctrl+1..5)', () {
-    testWidgets('Windows/Linux에서 Ctrl+2는 퀘스트 탭으로 전환한다', (tester) async {
-      await _runWithPlatform(TargetPlatform.linux, () async {
+    testWidgets('Windows에서 Ctrl+1..5는 각 최상위 탭으로 전환한다', (tester) async {
+      await _runWithPlatform(TargetPlatform.windows, () async {
         final storage = await createTestStorage();
         await pumpApp(tester, storage, const HomeShell());
         await tester.pumpAndSettle();
@@ -58,18 +58,27 @@ void main() {
           0,
         );
 
-        await _pressChord(
-          tester,
-          LogicalKeyboardKey.controlLeft,
+        final keys = [
+          LogicalKeyboardKey.digit1,
           LogicalKeyboardKey.digit2,
-        );
-
-        expect(
-          tester
-              .widget<NavigationRail>(find.byType(NavigationRail))
-              .selectedIndex,
-          1,
-        );
+          LogicalKeyboardKey.digit3,
+          LogicalKeyboardKey.digit4,
+          LogicalKeyboardKey.digit5,
+        ];
+        for (var index = 0; index < keys.length; index++) {
+          await _pressChord(
+            tester,
+            LogicalKeyboardKey.controlLeft,
+            keys[index],
+          );
+          expect(
+            tester
+                .widget<NavigationRail>(find.byType(NavigationRail))
+                .selectedIndex,
+            index,
+            reason: 'Ctrl+${index + 1} must select top-level tab $index',
+          );
+        }
       });
     });
 
