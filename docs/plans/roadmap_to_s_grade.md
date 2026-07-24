@@ -33,8 +33,18 @@
   - Claude Code 자체 검증 미흡으로 재작업 2회, Codex 리뷰 1회(조건부통과→Should-fix 2건→승인)
   - dart analyze 0건, flutter test 909개 통과
   - [TODO] Windows/Linux 실기기 검증, Flatpak/Snap 패키징 검증, macOS는 별도 Phase
-- [ ] Phase 3 — 프로덕션 배포 블로커 해소 (서명, 실기기 검증, 스토어 자산)
+- [~] Phase 3 — 프로덕션 배포 블로커 해소 (서명, 실기기 검증, 스토어 자산)
   - 상세 계획: [`docs/plans/phase3_production_release_plan.md`](phase3_production_release_plan.md)
+  - 커밋 1(저장소만으로 가능한 범위) 완료: `RELEASE_CHECKLIST.md`의 존재하지
+    않는 로컬 keystore 단정 문구 제거, 27개 항목 owner/evidence/date/SHA
+    기록 컨벤션 추가, `tool/release_readiness/checker.dart`에
+    `docs/privacy_policy.md`의 TODO/초안 표시를 검사하는 privacy category
+    추가(커밋 c62b787)
+  - [차단] 나머지 전부(Android keystore/Play 계정, Apple 개발자 계정·
+    macOS·iPhone, 실제 Sentry 계정, 개인정보처리방침 실제 값과 공개
+    HTTPS 호스팅, Windows/macOS/Linux 실기기·VM 스모크, 스토어 제출)는
+    계정 소유권·실기기·업무상 결정이 필요해 에이전트가 대신할 수 없다.
+    S_GRADE_MASTER_PLAYBOOK.md 3.3절과 phase3 계획서 0.2절 참고
 - [x] Phase 4 — 알림 액션 완료 + 홈 화면 위젯 (완료: 커밋 7d4aca9, 2026-07-23)
   - 알림 액션으로 퀘스트 즉시 완료만 구현. 홈 화면 위젯(네이티브 Kotlin/Swift)은
     실기기/Xcode 빌드 검증 불가로 범위에서 제외, 별도 Phase로 보류

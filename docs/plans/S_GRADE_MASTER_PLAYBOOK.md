@@ -35,7 +35,7 @@ S급은 기능 수가 많은 상태가 아니라 아래 네 축의 게이트를 
 | 0 | 완료 | `docs/plans/roadmap_to_s_grade.md` | 검색 기능 diff를 확정·커밋 | 없음 | 커밋 `d969691` |
 | 1 | 완료 | `docs/plans/phase1_observability_plan.md` | 명시적 opt-in Sentry와 전역 오류 처리·개인정보 기반 확보 | Phase 0 | Sentry service/provider, 설정 토글, `docs/privacy_policy.md`, 테스트; 커밋 `7413536` |
 | 2 | 완료 | `docs/plans/phase2_auto_backup_plan.md` | Windows/Linux에 실패 폐쇄형 자동 백업 제공 | Phase 1 settings storage | 자동 백업 service/provider/UI/테스트; 커밋 `8dbefa9` |
-| 3 | 대기 | `docs/plans/phase3_production_release_plan.md` | 서명·개인정보·실기기·스토어 자산·릴리즈 증적의 배포 블로커 해소 | Phase 1, 2, 4 결과 및 계정/실기기/서명 owner | readiness 통과, signed artifacts, 6플랫폼 증적, 스토어 제출 후보, release evidence index |
+| 3 | 커밋 1(저장소 gate) 완료, 나머지 외부 계정/실기기 차단 | `docs/plans/phase3_production_release_plan.md` | 서명·개인정보·실기기·스토어 자산·릴리즈 증적의 배포 블로커 해소 | Phase 1, 2, 4 결과 및 계정/실기기/서명 owner | RELEASE_CHECKLIST.md 드리프트 수정, privacy TODO readiness category; 커밋 `c62b787`. readiness `ready:true`, signed artifacts, 6플랫폼 증적, 스토어 제출 후보, release evidence index는 계정 소유자 착수 후 |
 | 4 | 완료(기능 플래그 제한) | `docs/plans/phase4_notification_action_plan.md` | 알림에서 퀘스트를 정확히 한 번 완료하는 경로 구현 | Phase 1/2 storage 안정성 | typed payload, execution lock, dedupe/dispatcher/tests; 커밋 `7d4aca9`; 플래그는 `false` |
 | 5 | Part A 완료 / Part B 보류 | `docs/plans/phase5_delight_polish_plan.md` | 외부 패키지 없이 완료·레벨업·업적의 접근 가능한 마이크로 인터랙션 강화 | Phase 4 완료 흐름 | `QuestCompletionButton`, `CelebrationDialogShell`, 회귀/모션/semantics 테스트; 커밋 `443c893`; 공유 카드(Part B)는 별도 Phase 보류 |
 | 6 | Part A/B 완료, Part C 부분 완료, 6플랫폼 수동 QA 보류 | `docs/plans/phase6_engineering_polish_plan.md` | 동작 고정 후 파일 분할, 접근성, 데스크톱 단축키 마감 | Phase 5 UI 계약 확정 | 책임별 파일 15개, a11y harness/테스트/개선, typed shortcuts 4종; 커밋 `f3e6487`~`4266201`; 6플랫폼 QA 기록은 미실행 |
@@ -308,7 +308,7 @@ Part B**다. Phase 6의 구현·자동 테스트 범위(Part A/B/C)는 완료됐
 | 순서 | 작업 | 병렬 가능 여부 | 종료 신호 |
 |---:|---|---|---|
 | 1 | Phase 6 잔여: TalkBack/VoiceOver/Narrator/macOS VoiceOver/Orca/Web screen reader 6플랫폼 수동 QA, Windows/macOS 키보드 실기기 확인, Ctrl+Tab/Ctrl+Enter 단축키 및 나머지 차트 semantics 요약 여부 결정 | 플랫폼별 수동 QA는 서로 다른 기기/브라우저에서 병렬 가능 | 플랫폼별 QA 기록 또는 명시적 미실행 사유, 필요 시 후속 커밋 |
-| 2 | Phase 3 저장소 gate: readiness/CI/release 절차, privacy 실제 값, 버전·ID·secret audit | privacy/계정 owner의 실제 값 승인은 병렬 가능; 파일 반영은 단일 작성자 | readiness ready, TODO/초안 0, analyze/test 녹색 |
+| 2 | Phase 3 저장소 gate: (완료) 체크리스트 드리프트·privacy readiness category → (남음) 실제 Android keystore/Sentry DSN 주입, privacy 실제 값, 버전·ID·secret audit | privacy/계정 owner의 실제 값 승인은 병렬 가능; 파일 반영은 단일 작성자 | readiness ready, TODO/초안 0, analyze/test 녹색 |
 | 3 | 6플랫폼 RC build·스모크, 이전 백업 복원, Sentry 실제 네트워크 검증 | 서로 다른 외부 플랫폼 실행은 같은 immutable SHA에서 병렬 가능 | artifact hash와 플랫폼별 evidence |
 | 4 | Android/iOS signed build·실기기 및 Phase 4 cross-isolate/저전력 matrix | Android/iOS 실험은 같은 RC에서 병렬 가능 | 통과 시에만 flag 단일 커밋; 실패 시 false·자산 제외 |
 | 5 | Play/App Store 텍스트·그래픽·privacy·등급·심사 필드 freeze, 동일 RC screenshot | 두 스토어 준비는 병렬 가능 | validator required field 0, 2인 검수 |
