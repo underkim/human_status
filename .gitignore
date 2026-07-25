@@ -49,3 +49,11 @@ app.*.map.json
 android/key.properties
 *.jks
 *.keystore
+
+# Local-only S-grade evidence artifacts (see
+# docs/plans/s_grade_local_automation_expansion_plan.md 2절): logs, JSON,
+# PNG captures, and isolated Hive copies produced by manual/automated
+# Windows evidence runs. These are read-only remnants kept on disk for
+# investigation but are not part of the tracked source tree.
+/test-results/
+/tool/manual_evidence/
