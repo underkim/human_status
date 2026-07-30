@@ -505,7 +505,13 @@ void main() {
           return http.Response(
             jsonEncode({
               'content': [
-                {'type': 'text', 'text': jsonEncode(quests)},
+                for (var i = 0; i < quests.length; i++)
+                  {
+                    'type': 'tool_use',
+                    'id': 'toolu_$i',
+                    'name': 'propose_quest',
+                    'input': quests[i],
+                  },
               ],
             }),
             200,
