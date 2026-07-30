@@ -3,9 +3,11 @@
 이 문서는 Human Status를 실제로 배포할 때 따라야 할 절차를 정리합니다. 크게
 두 가지를 분명히 구분합니다.
 
-- **배포 가능한 Windows/Web 아티팩트** — `.github/workflows/release-artifacts.yml`
-  워크플로가 지금 바로 만들어낼 수 있는, 실행 가능한 결과물(zip + 체크섬)입니다.
-  퍼머넌트 앱/번들 ID나 스토어 등록이 필요 없습니다.
+- **배포 가능한 Windows/Web/Android(디버그) 아티팩트** —
+  `.github/workflows/release-artifacts.yml` 워크플로가 지금 바로 만들어낼 수
+  있는, 실행 가능한 결과물(zip/apk + 체크섬)입니다. 퍼머넌트 앱/번들 ID나
+  스토어 등록이 필요 없습니다. Android는 디버그 키로 서명된 사이드로딩용
+  APK이며, 스토어에 낼 수 있는 릴리즈 서명 빌드가 아닙니다(4~5절 참고).
 - **스토어 출시 준비가 된 모바일 앱(Android/iOS)** — 영구 애플리케이션/번들 ID,
   실제 릴리즈 서명, 실기기 검증까지 끝나야 하며, 이 저장소는 그 조건이
   충족되기 전까지는 "스토어에 낼 준비가 됐다"고 주장하지 않습니다
@@ -26,14 +28,26 @@ flutter build windows --release
 # Web
 flutter build web --release
 # 결과물: build/web/ 폴더 전체 (정적 파일 세트, 아무 정적 서버로 서빙 가능)
+
+# Android (사이드로딩용 디버그 APK, 릴리즈 서명 불필요)
+flutter build apk --debug
+# 결과물: build/app/outputs/flutter-apk/app-debug.apk
 ```
 
 `release-artifacts.yml` 워크플로(`workflow_dispatch` 또는 `v*` 태그 푸시로
-실행)는 위 두 빌드를 각각 실행한 뒤, **실행에 필요한 폴더 전체**를
-`human_status-windows-x64-<버전>.zip`, `human_status-web-<버전>.zip`으로
-압축하고, 같은 이름의 `.sha256` 체크섬 파일과 함께 워크플로 아티팩트로
-업로드합니다. GitHub Release 생성이나 외부 배포는 하지 않으며, 저장소 시크릿도
-사용하지 않습니다.
+실행)는 위 세 빌드를 각각 실행한 뒤, Windows/Web은 **실행에 필요한 폴더
+전체**를 `human_status-windows-x64-<버전>.zip`, `human_status-web-<버전>.zip`
+으로 압축하고, Android는 디버그 APK 파일을
+`human_status-android-debug-<버전>.apk`로 그대로 담아, 각각 같은 이름의
+`.sha256` 체크섬 파일과 함께 워크플로 아티팩트로 업로드합니다. GitHub Release
+생성이나 외부 배포(스토어 등)는 하지 않으며, 저장소 시크릿도 사용하지
+않습니다.
+
+Android 산출물은 **디버그 키로 서명된 APK**입니다 — Play Store에는 낼 수
+없지만, 안드로이드 기기에서 "출처를 알 수 없는 앱 설치"를 허용하고 이
+APK 파일을 직접 열면 그대로 설치됩니다(개인 사이드로딩 용도). 스토어에 낼
+release 서명 APK/AAB가 필요해지면 4~5절의 영구 ID/키스토어 절차를 먼저
+끝내야 합니다.
 
 `<버전>` 라벨은 태그 이름/수동 입력값을
 `tool/ci/sanitize_version_label.sh`(Ubuntu)와
@@ -48,8 +62,10 @@ flutter build web --release
 
 1. GitHub 저장소 → Actions → "Release artifacts" 워크플로 실행 선택
 2. 실행 상세 페이지 하단 "Artifacts" 목록에서
-   `windows-release-<버전>`, `web-release-<버전>` 다운로드
-3. 압축을 풀면 `*.zip`과 `*.zip.sha256`이 함께 들어 있습니다
+   `windows-release-<버전>`, `web-release-<버전>`,
+   `android-debug-apk-<버전>` 중 필요한 것을 다운로드
+3. Windows/Web은 압축을 풀면 `*.zip`과 `*.zip.sha256`이, Android는
+   `*.apk`와 `*.apk.sha256`이 함께 들어 있습니다
 
 ### 체크섬 검증
 

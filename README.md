@@ -88,12 +88,13 @@ Windows·Web 릴리즈 빌드는 2026-07-16에 로컬에서 검증되었습니�
 
 ### 릴리즈 아티팩트 & 출시 준비 검사
 
-배포 가능한 Windows/Web 아티팩트를 만드는 절차, 체크섬 검증, 백업 호환성
-확인, 영구 ID/서명 이전 체크리스트, 실기기 게이트는
-[docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md)에 정리되어 있습니다.
-`.github/workflows/release-artifacts.yml`(`workflow_dispatch` 또는 `v*` 태그로
-실행)이 Windows/Web 릴리즈 빌드를 체크섬과 함께 워크플로 아티팩트로만
-업로드하며, GitHub Release 생성이나 외부 배포는 하지 않습니다.
+배포 가능한 Windows/Web/Android(사이드로딩용 디버그 APK) 아티팩트를 만드는
+절차, 체크섬 검증, 백업 호환성 확인, 영구 ID/서명 이전 체크리스트, 실기기
+게이트는 [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md)에 정리되어
+있습니다. `.github/workflows/release-artifacts.yml`(`workflow_dispatch` 또는
+`v*` 태그로 실행)이 Windows/Web 릴리즈 빌드와 Android 디버그 APK를 체크섬과
+함께 워크플로 아티팩트로만 업로드하며, GitHub Release 생성이나 외부 배포(스토어
+등)는 하지 않습니다.
 
 placeholder 애플리케이션/번들 ID나 debug 릴리즈 서명이 남아 있는 동안
 "모바일 스토어 출시 준비 완료"를 주장하지 않도록,
