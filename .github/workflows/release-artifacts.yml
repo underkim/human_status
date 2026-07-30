@@ -84,6 +84,72 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  android-debug-apk:
+    name: Android debug APK (sideload)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # Builds an unsigned-for-store, debug-keystore-signed APK meant to be
+    # sideloaded onto a personal device -- not for Play Store distribution.
+    # No release keystore / repository secrets are needed or used here; see
+    # docs/RELEASE_CHECKLIST.md section 5 for the separate, opt-in release
+    # signing path if a store-ready build is ever needed.
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+
+      - name: flutter pub get
+        run: flutter pub get
+
+      - name: flutter build apk --debug
+        run: flutter build apk --debug --no-pub
+
+      - name: Derive sanitized version label
+        env:
+          INPUT_VERSION_LABEL: ${{ github.event.inputs.version_label }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          # See the Windows job for why this reads env vars (inside the
+          # script below) instead of interpolating the expression directly
+          # into this step's script body.
+          sanitized="$(bash "$GITHUB_WORKSPACE/tool/ci/sanitize_version_label.sh")"
+          echo "VERSION_LABEL=$sanitized" >> "$GITHUB_ENV"
+
+      - name: Package Android debug APK
+        run: |
+          set -euo pipefail
+          apk_name="human_status-android-debug-${VERSION_LABEL}.apk"
+          apk_src="build/app/outputs/flutter-apk/app-debug.apk"
+          if [ ! -f "$apk_src" ]; then
+            echo "Debug APK not found at $apk_src" >&2
+            exit 1
+          fi
+          mkdir -p dist
+          cp "$apk_src" "dist/$apk_name"
+          (cd dist && sha256sum "$apk_name" > "$apk_name.sha256")
+
+      - name: Upload Android artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: android-debug-apk-${{ env.VERSION_LABEL }}
+          path: |
+            dist/*.apk
+            dist/*.sha256
+          if-no-files-found: error
+          retention-days: 14
+
   web-release:
     name: Web release
     runs-on: ubuntu-latest
